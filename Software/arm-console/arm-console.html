@@ -1,0 +1,2228 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FactoryLM Arm Console</title>
+
+<!--
+  arm-console.html
+  ================
+  Bench console for factorylm_arm_controller on an Arduino Uno.
+  Emre Kalem 6-axis arm. Protocol v1.0. See Documentation/SERIAL-PROTOCOL.md.
+
+  ONE self-contained file. Inline CSS, inline JS, no framework, no build step,
+  no external request of any kind. It works with the network cable unplugged.
+
+  TWO TRANSPORTS, ONE CODE PATH ABOVE THE SHIM:
+    served over http  -> arm-bridge.py on http://127.0.0.1:8770   (the .bat route)
+    opened from disk  -> Chrome / Edge Web Serial                 (no install route)
+
+  THE REAL EMERGENCY STOP IS THE KCD1 ROCKER SWITCH AND THE INLINE FUSE.
+  This page, the Arduino, and the firmware are NOT safety devices. A browser tab,
+  a USB cable, or a Python process can all die in the middle of a move. The only
+  stop you can rely on is removing servo power.
+
+  EVERYTHING HERE WORKS WITH ZERO SERVOS POWERED. That is the point: the board
+  answers, the sliders move, the firmware acknowledges, the state displays.
+  Nothing on this page needs a motor to be exercised end to end.
+
+  SECTIONS, in order:
+      CONFIG          fixed numbers, the joint table, the defaults
+      TRANSPORT       the ~40-line shim: bridge fetch vs navigator.serial
+      PROTOCOL        line assembly, the reply FIFO, the connect handshake
+      UI              top bar, joint cards, notices
+      TEACH-PLAYBACK  waypoint table, record, play, CSV load/save
+      LOG             the raw serial log
+
+  Note on wording: these servos send nothing back. Every angle on this page is
+  what we COMMANDED, never what the joint did. The copy says so everywhere and
+  must keep saying so.
+-->
+
+<style>
+/* ==========================================================================
+   STYLE — flat, dark, built to be read at arm's length across a bench.
+   Muted greys for everything normal. Colour ONLY ever means state:
+       green  ok / enabled / connected
+       amber  uncalibrated / clamped / warning
+       red    e-stop / fault
+       blue   moving
+       grey   disabled / unknown
+   Never colour for decoration. One look, no theme switcher.
+   ========================================================================== */
+
+:root{
+  --bg:#0e1113;
+  --panel:#171b1f;
+  --panel-2:#1e242a;
+  --panel-3:#252c33;
+  --line:#2f373f;
+  --line-soft:#232a30;
+  --text:#e8eef3;
+  --dim:#95a3ae;
+  --dimmer:#6c7a85;
+
+  --ok:#39d17f;
+  --ok-bg:#12291d;
+  --warn:#f5a524;
+  --warn-bg:#2e2210;
+  --fault:#ff4d4f;
+  --fault-bg:#33161a;
+  --move:#4c9ffe;
+  --move-bg:#13233a;
+  --grey:#66737d;
+  --grey-bg:#1c2227;
+
+  --radius:8px;
+  --gap:14px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font);
+  font-size:16px;
+  line-height:1.45;
+  /* Flex column + a scrolling <main> keeps the top bar permanently on screen
+     without a sticky/fixed layer. Simpler, and it never overlaps a card. */
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.4}
+h2{font-size:15px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);margin:0 0 10px;font-weight:600}
+.hidden{display:none !important}
+
+/* ---------------- top bar ---------------- */
+header{
+  flex:0 0 auto;
+  background:var(--panel);
+  border-bottom:1px solid var(--line);
+}
+header.estopped{background:var(--fault-bg);border-bottom-color:var(--fault)}
+.bar{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:var(--gap);
+  padding:12px 18px;
+}
+.brand{display:flex;flex-direction:column;gap:2px;min-width:210px}
+.brand b{font-size:17px;letter-spacing:.06em}
+.brand small{color:var(--dimmer);font-size:12px;letter-spacing:.05em}
+
+.statusgroup{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:6px 13px;border-radius:100px;
+  border:1px solid var(--line);background:var(--panel-2);
+  font-size:13px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;
+  white-space:nowrap;
+}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--grey);flex:0 0 auto}
+.chip.s-off{color:var(--dim)}
+.chip.s-off .dot{background:var(--grey)}
+.chip.s-busy{color:var(--warn);border-color:var(--warn)}
+.chip.s-busy .dot{background:var(--warn)}
+.chip.s-on{color:var(--ok);border-color:var(--ok)}
+.chip.s-on .dot{background:var(--ok)}
+.chip.s-bad{color:var(--fault);border-color:var(--fault)}
+.chip.s-bad .dot{background:var(--fault)}
+.chip.plain{color:var(--dim);font-weight:500;letter-spacing:.05em}
+
+.ctrls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:1 1 auto}
+select,.numin{
+  background:var(--panel-2);border:1px solid var(--line);
+  border-radius:var(--radius);padding:11px 12px;min-height:44px;
+}
+select{min-width:240px}
+.btn{
+  background:var(--panel-3);border:1px solid var(--line);
+  border-radius:var(--radius);padding:11px 18px;min-height:44px;
+  font-weight:600;letter-spacing:.04em;
+}
+.btn:hover:not(:disabled){border-color:var(--dim)}
+.btn.go{border-color:var(--ok);color:var(--ok)}
+.btn.warn{border-color:var(--warn);color:var(--warn)}
+.btn.small{padding:8px 12px;min-height:38px;font-size:14px;font-weight:500}
+
+/* The e-stop lives alone behind a rule, with a wide gutter and nothing else
+   clickable inside it. Impossible to miss; nothing adjacent to fat-finger. */
+.estopzone{
+  display:flex;align-items:center;
+  margin-left:auto;
+  padding:8px 6px 8px 28px;
+  border-left:1px solid var(--line);
+}
+.estop{
+  min-width:220px;height:76px;
+  background:var(--fault);border:2px solid #ff8b8d;border-radius:var(--radius);
+  color:#fff;font-size:22px;font-weight:800;letter-spacing:.14em;
+}
+.estop:hover{background:#ff6b6d}
+.estop:active{background:#e03134}
+
+.safetyline{
+  padding:9px 18px;
+  border-top:1px solid var(--line-soft);
+  background:#12161a;
+  color:var(--dim);font-size:13px;
+}
+header.estopped .safetyline{background:transparent;border-top-color:var(--fault)}
+
+.estopstrip{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:12px 18px;
+  background:var(--fault-bg);border-top:1px solid var(--fault);
+  color:var(--fault);font-weight:600;
+}
+.estopstrip .btn{border-color:var(--warn);color:var(--warn);background:#241a08}
+
+/* Background-tab warning. Amber = warning, same as everywhere else. */
+.bgstrip{
+  padding:12px 18px;
+  background:var(--warn-bg);border-top:1px solid var(--warn);
+  color:#ffd591;font-size:13.5px;font-weight:600;
+}
+
+/* ---------------- main scroll area ---------------- */
+main{flex:1 1 auto;overflow-y:auto;padding:18px}
+section.block{margin-bottom:26px}
+
+.notices{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.notice{
+  border-radius:var(--radius);padding:11px 14px;font-size:14px;
+  border:1px solid var(--line);background:var(--panel);color:var(--dim);
+  display:flex;gap:12px;align-items:flex-start;
+}
+.notice.warn{border-color:var(--warn);background:var(--warn-bg);color:#ffd591}
+.notice.bad{border-color:var(--fault);background:var(--fault-bg);color:#ffb3b4}
+.notice.ok{border-color:var(--ok);background:var(--ok-bg);color:#9ae7bf}
+.notice .x{margin-left:auto;color:inherit;background:none;border:0;font-size:18px;line-height:1;padding:0 4px}
+
+/* ---------------- joint cards ---------------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:var(--gap)}
+.card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-left:3px solid var(--line);
+  border-radius:var(--radius);
+  padding:16px;
+  display:flex;flex-direction:column;gap:12px;
+}
+.card.uncal{border-left-color:var(--warn)}
+.card.cal{border-left-color:var(--ok)}
+.card.flash{border-left-color:var(--warn);background:var(--warn-bg)}
+.card-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.card-head b{font-size:19px;letter-spacing:.02em}
+.card-head .pins{
+  font-family:var(--mono);font-size:13px;color:var(--dim);
+  border:1px solid var(--line);border-radius:5px;padding:2px 7px;
+}
+.badges{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pill{
+  font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  padding:5px 11px;border-radius:100px;border:1px solid transparent;white-space:nowrap;
+}
+.pill.uncal{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+.pill.cal{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+.pill.off{background:var(--grey-bg);border-color:var(--line);color:var(--grey)}
+.pill.on{background:var(--ok-bg);border-color:var(--ok);color:var(--ok)}
+.pill.moving{background:var(--move-bg);border-color:var(--move);color:var(--move)}
+.pill.bad{background:var(--fault-bg);border-color:var(--fault);color:var(--fault)}
+
+.readout{display:flex;flex-direction:column;gap:2px}
+.deg{
+  font-size:46px;font-weight:700;line-height:1;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:-.01em;
+}
+.deg.off{color:var(--grey)}
+.deg .u{font-size:26px;font-weight:500;color:var(--dim)}
+.deg-sub{font-size:12.5px;color:var(--dimmer)}
+.tgt{font-size:14px;color:var(--move);font-variant-numeric:tabular-nums;min-height:20px}
+
+input[type=range]{
+  -webkit-appearance:none;appearance:none;
+  width:100%;height:44px;background:transparent;margin:0;
+}
+input[type=range]::-webkit-slider-runnable-track{
+  height:14px;border-radius:7px;background:var(--panel-3);border:1px solid var(--line);
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:44px;height:44px;margin-top:-16px;border-radius:50%;
+  background:#cfdae2;border:3px solid var(--panel);
+}
+input[type=range]:disabled::-webkit-slider-thumb{background:var(--grey)}
+input[type=range]::-moz-range-track{height:14px;border-radius:7px;background:var(--panel-3);border:1px solid var(--line)}
+input[type=range]::-moz-range-thumb{width:38px;height:38px;border-radius:50%;background:#cfdae2;border:3px solid var(--panel)}
+input[type=range]:disabled::-moz-range-thumb{background:var(--grey)}
+input[type=range]:disabled{opacity:.45}
+
+.scale{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12.5px;color:var(--dimmer);margin-top:-6px}
+.clampmsg{font-size:13px;color:var(--warn);min-height:19px}
+/* The notes column from joint-limits.csv, on the card instead of buried in a
+   tooltip nobody hovers. Dim: it is reference text, not a state. */
+.cardnote{
+  font-size:12.5px;line-height:1.5;color:var(--dim);
+  background:var(--panel-2);border:1px solid var(--line-soft);
+  border-radius:6px;padding:8px 10px;
+}
+.mirrorrow{font-size:13px;color:var(--warn);background:var(--warn-bg);border:1px solid var(--warn);border-radius:6px;padding:9px 11px}
+.cardactions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:auto}
+.spd{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);margin-left:auto}
+.spd input{width:74px;padding:8px;min-height:38px;text-align:right;background:var(--panel-2);border:1px solid var(--line);border-radius:6px}
+
+.adopt{border:1px solid var(--warn);background:var(--warn-bg);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:10px}
+.adopt p{margin:0;font-size:13.5px;color:#ffd591}
+.adoptrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.adoptrow input{width:110px;text-align:right;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:11px;min-height:44px}
+.adopterr{font-size:13px;color:var(--fault);min-height:18px}
+
+/* ---------------- teach / playback ---------------- */
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar label.chk{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--dim);padding:0 6px}
+.toolbar input[type=checkbox]{width:20px;height:20px}
+.filebtn{
+  display:inline-flex;align-items:center;
+  background:var(--panel-3);border:1px solid var(--line);border-radius:var(--radius);
+  padding:11px 18px;min-height:44px;font-weight:600;letter-spacing:.04em;cursor:pointer;
+}
+.filebtn:hover{border-color:var(--dim)}
+.filebtn input{display:none}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--line-soft);white-space:nowrap}
+th{
+  font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--dimmer);
+  background:var(--panel-2);font-weight:600;
+}
+tbody tr:last-child td{border-bottom:0}
+tbody tr.playing{background:var(--move-bg)}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+td.dash{color:var(--dimmer)}
+td input{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:7px 9px;min-height:38px}
+td input.lbl{width:170px}
+td input.dw{width:96px;text-align:right;font-variant-numeric:tabular-nums}
+.empty{padding:22px;color:var(--dimmer);font-size:14px}
+.playstate{font-size:14px;color:var(--dim);min-height:21px;margin-top:10px}
+
+/* ---------------- serial log ---------------- */
+details.log{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
+details.log summary{
+  padding:12px 16px;cursor:pointer;font-size:15px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--dim);font-weight:600;
+}
+.logbody{border-top:1px solid var(--line);padding:10px 0 12px}
+.logtools{display:flex;gap:10px;padding:0 14px 10px}
+#logLines{
+  font-family:var(--mono);font-size:13px;line-height:1.55;
+  height:280px;overflow-y:auto;padding:0 14px;
+  white-space:pre-wrap;word-break:break-word;
+}
+.l-tx{color:var(--dimmer)}
+.l-ok{color:var(--ok)}
+.l-err{color:var(--fault)}
+.l-evt{color:var(--warn)}
+.l-cmt{color:var(--dimmer)}
+.l-dat{color:var(--dim)}
+.l-sys{color:var(--move)}
+
+.footnote{color:var(--dimmer);font-size:13px;margin-top:22px;max-width:80ch}
+</style>
+
+
+<header id="hdr">
+  <div class="bar">
+    <div class="brand">
+      <b>FACTORYLM ARM CONSOLE</b>
+      <small id="fwLine">protocol v1.0 &middot; not connected</small>
+    </div>
+
+    <div class="statusgroup">
+      <span class="chip s-off" id="connChip"><span class="dot"></span><span id="connText">Disconnected</span></span>
+      <span class="chip plain" id="transportChip">&mdash;</span>
+    </div>
+
+    <div class="ctrls">
+      <select id="portSel"><option value="">No ports found</option></select>
+      <button class="btn" id="btnPorts">REFRESH</button>
+      <button class="btn go" id="btnConnect">CONNECT</button>
+      <!-- Two different stops, deliberately not one button.
+           HOLD  freezes motion, joints stay powered and holding.
+           DISABLE ALL / E-STOP  detach, and a gravity-loaded arm sags. -->
+      <button class="btn" id="btnHold" disabled title="Freeze every joint where it is. Joints stay powered and holding — nothing is detached.">HOLD MOTION</button>
+      <button class="btn warn" id="btnDisableAll" disabled>DISABLE ALL</button>
+    </div>
+
+    <div class="estopzone">
+      <button class="estop" id="btnEstop">E&#8209;STOP</button>
+    </div>
+  </div>
+
+  <div class="safetyline">
+    The rocker switch and the inline fuse are the real emergency stop. This button, the Arduino, and this software are NOT safety devices.
+  </div>
+
+  <div class="estopstrip hidden" id="estopStrip">
+    <span id="estopWhy">E&#8209;STOP LATCHED &mdash; every joint is detached. Nothing is being driven.</span>
+    <button class="btn" id="btnClear">CLEAR E&#8209;STOP</button>
+  </div>
+
+  <!-- Raised whenever this tab is in the background. It lives in the header,
+       not in the notices list, because the notices list scrolls away and this
+       must be the first thing seen on coming back to the tab. -->
+  <div class="bgstrip hidden" id="bgStrip">
+    <span>THIS TAB WAS IN THE BACKGROUND &mdash; motion was NOT supervised. Browsers slow a hidden
+    tab&rsquo;s timers to about once a minute, so the heartbeat this page sends may have stopped.
+    The controller may have tripped its own watchdog and detached every joint. Check the arm with
+    your eyes before you touch anything.</span>
+  </div>
+</header>
+
+
+<main>
+  <div class="notices" id="notices"></div>
+
+  <section class="block">
+    <h2>Joints</h2>
+    <div class="grid" id="jointGrid"></div>
+  </section>
+
+  <section class="block">
+    <h2>Teach &amp; playback</h2>
+    <div class="toolbar">
+      <button class="btn go" id="btnRecord" disabled>RECORD WAYPOINT</button>
+      <button class="btn" id="btnPlay" disabled>PLAY</button>
+      <button class="btn warn hidden" id="btnStopPlay">STOP PLAYBACK</button>
+      <label class="chk"><input type="checkbox" id="chkLoop"> loop</label>
+      <button class="btn small" id="btnSaveCsv">SAVE CSV</button>
+      <label class="filebtn small">LOAD CSV<input type="file" id="fileWp" accept=".csv,text/csv"></label>
+      <label class="filebtn small">LOAD LIMITS FILE<input type="file" id="fileLim" accept=".csv,text/csv"></label>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr id="wpHead"></tr></thead>
+        <tbody id="wpBody"></tbody>
+      </table>
+      <div class="empty" id="wpEmpty">
+        No waypoints yet. Enable the joints you want to teach, dial the pose with the sliders, then press RECORD WAYPOINT.
+        A joint that is disabled when you record is stored as &ldquo;&ndash;&rdquo;, which means leave it alone on playback.
+      </div>
+    </div>
+    <div class="playstate" id="playState"></div>
+  </section>
+
+  <section class="block">
+    <details class="log">
+      <summary>Serial log</summary>
+      <div class="logbody">
+        <div class="logtools">
+          <button class="btn small" id="btnCopyLog">COPY</button>
+          <button class="btn small" id="btnClearLog">CLEAR</button>
+        </div>
+        <div id="logLines"></div>
+      </div>
+    </details>
+    <p class="footnote">
+      Every angle on this page is what the console commanded. These servos send nothing back, so nothing here can tell you
+      where a joint really is &mdash; on a weak supply a servo may never reach the angle it was asked for. Judge the arm with
+      your eyes, not this screen.
+    </p>
+  </section>
+</main>
+
+
+<script>
+"use strict";
+/* ==========================================================================
+   CONFIG
+   ========================================================================== */
+
+var BRIDGE_URL   = "http://127.0.0.1:8770";   // fixed; the .bat and arm-bridge.py agree
+var EXPECT_NAME  = "FACTORYLM-ARM";           // handshake must see exactly this
+
+var RX_POLL_MS      = 60;
+var PING_MS         = 250;
+var STATUS_MS       = 250;
+var MOVE_PUMP_MS    = 120;
+var REPLY_TIMEOUT   = 4000;
+var BOOT_WAIT_MS    = 2000;    // Optiboot 4.4 waits ~1 s after the DTR reset
+var VER_TIMEOUT     = 1200;
+var VER_TRIES       = 3;
+var STEP_TIMEOUT_MS = 15000;   // a guess; no field data until the arm really moves
+var LOG_MAX         = 200;
+
+/* THE HEARTBEAT IS NOT A SAFETY MECHANISM. READ THIS BEFORE CHANGING IT.
+   ----------------------------------------------------------------------
+   PING_MS asks a browser timer to fire four times a second. A browser will
+   not honour that. Chrome and Edge clamp setInterval in a BACKGROUND tab to
+   roughly ONCE PER MINUTE, and both may stop timers outright when the machine
+   sleeps, when the tab is discarded under memory pressure, or when the laptop
+   lid closes. There is no browser API that opts out of this, and none of the
+   permissions that reduce it are available to a file:// page.
+
+   So the honest contract is:
+
+     TAB IN FRONT   heartbeat runs at PING_MS, the firmware watchdog is a
+                    genuine dead-man for a crashed page or a yanked cable.
+     TAB BEHIND     the heartbeat is NOT dependable. WATCHDOG_MS is set well
+                    clear of the throttled floor so a brief hiccup does not
+                    trip it, but a minute-long clamp WILL trip it, and the
+                    firmware will detach every joint. A GRAVITY-LOADED ARM
+                    SAGS WHEN IT IS DETACHED.
+
+   That is why hiding this tab raises a persistent banner instead of pretending
+   nothing changed: the operator is told motion is unsupervised. If you need an
+   arm to hold position while nobody is watching the screen, that is a job for
+   servo power and a mechanical brake, not for a browser tab.
+
+   WATCHDOG_MS must stay inside the firmware's WDG_MIN_MS..WDG_MAX_MS
+   (200..10000 as of protocol v1.0) or WDG answers ERR E5. */
+var WATCHDOG_MS     = 4000;
+
+/* Queue health. One lost reply line used to throttle the outbox forever and
+   silently kill the heartbeat while the page still read "Connected". */
+var OUTBOX_MAX      = 6;       // above this, collapse the idempotent backlog
+var DESYNC_LIMIT    = 2;       // consecutive reply timeouts before we resync
+var STA_STALE_MS    = STATUS_MS * 3;   // a status reading older than this is not evidence
+
+var DEF_MIN = 70, DEF_MAX = 110, DEF_HOME = 90, DEF_DPS = 30;
+
+/* Joint ids match wiring-map.csv indices. There is deliberately NO id 2:
+   D5 is the shoulder pair's second servo and is never commanded on its own.
+   The firmware answers ERR E4 ... RESERVED=shoulder_pair for it. */
+/* "hint" is provenance, and it is only ever written where a document in this
+   project actually says something. Every pin on this arm comes from
+   wiring-map.csv — a plan, not a measurement — and the ONE piece of physical
+   evidence anybody has recorded contradicts the plan: Calibration_Notes/
+   calibration-log.csv logs that the servo physically wired to D3 during the
+   only bench test was the GRIPPER, while the sketch labelled it "Base". A card
+   that prints "Base D3" as a bare fact is asserting more than we know, so it
+   says so on its face. Do not add a hint that no document supports. */
+var JOINT_DEFS = [
+  { id:0, name:"Base",        pins:"D3",    col:"base_deg",
+    hint:"PIN NOT VERIFIED ON THIS ARM. D3 comes from wiring-map.csv. The only bench test anyone has logged " +
+         "(Calibration_Notes/calibration-log.csv, 2026-08-01) found the GRIPPER/CLAW physically wired to D3, " +
+         "not the base. Watch which motor actually moves before trusting this card." },
+  { id:1, name:"Shoulder",    pins:"D4+D5", col:"shoulder_deg"    },
+  { id:3, name:"Elbow",       pins:"D6",    col:"elbow_deg"       },
+  { id:4, name:"Wrist pitch", pins:"D9",    col:"wrist_pitch_deg" },
+  { id:5, name:"Wrist roll",  pins:"D10",   col:"wrist_roll_deg"  },
+  { id:6, name:"Gripper",     pins:"D11",   col:"gripper_deg",
+    hint:"PIN NOT VERIFIED ON THIS ARM. D11 comes from wiring-map.csv. The one logged bench test drove this " +
+         "servo on D3, where it was actually wired at the time. Watch which motor actually moves." }
+];
+
+/* The first nine are REQUIRED (loadLimitsCsv checks LIM_COLS.slice(0,9)).
+   "notes" and "mirror_offset_deg" are optional so an older file still loads. */
+var LIM_COLS = ["joint_id","joint_name","uno_pins","min_deg","max_deg","home_deg",
+                "max_deg_per_sec","calibrated","mirror_mode","notes","mirror_offset_deg"];
+var WP_COLS  = ["step","label","base_deg","shoulder_deg","elbow_deg",
+                "wrist_pitch_deg","wrist_roll_deg","gripper_deg","dwell_ms"];
+
+/* ---- live state ---------------------------------------------------------- */
+var J = {};                     // id -> joint record
+JOINT_DEFS.forEach(function (d) {
+  J[d.id] = {
+    def:d, min:DEF_MIN, max:DEF_MAX, home:DEF_HOME, dps:DEF_DPS,
+    cal:false, notes:"",
+    en:false, set:DEF_HOME, tgt:DEF_HOME, mov:false,
+    dom:null, dragging:false, wantMove:null, adoptOpen:false
+  };
+});
+
+var mirrorMode = "unknown";     // same | inverted | unknown  (joint 1 only)
+
+/* Shoulder mirror offset, whole degrees, from joint-limits.csv column
+   "mirror_offset_deg". It is DATA and it is 0 for every row today. INV mirrors
+   the pair about (90 + offset)°; the firmware owns that arithmetic and the
+   clamp. This console only carries the number through.
+
+   It is appended to MIR only when it is non-zero, so against today's all-zero
+   file we emit exactly the bare "MIR SAME" / "MIR INV" this console has always
+   emitted — a firmware that has not yet learned the optional argument cannot
+   see any change. */
+var mirrorOffset = 0;
+
+var sys        = { es:0, wd:0, mir:"UNKNOWN", uncal:JOINT_DEFS.length };
+var connState  = "off";         // off | busy | on
+var fwText     = "";
+var waypoints  = [];            // {label, deg:{id->int|null}, dwell}
+var playing    = false, playAbort = false;
+var tabHidden  = false;         // this tab is in the background — see WATCHDOG_MS
+var resyncing  = false;         // a link resync is already in flight
+
+function el(id){ return document.getElementById(id); }
+function sleep(ms){ return new Promise(function (r){ setTimeout(r, ms); }); }
+function clampi(v,lo,hi){ return v<lo?lo:(v>hi?hi:v); }
+
+
+/* ==========================================================================
+   TRANSPORT
+   The only place that knows how bytes reach the board. Everything above this
+   shim is identical on both routes, including the connect handshake — the
+   handshake owns the boot wait and the flush so the two cannot drift apart.
+   ========================================================================== */
+
+var USE_BRIDGE = location.protocol.indexOf("http") === 0;
+var HAS_WEBSERIAL = (typeof navigator !== "undefined") && ("serial" in navigator);
+
+function httpJson(method, path, body) {
+  var opt = { method:method, cache:"no-store" };
+  if (body !== undefined) {
+    opt.headers = { "Content-Type":"application/json" };
+    opt.body = JSON.stringify(body);
+  }
+  return fetch(BRIDGE_URL + path, opt).then(function (r) {
+    return r.json();
+  }).catch(function () {
+    throw new Error("The local bridge is not answering. Is the ARM CONSOLE window still open?");
+  });
+}
+
+var bridgeT = {
+  kind:"BRIDGE",
+  listPorts:function(){
+    return httpJson("GET","/ports").then(function(r){
+      // The bridge puts BOTH "ports": [] and a plain-English "error" in a refusal.
+      // Swallowing the error turns an access-gate denial into the misleading
+      // "No serial ports found - plug the Arduino in", i.e. a phantom hardware
+      // fault. The bridge's refusal text is written to be read out loud - surface
+      // it verbatim rather than inventing a cause.
+      if (r && r.error) { throw new Error(r.error); }
+      return (r.ports||[]).map(function(p){
+        return { id:p.device, label:p.description || p.device };
+      });
+    });
+  },
+  choosePort:null,
+  open:function(id){
+    return httpJson("POST","/open",{port:id}).then(function(r){
+      if (!r.ok) throw new Error(r.error || "The bridge could not open that port.");
+    });
+  },
+  close:function(){ return httpJson("POST","/close",{}).catch(function(){}); },
+  flush:function(){ return httpJson("POST","/flush",{}); },
+  tx:function(s){
+    return httpJson("POST","/tx",{data:s}).then(function(r){
+      if (!r.ok) throw new Error(r.error || "The bridge could not write to the port.");
+    });
+  },
+  rx:function(){
+    return httpJson("GET","/rx").then(function(r){
+      if (r.open === false) throw new Error(r.error || "The bridge lost the serial port.");
+      return r.lines || [];
+    });
+  }
+};
+
+var webT = {
+  kind:"WEB SERIAL",
+  _port:null, _reader:null, _writer:null, _buf:"", _lines:[], _known:[],
+  listPorts:function(){
+    return navigator.serial.getPorts().then(function(ps){
+      webT._known = ps;
+      return ps.map(function(p,i){
+        var info = {}; try { info = p.getInfo() || {}; } catch(e){}
+        var vid = info.usbVendorId, pid = info.usbProductId;
+        var who = (vid === 0x2341 || vid === 0x2A03) ? "Arduino" : "Serial device";
+        var hx = (vid ? " (VID " + vid.toString(16).toUpperCase() +
+                       " PID " + (pid||0).toString(16).toUpperCase() + ")" : "");
+        return { id:String(i), label:who + hx };
+      });
+    });
+  },
+  choosePort:function(){
+    return navigator.serial.requestPort().then(function(){ return webT.listPorts(); });
+  },
+  open:function(id){
+    var p = webT._known[Number(id)];
+    if (!p) throw new Error("Pick a port first — press CHOOSE PORT.");
+    return p.open({ baudRate:115200, dataBits:8, stopBits:1, parity:"none", bufferSize:4096 })
+      .then(function(){
+        webT._port = p;
+        /* setSignals returns a PROMISE. The old try/catch only ever caught a
+           synchronous throw, so a rejected DTR assert vanished silently — and
+           DTR is what resets the Arduino, which is the whole reason the connect
+           handshake waits BOOT_WAIT_MS afterwards. If it fails we are talking
+           to a board that was NOT reset, so say so rather than hide it. */
+        return Promise.resolve()
+          .then(function(){ return p.setSignals({ dataTerminalReady:true }); })
+          .catch(function(e){
+            notice("warn","Could not set the DTR line on that port (" +
+                          (e && e.message ? e.message : e) + "). The Arduino may not have been reset, " +
+                          "so it could still be holding settings from before. If the handshake fails, " +
+                          "unplug the USB cable and plug it back in.");
+          });
+      })
+      .then(function(){
+        var p2 = webT._port;
+        webT._writer = p2.writable.getWriter();
+        webT._reader = p2.readable.getReader();
+        webT._buf = ""; webT._lines = [];
+        webT._pump();
+      })
+      .catch(function(e){
+        throw new Error("Could not open that port: " + (e && e.message ? e.message : e) +
+                        ". Close the Arduino IDE Serial Monitor — only one program can hold the port.");
+      });
+  },
+  _pump:function(){
+    var dec = new TextDecoder();
+    var rd  = webT._reader;
+    function step(){
+      if (webT._reader !== rd) return;
+      rd.read().then(function(res){
+        if (res.done) return;
+        webT._buf += dec.decode(res.value, { stream:true });
+        var parts = webT._buf.split("\n");
+        webT._buf = parts.pop();
+        for (var i=0;i<parts.length;i++) {
+          var s = parts[i].replace(/\r/g,"");
+          if (s.length) webT._lines.push(s);
+        }
+        step();
+      }).catch(function(){ /* closing */ });
+    }
+    step();
+  },
+  close:function(){
+    var p = webT._port, rd = webT._reader, wr = webT._writer;
+    webT._port = null; webT._reader = null; webT._writer = null;
+    webT._buf = ""; webT._lines = [];
+    return Promise.resolve()
+      .then(function(){ return rd ? rd.cancel().catch(function(){}) : null; })
+      .then(function(){ try { rd && rd.releaseLock(); } catch(e){} })
+      .then(function(){ try { wr && wr.releaseLock(); } catch(e){} })
+      .then(function(){ return p ? p.close().catch(function(){}) : null; });
+  },
+  flush:function(){ webT._buf = ""; webT._lines = []; return Promise.resolve(); },
+  tx:function(s){
+    if (!webT._writer) return Promise.reject(new Error("The serial port is not open."));
+    return webT._writer.write(new TextEncoder().encode(s));
+  },
+  rx:function(){
+    if (!webT._port) return Promise.reject(new Error("The serial port closed."));
+    return Promise.resolve(webT._lines.splice(0, webT._lines.length));
+  }
+};
+
+var T = USE_BRIDGE ? bridgeT : webT;
+
+
+/* ==========================================================================
+   PROTOCOL
+   Line-oriented ASCII, 115200 8N1. Every command gets zero or more DATA lines
+   then EXACTLY ONE terminator (OK … / ERR …). RDY, EVT and ';' are async and
+   terminate nothing.
+
+   Replies arrive in the order they were asked for, so a strict FIFO of
+   awaiters is enough. The raw '!' e-stop byte is written out of band and
+   pushes its own awaiter — the FIFO still balances.
+   ========================================================================== */
+
+var awaiters = [];      // {verb,data,resolve,reject,timedOut,timer}
+var outbox   = [];      // {line,verb,resolve,reject} — one normal cmd outstanding
+var rxTimer=null, pingTimer=null, staTimer=null, moveTimer=null;
+
+/* Consecutive reply timeouts. A single dropped terminator used to be permanent:
+   the timed-out awaiter stays in the FIFO waiting for a reply that never comes,
+   every later reply is answered by the awaiter in front of it, and the queue
+   throttles to one command per REPLY_TIMEOUT forever. Measured: swallowing ONE
+   "OK PNG" grew the outbox to 44 in six seconds, awaiters pinned at 1, the chip
+   still reading "Connected", and the heartbeat down from 4 Hz to 0.25 Hz —
+   slow enough for the firmware watchdog to detach every joint while this page
+   claimed the link was fine. Two in a row is now treated as a desynchronised
+   link and resynchronised, not limped through. */
+var timeoutRun = 0;
+var staFreshMs = 0;     // when a STA round-trip last completed
+
+function liveAwaiters(){
+  return awaiters.filter(function(a){ return !a.timedOut; }).length;
+}
+
+/* Any terminator — OK or ERR — proves a round-trip completed, so it clears the
+   run. An ERR is a healthy reply; a burst of legitimate E6s is not a desync. */
+function noteReplyHeard(){ timeoutRun = 0; }
+
+function pushAwaiter(verb, timeoutMs){
+  return new Promise(function(resolve, reject){
+    var a = { verb:verb, data:[], resolve:resolve, reject:reject, timedOut:false, timer:null };
+    a.timer = setTimeout(function(){
+      /* Leave the awaiter in the FIFO so it still soaks up its terminator when
+         it eventually turns up — removing it here would mis-file every later
+         reply by one. It just stops blocking the outbox. */
+      a.timedOut = true;
+      timeoutRun++;
+      reject(new Error("The controller did not answer " + verb + " in time."));
+      if (timeoutRun >= DESYNC_LIMIT) resyncLink(verb);
+      /* Unconditional on purpose. resyncLink early-returns if a resync is
+         already running, and skipping the pump here would make "the queue keeps
+         moving" depend on some other caller re-driving it — in the one function
+         whose whole job is stopping the queue from stalling. If the resync did
+         run it emptied the outbox and this is a no-op. */
+      pumpOutbox();
+    }, timeoutMs || REPLY_TIMEOUT);
+    awaiters.push(a);
+  });
+}
+
+/* PNG and STA are idempotent and carry no operator intent: the newest one says
+   everything an older one would have. When the queue backs up we keep at most
+   one of each rather than replaying a stale burst — and we keep ONE, never
+   zero, because dropping every PNG is the very thing that stops the heartbeat. */
+function trimOutbox(){
+  if (outbox.length <= OUTBOX_MAX) return;
+  var keepPng = -1, keepSta = -1;
+  for (var i = outbox.length - 1; i >= 0; i--) {
+    if (outbox[i].verb === "PNG" && keepPng < 0) keepPng = i;
+    if (outbox[i].verb === "STA" && keepSta < 0) keepSta = i;
+  }
+  var kept = [], dropped = 0;
+  for (var k = 0; k < outbox.length; k++) {
+    var c = outbox[k];
+    var stale = (c.verb === "PNG" && k !== keepPng) || (c.verb === "STA" && k !== keepSta);
+    if (stale) { dropped++; c.reject(new Error("Dropped a stale " + c.verb + " — the command queue is backed up.")); }
+    else kept.push(c);
+  }
+  if (dropped) {
+    outbox = kept;
+    logLine("evt", "; dropped " + dropped + " stale PNG/STA — queue backed up");
+  }
+}
+
+/* priority=true puts the line at the FRONT of the queue. Used only by STP, so a
+   HOLD is not stuck behind a MOV the operator has already changed their mind
+   about. It still pushes an awaiter through the normal FIFO — writing straight
+   to the transport would mis-file every later reply by one, which is the exact
+   bug this section exists to prevent. */
+function send(line, timeoutMs, priority){
+  if (connState === "off") return Promise.reject(new Error("Not connected."));
+  return new Promise(function(resolve, reject){
+    var c = { line:line, verb:line.split(" ")[0].toUpperCase(),
+              resolve:resolve, reject:reject, timeout:timeoutMs };
+    if (priority) outbox.unshift(c); else outbox.push(c);
+    trimOutbox();
+    pumpOutbox();
+  });
+}
+
+function pumpOutbox(){
+  if (liveAwaiters() > 0 || !outbox.length) return;
+  var c = outbox.shift();
+  logLine("tx", "> " + c.line);
+  var p = pushAwaiter(c.verb, c.timeout);
+  if (c.verb === "STA") p.then(function(){ staFreshMs = Date.now(); }, function(){});
+  p.then(c.resolve, c.reject).then(pumpOutbox, pumpOutbox);
+  T.tx(c.line + "\n").catch(function(e){ linkLost(e.message); });
+}
+
+/* Reject everything still in flight and stop its timers. Used by teardown, by
+   connect before the handshake, and by the resync — anywhere the FIFO is about
+   to be thrown away. Silently reassigning the arrays left live setTimeouts
+   running and pending promises that never settled, while connState was already
+   "on" and the e-stop button was live. */
+function flushPending(why){
+  awaiters.forEach(function(a){
+    clearTimeout(a.timer);
+    if (!a.timedOut) a.reject(new Error(why));
+  });
+  awaiters = [];
+  outbox.forEach(function(c){ c.reject(new Error(why)); });
+  outbox = [];
+}
+
+/* The raw e-stop byte. No newline, no queue — it must never sit behind a
+   half-written line. */
+function sendBang(){
+  logLine("tx", "> ! (raw e-stop byte)");
+  var p = pushAwaiter("EST", REPLY_TIMEOUT);
+  p.catch(function(){});
+  T.tx("!").catch(function(e){ linkLost(e.message); });
+  return p;
+}
+
+function kv(tokens){
+  var o = {};
+  tokens.forEach(function(t){
+    var i = t.indexOf("=");
+    if (i > 0) o[t.slice(0,i).toUpperCase()] = t.slice(i+1);
+  });
+  return o;
+}
+
+function onLine(raw){
+  var line = String(raw).replace(/[\r\n]/g,"").trim();
+  if (!line) return;
+
+  if (line.charAt(0) === ";")            { logLine("cmt", "< " + line); return; }
+  if (line.indexOf("RDY ") === 0)        { logLine("evt", "< " + line); return; }
+  if (line.indexOf("EVT ") === 0)        { logLine("evt", "< " + line); handleEvt(line); return; }
+
+  var isOk  = line.indexOf("OK ")  === 0 || line === "OK";
+  var isErr = line.indexOf("ERR ") === 0;
+
+  if (!isOk && !isErr) {                 // a DATA line: STA / SYS / LIM
+    logLine(line.indexOf("SYS ") === 0 ? "sys" : "dat", "< " + line);
+    absorbData(line);
+    if (awaiters.length) awaiters[0].data.push(line);
+    return;
+  }
+
+  logLine(isOk ? "ok" : "err", "< " + line);
+  var a = awaiters.shift();
+  if (!a) return;                        // orphan terminator after a timeout — drop it
+  clearTimeout(a.timer);
+  /* Deliberately NOT counted as a healthy round-trip: a terminator that turns
+     up for an awaiter which already gave up is the signature of the one-behind
+     desync, not evidence against it. Only an on-time reply clears the run. */
+  if (a.timedOut) { pumpOutbox(); return; }
+  noteReplyHeard();
+  if (isOk) a.resolve({ line:line, tokens:line.split(/\s+/).slice(1), data:a.data });
+  else      a.reject(new Error(line));
+}
+
+/* STA / SYS lines update the model wherever they show up, so an unsolicited
+   '?' typed in a terminal still lands correctly. */
+function absorbData(line){
+  var t = line.split(/\s+/);
+  if (t[0] === "STA" && /^J\d+$/.test(t[1] || "")) {
+    var id = Number(t[1].slice(1));
+    var j = J[id];
+    if (!j) return;
+    var v = kv(t.slice(2));
+    if ("EN"  in v) j.en  = v.EN === "1";
+    if ("SET" in v) j.set = Number(v.SET);
+    if ("TGT" in v) j.tgt = Number(v.TGT);
+    if ("MIN" in v) j.min = Number(v.MIN);
+    if ("MAX" in v) j.max = Number(v.MAX);
+    if ("CAL" in v) j.cal = v.CAL === "1";
+    if ("DPS" in v) j.dps = Number(v.DPS);
+    if ("MOV" in v) j.mov = v.MOV === "1";
+    paintJoint(id);
+  } else if (t[0] === "SYS") {
+    var s = kv(t.slice(1));
+    var wasEs = sys.es;
+    if ("ES"    in s) sys.es    = Number(s.ES);
+    if ("WD"    in s) sys.wd    = Number(s.WD);
+    if ("MIR"   in s) sys.mir   = s.MIR;
+    if ("UNCAL" in s) sys.uncal = Number(s.UNCAL);
+    if (!wasEs && sys.es) latchEstopUi("The firmware reports the e-stop is latched.");
+    paintTop();
+  }
+}
+
+function handleEvt(line){
+  var t = line.split(/\s+/);
+  if (t[1] === "ESTOP") {
+    latchEstopUi("E-STOP LATCHED — every joint is detached. Nothing is being driven.");
+  } else if (t[1] === "WDOG") {
+    var v = kv(t.slice(2));
+    latchEstopUi("WATCHDOG TRIPPED after " + (v.MS || "?") +
+                 " ms with no command — the firmware detached every joint on its own.");
+    notice("warn", "The controller stopped hearing from this page and shut the arm down by itself. " +
+                   "Check the USB cable and the bridge window, then press CLEAR E-STOP.");
+  }
+}
+
+function latchEstopUi(why){
+  sys.es = 1;
+  playAbort = true;
+  JOINT_DEFS.forEach(function(d){ J[d.id].en = false; J[d.id].mov = false; });
+  el("estopWhy").textContent = why;
+  paintAll();
+}
+
+
+/* ---- receive pump -------------------------------------------------------- */
+function startRx(){
+  stopRx();
+  rxTimer = setInterval(function(){
+    T.rx().then(function(lines){
+      for (var i=0;i<lines.length;i++) onLine(lines[i]);
+    }).catch(function(e){ linkLost(e.message); });
+  }, RX_POLL_MS);
+}
+function stopRx(){ if (rxTimer) clearInterval(rxTimer); rxTimer = null; }
+
+function linkLost(msg){
+  if (connState === "off") return;
+  notice("bad", (msg || "The serial link dropped.") +
+                " The arm is no longer being commanded from this page. Servo power stays on until you " +
+                "switch the rocker off.");
+  teardown();
+}
+
+
+/* ---- connect / disconnect ------------------------------------------------ */
+function stopTimers(){
+  stopRx();
+  [pingTimer, staTimer, moveTimer].forEach(function(t){ if (t) clearInterval(t); });
+  pingTimer = staTimer = moveTimer = null;
+}
+
+function startTimers(){
+  pingTimer = setInterval(function(){ send("PNG").catch(function(){}); }, PING_MS);
+  staTimer  = setInterval(function(){ if (!playing) statusPoll(); }, STATUS_MS);
+  moveTimer = setInterval(pumpMoves, MOVE_PUMP_MS);
+}
+
+function teardown(){
+  stopTimers();
+  flushPending("Disconnected.");
+  playAbort = true; playing = false;
+  resyncing = false; timeoutRun = 0; staFreshMs = 0;
+  connState = "off"; fwText = "";
+  JOINT_DEFS.forEach(function(d){ J[d.id].en = false; J[d.id].mov = false; });
+  /* The background banner is about unsupervised MOTION. With no link there is
+     nothing being commanded, and leaving it up would compete with the more
+     specific disconnect notice for the operator's attention. */
+  hideBgWarning();
+  T.close().catch(function(){});
+  paintAll();
+}
+
+/* The link is answering but the replies no longer line up with the commands.
+   Limping on is the dangerous option: the queue crawls, the heartbeat dies, and
+   the firmware watchdog detaches a loaded arm while this page still says
+   "Connected". So we realign the FIFO instead.
+
+   WHAT THIS DELIBERATELY DOES NOT DO:
+
+     It does NOT reopen the serial port. Opening the port asserts DTR, which
+     RESETS THE ARDUINO — every joint detaches and a gravity-loaded arm sags.
+     A desync is a software bookkeeping fault; it must never cost the operator
+     the arm's position.
+
+     It does NOT re-send LIM / SPD / MIR (pushState). Those are refused with
+     ERR E9 while a joint is enabled, and during a resync joints usually ARE
+     enabled. A refusal here would tear the link down at the worst moment.
+     Limits already live in the firmware from connect time and a resync does
+     not reset them.
+
+   It flushes, re-runs VER to prove the far end is still the arm controller,
+   re-arms the watchdog, and asks for one status. Nothing the firmware can
+   legitimately refuse. */
+function resyncLink(verb){
+  if (resyncing || connState !== "on") return;
+  resyncing = true;
+  stopTimers();
+  flushPending("The link went out of step; the command queue was cleared.");
+  timeoutRun = 0; staFreshMs = 0;
+  playAbort = true;   // a sequence must not keep issuing moves through a bad link
+
+  notice("warn","The controller stopped answering in step (no reply to " + (verb || "a command") +
+                "). Re-synchronising the link — the joints stay exactly as they are, nothing is " +
+                "being reset. If this keeps happening, check the USB cable.");
+  logLine("evt", "; link desynchronised — resyncing");
+
+  /* Every step re-checks connState. The operator can press DISCONNECT, or the
+     transport can drop, while this is in flight — and restarting the rx pump or
+     the heartbeat on a link that teardown() has already closed would leave
+     zombie timers hammering a dead port. */
+  T.flush()
+    .then(function(){
+      if (connState !== "on") throw new Error("__gone__");
+      startRx();
+      return verHandshake();
+    })
+    .then(function(res){
+      if (connState !== "on") throw new Error("__gone__");
+      var v = kv(res.tokens.slice(1));
+      if (v.NAME !== EXPECT_NAME) {
+        throw new Error("After the link went out of step, that port answered NAME=" +
+                        (v.NAME || "(nothing)") + " instead of " + EXPECT_NAME + ".");
+      }
+      return send("WDG " + WATCHDOG_MS);
+    })
+    .then(function(){ return statusPoll(); })
+    .then(function(){
+      resyncing = false;
+      if (connState !== "on") return;    // torn down while we were resyncing
+      startTimers();
+      paintAll();
+      notice("ok","Link re-synchronised. The joints were not disturbed.", 6000);
+    })
+    .catch(function(e){
+      resyncing = false;
+      var msg = e && e.message ? e.message : String(e);
+      if (msg === "__gone__") return;    // teardown already handled it
+      linkLost("The link could not be re-synchronised: " + plainErr(msg));
+    });
+}
+
+function connect(){
+  var portId = el("portSel").value;
+  if (!portId && USE_BRIDGE) { notice("warn","Pick a serial port first, then press CONNECT."); return; }
+  if (!portId && !USE_BRIDGE) { notice("warn","Press CHOOSE PORT and pick the Arduino, then press CONNECT."); return; }
+
+  connState = "busy"; paintTop();
+
+  Promise.resolve()
+    .then(function(){ return T.open(portId); })
+    .then(function(){
+      connState = "on";                    // send() needs this before the handshake
+      notice("ok","Opening the port resets the Arduino. Waiting 2 seconds for it to boot…", 2600);
+      return sleep(BOOT_WAIT_MS);
+    })
+    .then(function(){ return T.flush(); })
+    .then(function(){
+      /* Nothing should be pending here, but reassigning the arrays without
+         clearing them left live timers and promises that never settled. */
+      flushPending("Reconnecting.");
+      timeoutRun = 0; staFreshMs = 0;
+      startRx();
+      return verHandshake();
+    })
+    .then(function(res){
+      var v = kv(res.tokens.slice(1));
+      if (v.NAME !== EXPECT_NAME) {
+        throw new Error("That port answered, but it is not the arm controller. It said NAME=" +
+                        (v.NAME || "(nothing)") + " and this console only talks to " + EXPECT_NAME +
+                        ". Flash Software/factorylm_arm_controller and try again.");
+      }
+      fwText = "FW " + (v.FW || "?") + " · protocol " + (v.PROTO || "?") + " · " + (v.JOINTS || "?") + " joints";
+      return pushState();
+    })
+    .then(function(){
+      startTimers();
+      paintAll();
+      notice("ok","Connected. Every joint boots DETACHED — nothing is driven until you enable it.", 6000);
+      if (tabHidden) showBgWarning();
+    })
+    .catch(function(e){
+      /* pushState can legitimately come back ERR E2/E3/E5/E9 and the raw wire
+         string ("ERR E9 LIM") means nothing at a bench. Always go through
+         plainErr — it passes plain-English messages straight through. */
+      notice("bad", plainErr(e && e.message ? e.message : String(e)));
+      teardown();
+    });
+}
+
+function verHandshake(){
+  var tries = 0;
+  function attempt(){
+    tries++;
+    return send("VER", VER_TIMEOUT).catch(function(e){
+      if (tries >= VER_TRIES) {
+        throw new Error("No answer from that port after " + VER_TRIES + " tries. Check the USB cable, " +
+                        "make sure the Arduino IDE Serial Monitor is closed, and confirm " +
+                        "factorylm_arm_controller is flashed to the board.");
+      }
+      return sleep(500).then(attempt);
+    });
+  }
+  return attempt();
+}
+
+/* The firmware keeps NOTHING across a reset, by design. Opening the port reset
+   it, so everything this page knows has to be pushed back every single time. */
+function pushState(){
+  /* WDG GOES FIRST, BEFORE THE TWELVE LIM/SPD ROUND-TRIPS.
+     The firmware boots with wdgMs = 0, i.e. the watchdog DISABLED. The LIM/SPD
+     loop is twelve round-trips, measured at roughly 0.8–1.2 s, and while it ran
+     the arm had no dead-man at all. Arming the watchdog costs one round-trip
+     and closes that window. Nothing is enabled at this point, so there is
+     nothing to be dropped by a watchdog that trips during the push. */
+  var chain = Promise.resolve().then(function(){ return send("WDG " + WATCHDOG_MS); });
+
+  JOINT_DEFS.forEach(function(d){
+    var j = J[d.id];
+    chain = chain
+      .then(function(){ return send("LIM " + d.id + " " + j.min + " " + j.max + " " + (j.cal ? 1 : 0)); })
+      .then(function(){ return send("SPD " + d.id + " " + j.dps); });
+  });
+
+  var MIR_WORD = { same:"SAME", inverted:"INV", unknown:"UNKNOWN" };
+  return chain
+    .then(function(){ return send("MIR " + mirWord(MIR_WORD)); })
+    .then(function(){ return statusPoll(); });
+}
+
+/* "MIR <SAME|INV|UNKNOWN> [offset_deg]". The offset argument is omitted when it
+   is zero — which is every row in joint-limits.csv today — so the command on
+   the wire is byte-for-byte what it has always been. */
+function mirWord(words){
+  var w = words[mirrorMode] || "UNKNOWN";
+  return mirrorOffset ? (w + " " + mirrorOffset) : w;
+}
+
+function statusPoll(){
+  return send("STA").catch(function(){});
+}
+
+
+/* ---- commands ------------------------------------------------------------ */
+function pumpMoves(){
+  JOINT_DEFS.forEach(function(d){
+    var j = J[d.id];
+    if (j.wantMove === null || !j.en || sys.es) { j.wantMove = null; return; }
+    var deg = j.wantMove; j.wantMove = null;
+    send("MOV " + d.id + " " + deg).then(function(res){
+      var v = kv(res.tokens.slice(2));
+      /* SET= means two DIFFERENT things on the wire and they must not be
+         conflated. In "OK MOV" it is the ACCEPTED TARGET — where the joint has
+         been told to go, after clamping. In "STA" it is the CURRENT commanded
+         angle the interpolator has walked to. Writing the MOV value into j.set
+         made the big readout jump instantly to an angle the joint had not
+         reached and would not reach for another second or more.
+         So: MOV fills j.tgt, and STA is the ONLY writer of j.set. */
+      if ("SET" in v) { j.tgt = Number(v.SET); }
+      if (v.CL === "1") showClamp(d.id, Number(v.REQ), Number(v.SET));
+      else clearClamp(d.id);
+      paintJoint(d.id);
+    }).catch(function(e){ notice("warn", plainErr(e.message, d)); });
+  });
+}
+
+function doEnable(id, adopt){
+  var j = J[id];
+  return send("ENA " + id + " " + adopt).then(function(){
+    j.en = true; j.set = adopt; j.tgt = adopt;
+    closeAdopt(id);
+    paintJoint(id);
+    return statusPoll();
+  }).catch(function(e){
+    var box = j.dom.adoptErr;
+    box.textContent = plainErr(e.message, j.def);
+  });
+}
+
+function doDisable(id){
+  return send("DIS " + id).then(function(){
+    J[id].en = false; J[id].mov = false; paintJoint(id); return statusPoll();
+  }).catch(function(e){ notice("warn", plainErr(e.message, J[id].def)); });
+}
+
+function doDisableAll(){
+  return send("DIS A").then(function(){
+    JOINT_DEFS.forEach(function(d){ J[d.id].en = false; J[d.id].mov = false; });
+    paintAll(); return statusPoll();
+  }).catch(function(e){ notice("warn", plainErr(e.message)); });
+}
+
+/* HOLD — THE STOP THAT DOES NOT DROP THE ARM.
+   ------------------------------------------------------------------
+   STP freezes every joint's target at the angle it has been walked to right
+   now, with the joints STILL ATTACHED AND STILL HOLDING. It is the only stop
+   on this arm that actually stops motion without also removing the thing that
+   is carrying the weight.
+
+   E-STOP is the other kind: it detaches everything, so a gravity-loaded arm
+   SAGS. Both are real stops and the operator needs both, which is why they are
+   two buttons and not one.
+
+   This is also the thing STOP PLAYBACK was missing. Aborting the JavaScript
+   promise chain does nothing to the MOV already sitting in the firmware — the
+   interpolator keeps walking that joint to the old target, roughly 1.3 s across
+   the default 70–110° span and far longer across a wide calibrated range. The
+   firmware has always implemented STP; this page simply never sent it.
+
+   It jumps the queue (priority) so it is not stuck behind a MOV the operator
+   has already changed their mind about, but it still goes through the normal
+   awaiter FIFO — bypassing that would mis-file every later reply. */
+function sendHold(){
+  if (connState !== "on") return Promise.resolve();
+  return send("STP", REPLY_TIMEOUT, true);
+}
+
+function doHold(){
+  if (connState !== "on") {
+    notice("bad","NOT CONNECTED — this button cannot reach the controller. " +
+                 "Switch the KCD1 rocker OFF to stop the arm.");
+    return;
+  }
+  if (sys.es) { notice("warn","The e-stop is already latched — nothing is being driven."); return; }
+
+  /* STP goes out BEFORE the abort flag. playAbort only unwinds this page's
+     promise chain; the arm is stopped by the command, not by the flag. */
+  var p = sendHold();
+  playAbort = true;
+  if (playing) setPlayState("Stopping…");
+
+  p.then(function(){
+    notice("ok","Motion held. Every joint is frozen where it is and is STILL POWERED AND HOLDING — " +
+                "this did not detach anything. Move a slider or press PLAY to carry on.", 7000);
+    return statusPoll();
+  }).catch(function(e){
+    notice("bad","HOLD did not get through: " + plainErr(e && e.message ? e.message : String(e)) +
+                 " If the arm is still moving, press E-STOP or switch the KCD1 rocker OFF.");
+  });
+}
+
+/* Always live, even when disconnected — a hand reaching for this button in a
+   hurry must never find it greyed out. When there is no link to the board we
+   say so plainly and point at the thing that does work. */
+function doEstop(){
+  playAbort = true;
+  if (connState !== "on") {
+    notice("bad","NOT CONNECTED — this button cannot reach the controller. " +
+                 "Switch the KCD1 rocker OFF now. That is the only stop that works.");
+    return;
+  }
+  latchEstopUi("E-STOP LATCHED — every joint is detached. Nothing is being driven.");
+  sendBang();
+  send("EST").catch(function(){});
+}
+
+function doClear(){
+  send("CLR").then(function(){
+    sys.es = 0;
+    el("estopStrip").classList.add("hidden");
+    notice("ok","E-stop cleared. Every joint is still detached — enable each one again and tell it " +
+                "the angle the joint is sitting at now.", 8000);
+    paintAll();
+    return statusPoll();
+  }).catch(function(e){ notice("bad", plainErr(e.message)); });
+}
+
+/* Turn a raw ERR line into something readable at a bench.
+   Anything that is not an ERR line — a plain-English message raised by this
+   page, a transport failure — is passed straight through untouched, which is
+   what lets every catch in the file route through here safely.
+
+   The code is matched with a REGEX, not indexOf. "ERR E13" contains "E1", so a
+   substring test silently mis-reports the shoulder-mirror refusal as an unknown
+   verb, and it would do the same to E10/E11/E12.
+
+   THE CODES BELOW ARE THE FIRMWARE'S, NOT OURS. They mirror the table in
+   Documentation/SERIAL-PROTOCOL.md § 7 and were read out of
+   factorylm_arm_controller.ino, not guessed. If the firmware renumbers again,
+   update this map — do NOT invent a meaning for a code you have not read in
+   the firmware source. An unknown code falls through to an honest "refused,
+   here is exactly what it said", which stays correct whatever lands next.
+
+   E10/E11/E12 exist BECAUSE of this map. They were split out of E5 after the
+   firmware author noticed the console was telling the operator "that starting
+   angle is outside this joint's limits" for a bad limits row, a bad mirror
+   word and a bad slew rate — three failures with three different remedies.
+   Keep E5 narrow (an ENA adopt angle only); do not let it creep back. */
+var ERR_TEXT = {
+  E1:  function(){ return "The controller did not recognise that command. This is a bug in the console, not something you did."; },
+  E2:  function(){ return "The controller got the wrong number of values for that command. This is a bug in the console, not something you did."; },
+  E3:  function(){ return "The controller could not read one of the numbers in that command. This is a bug in the console, not something you did."; },
+  E4:  function(w, msg){
+         return msg.indexOf("RESERVED") >= 0
+           ? "Joint 2 is the shoulder pair's second servo. It is never commanded on its own — the shoulder is J1."
+           : "The controller rejected that joint number.";
+       },
+  /* E5 is NARROW: an ENA adopt angle outside this joint's MIN..MAX. It is not
+     a general "bad number" — the firmware split the other three out precisely
+     so this message could stay specific. Don't widen it again. */
+  E5:  function(w, msg, def){
+         var v = msg.match(/REQ=(-?\d+).*MIN=(-?\d+).*MAX=(-?\d+)/);
+         var range = v ? (" This joint is limited to " + v[2] + "–" + v[3] + "°.") : "";
+         return (def ? w : "That joint") + ": " + (v ? (v[1] + "° is") : "that starting angle is") +
+                " outside its limits." + range +
+                " If the joint really is out there, widen its limits in joint-limits.csv first.";
+       },
+  E6:  function(w, msg, def){
+         return def ? (w + " is not enabled, or is already enabled. Check the card.")
+                    : "That joint is not in the right state for that command — check whether it is enabled.";
+       },
+  E7:  function(){ return "The e-stop is latched. Press CLEAR E-STOP first."; },
+  E8:  function(){ return "That command line was too long for the controller and was thrown away. This is a bug in the console, not something you did."; },
+  E9:  function(w, msg, def){
+         return def ? (w + ": disable the joint before changing its limits, its speed or the mirror.")
+                    : "Disable every joint before changing limits, speed or the mirror. The controller said: " + msg;
+       },
+  /* E10 / E11 / E12 were split out of E5 by the firmware precisely because
+     "adopt angle out of range" was the wrong sentence for a bad limits row, a
+     bad mirror word and a bad slew rate. Each gets the remedy that fits. */
+  E10: function(w, msg, def){
+         var v = msg.match(/REQMIN=(-?\d+)\s+REQMAX=(-?\d+)/);
+         if (v) {
+           return (def ? w : "That joint") + ": min_deg " + v[1] + " / max_deg " + v[2] +
+                  " is not a legal pair. Limits must sit inside 0–180° and min_deg must be below max_deg. " +
+                  "Fix the row in joint-limits.csv.";
+         }
+         if (/REQCAL=/.test(msg)) {
+           return (def ? w : "That joint") + ": the calibrated column must be yes or no. Fix the row in joint-limits.csv.";
+         }
+         return (def ? w : "That joint") + ": the controller rejected that limits row. It said: " + msg;
+       },
+  E11: function(w, msg, def){
+         if (/MIRROR=out_of_travel/.test(msg)) {
+           var t = msg.match(/OFF=(-?\d+)\s+MIN=(-?\d+)\s+MAX=(-?\d+)/);
+           return "The shoulder mirror offset" + (t ? (" of " + t[1] + "°") : "") +
+                  " would swing the pair's second servo outside 0–180°" +
+                  (t ? (" for part of its " + t[2] + "–" + t[3] + "° travel") : "") +
+                  ". Two servos would fight through one link. Reduce mirror_offset_deg or narrow " +
+                  "min_deg/max_deg in joint-limits.csv.";
+         }
+         var o = msg.match(/OFF=(-?\d+)\s+LIMIT=\+\/-(\d+)/);
+         if (o) {
+           return "The shoulder mirror offset " + o[1] + "° is outside the controller's ±" + o[2] +
+                  "° limit. Fix mirror_offset_deg in joint-limits.csv.";
+         }
+         return "The controller rejected the shoulder mirror setting. mirror_mode must be same, " +
+                "inverted or unknown, and mirror_offset_deg a whole number of degrees. It said: " + msg;
+       },
+  E12: function(w, msg, def){
+         var v = msg.match(/REQ=(-?\d+)\s+MIN=(-?\d+)\s+MAX=(-?\d+)/);
+         return (def ? w : "That joint") + ": " + (v ? (v[1] + " deg/s is") : "that speed is") +
+                " outside the allowed " + (v ? (v[2] + "–" + v[3]) : "1–90") + " deg/s.";
+       },
+  E13: function(w, msg, def){
+         return (def ? w : "The shoulder (D4+D5)") +
+                ": the mirror relation is still unknown, so it cannot be enabled. See the shoulder card.";
+       }
+};
+
+function plainErr(msg, def){
+  msg = String(msg == null ? "" : msg);
+  var who = def ? (def.name + " (" + def.pins + ")") : "that joint";
+  var m = msg.match(/\bERR\s+(E\d+)\b/);
+  if (!m) return msg;                    // not a wire error — already plain English
+  var fn = ERR_TEXT[m[1]];
+  if (fn) return fn(who, msg, def);
+  return "The controller refused that command (" + m[1] + "). It said: " + msg;
+}
+
+
+/* ==========================================================================
+   UI
+   ========================================================================== */
+
+function notice(kind, text, autoMs){
+  var box = document.createElement("div");
+  box.className = "notice " + (kind === "ok" ? "ok" : kind === "bad" ? "bad" : kind === "warn" ? "warn" : "");
+  var span = document.createElement("span");
+  span.textContent = text;
+  var x = document.createElement("button");
+  x.className = "x"; x.textContent = "×";
+  x.onclick = function(){ box.remove(); };
+  box.appendChild(span); box.appendChild(x);
+  el("notices").appendChild(box);
+  if (autoMs) setTimeout(function(){ box.remove(); }, autoMs);
+}
+
+function buildCards(){
+  var grid = el("jointGrid");
+  JOINT_DEFS.forEach(function(d){
+    var j = J[d.id];
+    var c = document.createElement("section");
+    c.className = "card";
+    c.innerHTML =
+      '<div class="card-head"><b>J' + d.id + ' &middot; ' + d.name + '</b>' +
+        '<span class="pins">' + d.pins + '</span></div>' +
+      '<div class="badges"><span class="pill uncal js-cal"></span><span class="pill off js-state"></span></div>' +
+      '<div class="mirrorrow js-mirror hidden"></div>' +
+      '<div class="cardnote js-note hidden"></div>' +
+      '<div class="readout">' +
+        '<div class="deg off"><span class="js-deg">90</span><span class="u">&deg;</span></div>' +
+        '<div class="deg-sub">commanded &mdash; the servo sends nothing back to confirm it</div>' +
+        '<div class="tgt js-tgt"></div>' +
+      '</div>' +
+      '<input type="range" class="js-slider" min="70" max="110" step="1" value="90" disabled>' +
+      '<div class="scale"><span class="js-lo">70&deg;</span><span class="js-hi">110&deg;</span></div>' +
+      '<div class="clampmsg js-clamp"></div>' +
+      '<div class="adopt hidden js-adopt">' +
+        '<p>Type the angle this joint is at RIGHT NOW, judged by eye. The first pulse will be exactly ' +
+          'this value, so nothing will jump.</p>' +
+        '<div class="adoptrow">' +
+          '<input type="number" class="js-adoptval" step="1">' +
+          '<button class="btn go small js-confirm">CONFIRM</button>' +
+          '<button class="btn small js-cancel">CANCEL</button>' +
+        '</div>' +
+        '<div class="adopterr js-adopterr"></div>' +
+      '</div>' +
+      '<div class="cardactions">' +
+        '<button class="btn go js-enable">ENABLE</button>' +
+        '<button class="btn js-dis">DISABLE</button>' +
+        '<label class="spd">deg/s <input type="number" class="js-dps" min="1" max="90" step="1" value="30"></label>' +
+      '</div>';
+    grid.appendChild(c);
+
+    var q = function(s){ return c.querySelector(s); };
+    j.dom = {
+      card:c, cal:q(".js-cal"), state:q(".js-state"), mirror:q(".js-mirror"),
+      deg:q(".js-deg"), degBox:c.querySelector(".deg"), tgt:q(".js-tgt"),
+      slider:q(".js-slider"), lo:q(".js-lo"), hi:q(".js-hi"), clamp:q(".js-clamp"),
+      adopt:q(".js-adopt"), adoptVal:q(".js-adoptval"), adoptErr:q(".js-adopterr"),
+      enable:q(".js-enable"), dis:q(".js-dis"), dps:q(".js-dps"), note:q(".js-note")
+    };
+
+    j.dom.slider.addEventListener("pointerdown", function(){ j.dragging = true; });
+    ["pointerup","pointercancel","blur"].forEach(function(ev){
+      j.dom.slider.addEventListener(ev, function(){ j.dragging = false; });
+    });
+    j.dom.slider.addEventListener("input", function(){
+      var v = Number(j.dom.slider.value);
+      /* The slider sets the TARGET, never the commanded angle. Writing j.set
+         here made the big readout show an angle nothing had been told to go to
+         yet — an uncommanded number presented as fact. j.set is fed by STA and
+         by nothing else. */
+      j.tgt = v; j.wantMove = v; paintJoint(d.id);
+    });
+    j.dom.slider.addEventListener("change", function(){
+      j.dragging = false; j.wantMove = Number(j.dom.slider.value);
+    });
+
+    j.dom.enable.onclick = function(){ openAdopt(d.id); };
+    j.dom.dis.onclick    = function(){ doDisable(d.id); };
+    j.dom.adopt.querySelector(".js-confirm").onclick = function(){ confirmAdopt(d.id); };
+    j.dom.adopt.querySelector(".js-cancel").onclick  = function(){ closeAdopt(d.id); };
+    j.dom.adoptVal.addEventListener("keydown", function(e){ if (e.key === "Enter") confirmAdopt(d.id); });
+    j.dom.dps.onchange = function(){
+      var v = clampi(Math.round(Number(j.dom.dps.value) || DEF_DPS), 1, 90);
+      j.dom.dps.value = v; j.dps = v;
+      if (connState === "on") send("SPD " + d.id + " " + v).catch(function(e){ notice("warn", plainErr(e.message, d)); });
+    };
+  });
+}
+
+function openAdopt(id){
+  var j = J[id];
+  if (id === 1 && mirrorMode === "unknown") {
+    notice("warn","The shoulder pair cannot be enabled until its mirror relation is known. Read the card.");
+    return;
+  }
+  j.adoptOpen = true;
+  j.dom.adoptVal.min = j.min;
+  j.dom.adoptVal.max = j.max;
+  j.dom.adoptVal.value = clampi(j.home, j.min, j.max);
+  j.dom.adoptErr.textContent = "";
+  j.dom.adopt.classList.remove("hidden");
+  j.dom.adoptVal.focus();
+  j.dom.adoptVal.select();
+}
+function closeAdopt(id){
+  var j = J[id];
+  j.adoptOpen = false;
+  j.dom.adopt.classList.add("hidden");
+  j.dom.adoptErr.textContent = "";
+}
+function confirmAdopt(id){
+  var j = J[id];
+  var raw = j.dom.adoptVal.value.trim();
+  if (!/^-?\d+$/.test(raw)) { j.dom.adoptErr.textContent = "Type a whole number of degrees."; return; }
+  var v = Number(raw);
+  if (v < j.min || v > j.max) {
+    j.dom.adoptErr.textContent = "This joint is limited to " + j.min + "–" + j.max +
+      "°. If the joint is really outside that, widen its limits in joint-limits.csv first.";
+    return;
+  }
+  if (connState !== "on") { j.dom.adoptErr.textContent = "Connect to the controller first."; return; }
+  doEnable(id, v);
+}
+
+function showClamp(id, req, applied){
+  var j = J[id];
+  j.dom.clamp.textContent = "CLAMPED: asked " + req + "°, limit is " + applied + "°";
+  j.dom.card.classList.add("flash");
+  clearTimeout(j._flash);
+  j._flash = setTimeout(function(){ j.dom.card.classList.remove("flash"); }, 800);
+}
+function clearClamp(id){ J[id].dom.clamp.textContent = ""; }
+
+function paintJoint(id){
+  var j = J[id], d = j.def, D = j.dom;
+  if (!D) return;
+  var live = (connState === "on") && !sys.es;
+
+  D.cal.className = "pill " + (j.cal ? "cal" : "uncal");
+  D.cal.textContent = j.cal ? "CALIBRATED" : "UNCALIBRATED — limits are a placeholder";
+  D.cal.title = j.notes || (j.cal ? "" : "Nobody has bench-tested this joint. 70–110 is a placeholder, not its travel.");
+  D.card.classList.toggle("uncal", !j.cal);
+  D.card.classList.toggle("cal", j.cal);
+
+  if (sys.es)      { D.state.className = "pill bad";    D.state.textContent = "E-STOPPED"; }
+  else if (!j.en)  { D.state.className = "pill off";    D.state.textContent = "DISABLED"; }
+  else if (j.mov)  { D.state.className = "pill moving"; D.state.textContent = "MOVING"; }
+  else             { D.state.className = "pill on";     D.state.textContent = "ENABLED"; }
+
+  /* j.set is the CURRENT commanded angle and is written ONLY by STA. j.tgt is
+     where it has been asked to go — the slider and the OK MOV reply write that.
+     Keeping them apart is what stops this readout showing an angle the joint
+     has not reached. */
+  D.deg.textContent = String(Math.round(j.set));
+  D.degBox.classList.toggle("off", !j.en);
+  D.tgt.textContent = (j.en && j.tgt !== j.set) ? ("→ target " + Math.round(j.tgt) + "°") : "";
+
+  /* Notes from joint-limits.csv, plus any pin-provenance hint, shown on the
+     card rather than hidden in a tooltip. */
+  var noteText = [d.hint || "", j.notes || ""].filter(function(s){ return s; }).join("  ");
+  D.note.textContent = noteText;
+  D.note.classList.toggle("hidden", !noteText);
+
+  D.slider.min = j.min; D.slider.max = j.max;
+  D.lo.textContent = j.min + "°";
+  D.hi.textContent = j.max + "°";
+  if (!j.dragging) D.slider.value = clampi(Math.round(j.set), j.min, j.max);
+  D.slider.disabled = !(live && j.en);
+
+  if (Number(D.dps.value) !== j.dps && document.activeElement !== D.dps) D.dps.value = j.dps;
+
+  var mirrorBlocked = (id === 1 && mirrorMode === "unknown");
+  D.enable.disabled = !(connState === "on") || sys.es || j.en || mirrorBlocked;
+  D.dis.disabled    = !(connState === "on") || !j.en;
+  D.dps.disabled    = (connState !== "on");
+  if (!live || j.en) { closeAdoptIfOpen(j, id); }
+
+  if (id === 1) {
+    D.mirror.classList.toggle("hidden", mirrorMode !== "unknown");
+    if (mirrorMode === "unknown") {
+      D.mirror.textContent =
+        "mirror: unknown — The shoulder pair's mirror relation has not been calibrated. Determine it at the " +
+        "bench with the single-servo sketch (centre D4 and D5 separately), then set mirror_mode to same or " +
+        "inverted in the shoulder row of joint-limits.csv and reload the file.";
+    }
+  }
+}
+function closeAdoptIfOpen(j, id){ if (j.adoptOpen && (j.en || connState !== "on" || sys.es)) closeAdopt(id); }
+
+function paintTop(){
+  var chip = el("connChip"), txt = el("connText");
+  chip.className = "chip " + (sys.es ? "s-bad" : connState === "on" ? "s-on" : connState === "busy" ? "s-busy" : "s-off");
+  txt.textContent = sys.es ? "E-Stopped" : connState === "on" ? "Connected" : connState === "busy" ? "Connecting" : "Disconnected";
+  el("transportChip").textContent = T.kind;
+  el("fwLine").textContent = fwText || "protocol v1.0 · not connected";
+
+  el("btnConnect").textContent = (connState === "off") ? "CONNECT" : "DISCONNECT";
+  el("btnConnect").className   = "btn " + (connState === "off" ? "go" : "warn");
+  el("btnConnect").disabled    = (connState === "busy");
+  /* btnEstop is deliberately never disabled. */
+  /* HOLD is live whenever there is a link and the e-stop is not already
+     latched. It does NOT require a joint to be enabled — the operator should
+     not have to work out whether pressing it will do anything. */
+  el("btnHold").disabled       = (connState !== "on") || !!sys.es;
+  el("btnDisableAll").disabled = (connState !== "on") || sys.es;
+  el("portSel").disabled       = (connState !== "off");
+  el("btnPorts").disabled      = (connState !== "off");
+
+  el("hdr").classList.toggle("estopped", !!sys.es);
+  el("estopStrip").classList.toggle("hidden", !sys.es);
+
+  var anyEnabled = JOINT_DEFS.some(function(d){ return J[d.id].en; });
+  el("btnRecord").disabled = !(connState === "on") || sys.es || !anyEnabled;
+  el("btnPlay").disabled   = !(connState === "on") || sys.es || !waypoints.length || playing;
+}
+
+function paintAll(){
+  paintTop();
+  JOINT_DEFS.forEach(function(d){ paintJoint(d.id); });
+}
+
+
+/* ---- port list ----------------------------------------------------------- */
+function refreshPorts(){
+  var sel = el("portSel");
+  var pick = T.listPorts ? T.listPorts() : Promise.resolve([]);
+  return pick.then(function(list){
+    sel.innerHTML = "";
+    if (!list.length) {
+      sel.innerHTML = '<option value="">' +
+        (USE_BRIDGE ? "No serial ports found — plug the Arduino in and press REFRESH"
+                    : "No port chosen yet — press CHOOSE PORT") + "</option>";
+      return;
+    }
+    list.forEach(function(p){
+      var o = document.createElement("option");
+      o.value = p.id; o.textContent = p.label;
+      sel.appendChild(o);
+    });
+  }).catch(function(e){
+    sel.innerHTML = '<option value="">Could not list ports</option>';
+    notice("bad", e.message);
+  });
+}
+
+
+/* ==========================================================================
+   TEACH / PLAYBACK
+   Playback lives entirely here. The firmware stays dumb: it is told one angle
+   at a time and never knows a sequence exists.
+   ========================================================================== */
+
+function buildWpHead(){
+  var tr = el("wpHead");
+  var cells = ["#","Label"].concat(JOINT_DEFS.map(function(d){ return d.name + " " + d.pins; }))
+                           .concat(["Dwell ms","",""]);
+  tr.innerHTML = cells.map(function(c){ return "<th>" + c + "</th>"; }).join("");
+}
+
+function renderWaypoints(){
+  var body = el("wpBody");
+  body.innerHTML = "";
+  el("wpEmpty").classList.toggle("hidden", waypoints.length > 0);
+
+  waypoints.forEach(function(w, i){
+    var tr = document.createElement("tr");
+    tr.dataset.i = String(i);
+
+    var tdN = document.createElement("td"); tdN.className = "num"; tdN.textContent = String(i+1);
+    tr.appendChild(tdN);
+
+    var tdL = document.createElement("td");
+    var inp = document.createElement("input");
+    inp.className = "lbl"; inp.value = w.label;
+    inp.oninput = function(){ w.label = inp.value; };
+    tdL.appendChild(inp); tr.appendChild(tdL);
+
+    JOINT_DEFS.forEach(function(d){
+      var td = document.createElement("td");
+      var v = w.deg[d.id];
+      if (v === null || v === undefined) { td.className = "dash"; td.textContent = "–"; }
+      else { td.className = "num"; td.textContent = String(v) + "°"; }
+      tr.appendChild(td);
+    });
+
+    var tdD = document.createElement("td");
+    var dw = document.createElement("input");
+    dw.className = "dw"; dw.type = "number"; dw.min = "0"; dw.step = "50"; dw.value = String(w.dwell);
+    dw.onchange = function(){ w.dwell = Math.max(0, Math.round(Number(dw.value) || 0)); dw.value = String(w.dwell); };
+    tdD.appendChild(dw); tr.appendChild(tdD);
+
+    var tdG = document.createElement("td");
+    var go = document.createElement("button");
+    go.className = "btn small"; go.textContent = "GO";
+    go.onclick = function(){ playFrom(i, i, false); };
+    tdG.appendChild(go); tr.appendChild(tdG);
+
+    var tdX = document.createElement("td");
+    var del = document.createElement("button");
+    del.className = "btn small warn"; del.textContent = "DELETE";
+    del.onclick = function(){ waypoints.splice(i,1); renderWaypoints(); paintTop(); };
+    tdX.appendChild(del); tr.appendChild(tdX);
+
+    body.appendChild(tr);
+  });
+  paintTop();
+}
+
+function recordWaypoint(){
+  var deg = {};
+  JOINT_DEFS.forEach(function(d){ deg[d.id] = J[d.id].en ? Math.round(J[d.id].set) : null; });
+  waypoints.push({ label:"step " + (waypoints.length+1), deg:deg, dwell:500 });
+  renderWaypoints();
+}
+
+/* A number for a joint that is DISABLED is a real command that will come back
+   ERR E6, and the step would then never report MOV=0 — it would just sit there
+   until the timeout. Refuse up front and name the joints. */
+function playbackBlockers(from, to){
+  var need = {};
+  for (var i=from;i<=to;i++) {
+    JOINT_DEFS.forEach(function(d){
+      var v = waypoints[i].deg[d.id];
+      if (v !== null && v !== undefined && !J[d.id].en) need[d.id] = true;
+    });
+  }
+  return Object.keys(need).map(function(id){
+    return J[id].def.name + " (" + J[id].def.pins + ")";
+  });
+}
+
+function playFrom(from, to, loop){
+  if (playing) return;
+  if (connState !== "on") { notice("warn","Connect to the controller first."); return; }
+  if (sys.es) { notice("warn","The e-stop is latched. Press CLEAR E-STOP first."); return; }
+  var blocked = playbackBlockers(from, to);
+  if (blocked.length) {
+    notice("warn","Enable " + blocked.join(" and ") + " before playing this sequence. " +
+                  "A joint with a number in the table has to be enabled; use “–” to leave one alone.");
+    return;
+  }
+
+  playing = true; playAbort = false;
+  el("btnStopPlay").classList.remove("hidden");
+  paintTop();
+
+  var pass = 0;
+  function runPass(){
+    var chain = Promise.resolve();
+    for (var i=from;i<=to;i++) (function(idx){
+      chain = chain.then(function(){
+        if (playAbort) throw new Error("__abort__");
+        return runStep(idx);
+      });
+    })(i);
+    return chain.then(function(){
+      pass++;
+      if (loop && !playAbort) return runPass();
+    });
+  }
+
+  runPass().then(function(){
+    setPlayState(playAbort ? "Playback stopped." : "Playback finished.");
+  }).catch(function(e){
+    /* ANY failure mid-sequence leaves a MOV already accepted by the firmware,
+       and the interpolator will keep walking that joint to its old target long
+       after this promise chain has unwound. Freeze the arm first, then explain.
+       Harmless if STOP PLAYBACK already sent one — STP is idempotent. */
+    sendHold().catch(function(){});
+    setPlayState(e.message === "__abort__" ? "Playback stopped." : "Playback stopped: " + e.message);
+    if (e.message !== "__abort__") notice("warn", plainErr(e.message));
+  }).then(function(){
+    playing = false; playAbort = false;
+    el("btnStopPlay").classList.add("hidden");
+    highlightRow(-1);
+    paintTop();
+  });
+}
+
+function runStep(i){
+  var w = waypoints[i];
+  highlightRow(i);
+  setPlayState("Step " + (i+1) + " of " + waypoints.length + ": " + w.label);
+
+  var ids = JOINT_DEFS.filter(function(d){
+    var v = w.deg[d.id]; return v !== null && v !== undefined;
+  }).map(function(d){ return d.id; });
+
+  var chain = Promise.resolve();
+  ids.forEach(function(id){
+    chain = chain.then(function(){
+      if (playAbort) throw new Error("__abort__");
+      return send("MOV " + id + " " + w.deg[id]).then(function(res){
+        var v = kv(res.tokens.slice(2));
+        if (v.CL === "1") showClamp(id, Number(v.REQ), Number(v.SET));
+      });
+    });
+  });
+
+  return chain
+    .then(function(){ return waitIdle(ids); })
+    .then(function(){
+      if (playAbort) throw new Error("__abort__");
+      return sleep(w.dwell || 0);
+    });
+}
+
+function waitIdle(ids){
+  var t0 = Date.now();
+  function tick(){
+    if (playAbort) throw new Error("__abort__");
+    return statusPoll().then(function(){
+      if (sys.es) throw new Error("The controller latched its e-stop during playback.");
+      var busy = ids.some(function(id){ return J[id].mov; });
+      /* statusPoll swallows its own rejection, so "not busy" could just mean
+         the last few STA commands never came back and MOV=0 is left over from
+         before the move started. Declaring a joint idle on a stale reading
+         advances the sequence into a joint that is still travelling. A reading
+         has to be FRESH to count as evidence; if it is not, keep waiting and
+         let STEP_TIMEOUT_MS be the one that gives up. */
+      var fresh = staFreshMs && (Date.now() - staFreshMs) <= STA_STALE_MS;
+      if (!busy && fresh) return;
+      if (Date.now() - t0 > STEP_TIMEOUT_MS) {
+        if (!fresh) {
+          throw new Error("The controller stopped reporting joint status, so there is no way to tell " +
+                          "whether this step finished. Nothing further was sent.");
+        }
+        throw new Error("A joint did not finish its move within " + Math.round(STEP_TIMEOUT_MS/1000) +
+                        " seconds. Either the slew rate is too low for the travel, or the joint is not moving.");
+      }
+      return sleep(150).then(tick);
+    });
+  }
+  return Promise.resolve().then(tick);
+}
+
+function highlightRow(i){
+  var rows = el("wpBody").children;
+  for (var k=0;k<rows.length;k++) rows[k].classList.toggle("playing", Number(rows[k].dataset.i) === i);
+}
+function setPlayState(s){ el("playState").textContent = s; }
+
+
+/* ---- CSV ----------------------------------------------------------------- */
+/* Header row required. Lookup is by header NAME, never by column order.
+   Unknown columns ignored. Lines starting with '#' are comments and skipped —
+   joint-limits.csv leads with a long comment block on purpose. */
+function parseCsv(text){
+  var rows = [];
+  var lines = String(text).replace(/\r\n?/g,"\n").split("\n");
+  for (var i=0;i<lines.length;i++) {
+    var raw = lines[i];
+    if (!raw.trim() || raw.trim().charAt(0) === "#") { rows.push(null); continue; }
+    var out = [], cur = "", q = false;
+    for (var k=0;k<raw.length;k++) {
+      var ch = raw.charAt(k);
+      if (q) {
+        if (ch === '"') { if (raw.charAt(k+1) === '"') { cur += '"'; k++; } else q = false; }
+        else cur += ch;
+      } else if (ch === '"') q = true;
+      else if (ch === ",") { out.push(cur); cur = ""; }
+      else cur += ch;
+    }
+    out.push(cur);
+    rows.push({ line:i+1, cells:out.map(function(s){ return s.trim(); }) });
+  }
+  return rows;
+}
+
+function tableFrom(text){
+  var rows = parseCsv(text);
+  var head = null, recs = [];
+  for (var i=0;i<rows.length;i++) {
+    var r = rows[i];
+    if (!r) continue;
+    if (!head) { head = r.cells.map(function(s){ return s.toLowerCase(); }); continue; }
+    var o = { __line:r.line };
+    head.forEach(function(h, k){ o[h] = r.cells[k] !== undefined ? r.cells[k] : ""; });
+    recs.push(o);
+  }
+  return { head:head, recs:recs };
+}
+
+function isInt(s){ return /^-?\d+$/.test(String(s).trim()); }
+
+function loadLimitsCsv(text, fname){
+  var anyEnabled = JOINT_DEFS.some(function(d){ return J[d.id].en; });
+  if (anyEnabled) {
+    notice("warn","Disable every joint before loading a limits file. The controller will not move a joint's " +
+                  "limits while it is being driven.");
+    return;
+  }
+
+  var t = tableFrom(text);
+  if (!t.head) { notice("bad", fname + ": no header row found."); return; }
+  var missing = LIM_COLS.slice(0,9).filter(function(c){ return t.head.indexOf(c) < 0; });
+  if (missing.length) { notice("bad", fname + ": missing column(s) " + missing.join(", ") + "."); return; }
+
+  var staged = {}, mir = null, mirOff = 0, warns = [];
+  for (var i=0;i<t.recs.length;i++) {
+    var r = t.recs[i], ln = r.__line;
+    function bad(why){ notice("bad", fname + " line " + ln + ": " + why + " Nothing was loaded."); }
+
+    if (!isInt(r.joint_id))                       { bad("joint_id must be a whole number."); return; }
+    var id = Number(r.joint_id);
+    if (id === 2)                                 { bad("joint_id 2 is reserved for the shoulder pair's second servo and is never commanded on its own."); return; }
+    if (!J[id])                                   { bad("joint_id " + id + " is not a joint on this arm. Valid ids are 0, 1, 3, 4, 5 and 6."); return; }
+    if (staged[id])                               { bad("joint_id " + id + " appears twice."); return; }
+    if (!isInt(r.min_deg) || !isInt(r.max_deg))   { bad("min_deg and max_deg must be whole numbers."); return; }
+    var mn = Number(r.min_deg), mx = Number(r.max_deg);
+    if (mn < 0 || mx > 180)                       { bad("limits must sit inside 0–180 degrees."); return; }
+    if (mn >= mx)                                 { bad("min_deg must be less than max_deg."); return; }
+    if (!isInt(r.home_deg))                       { bad("home_deg must be a whole number."); return; }
+    var hm = Number(r.home_deg);
+    if (hm < mn || hm > mx)                       { bad("home_deg " + hm + " is outside this row's own " + mn + "–" + mx + " limits."); return; }
+    if (!isInt(r.max_deg_per_sec))                { bad("max_deg_per_sec must be a whole number."); return; }
+    var dps = Number(r.max_deg_per_sec);
+    if (dps < 1 || dps > 90)                      { bad("max_deg_per_sec must be between 1 and 90."); return; }
+    var calRaw = String(r.calibrated || "").toLowerCase();
+    if (["yes","no","true","false","1","0",""].indexOf(calRaw) < 0) { bad("calibrated must be yes or no."); return; }
+    var cal = (calRaw === "yes" || calRaw === "true" || calRaw === "1");
+
+    if (id === 1) {
+      var m = String(r.mirror_mode || "").toLowerCase() || "unknown";
+      if (["same","inverted","unknown"].indexOf(m) < 0) { bad("mirror_mode must be same, inverted or unknown."); return; }
+      mir = m;
+
+      /* mirror_offset_deg is optional and 0 in every row today, so an older
+         file with no such column still loads unchanged. It only means anything
+         under mirror_mode=inverted, where the firmware mirrors the pair about
+         (90 + offset)° rather than about 90°. */
+      var offRaw = String(r.mirror_offset_deg === undefined ? "" : r.mirror_offset_deg).trim();
+      if (offRaw === "") mirOff = 0;
+      else if (!isInt(offRaw)) { bad("mirror_offset_deg must be a whole number of degrees, or blank for 0."); return; }
+      else mirOff = Number(offRaw);
+
+      if (mirOff !== 0 && m !== "inverted") {
+        warns.push("J1 Shoulder has mirror_offset_deg=" + mirOff + " but mirror_mode=" + m +
+                   ". The offset only applies to inverted, so it is being ignored.");
+      }
+      /* Refuse an offset that would swing the second servo off the end of its
+         travel. INV drives it to (180 + 2*offset) - left, so the whole of this
+         row's min..max has to map back inside 0..180. Better to say so here
+         than to have the firmware refuse the MIR and leave the shoulder
+         un-enableable with no explanation. */
+      if (mirOff !== 0 && m === "inverted") {
+        var loImg = (180 + 2*mirOff) - mx, hiImg = (180 + 2*mirOff) - mn;
+        if (loImg < 0 || hiImg > 180) {
+          bad("mirror_offset_deg " + mirOff + " would drive the shoulder's second servo to " +
+              loImg + "–" + hiImg + "°, which is outside 0–180. Reduce the offset or narrow min_deg/max_deg.");
+          return;
+        }
+      }
+    }
+
+    if (cal && mn === DEF_MIN && mx === DEF_MAX) {
+      warns.push("J" + id + " " + J[id].def.name + " says calibrated=yes but its limits are still the " +
+                 DEF_MIN + "–" + DEF_MAX + " placeholder. If nobody bench-tested it, set calibrated=no.");
+    }
+    if (mn < DEF_MIN || mx > DEF_MAX) {
+      warns.push("J" + id + " " + J[id].def.name + " widened to " + mn + "–" + mx + " from the file.");
+    }
+
+    staged[id] = { min:mn, max:mx, home:hm, dps:dps, cal:cal, notes:String(r.notes || "") };
+  }
+
+  var got = Object.keys(staged);
+  if (!got.length) { notice("bad", fname + ": no usable rows."); return; }
+
+  got.forEach(function(id){
+    var s = staged[id], j = J[id];
+    j.min = s.min; j.max = s.max; j.home = s.home; j.dps = s.dps; j.cal = s.cal; j.notes = s.notes;
+    if (!j.en) { j.set = clampi(j.set, j.min, j.max); j.tgt = j.set; }
+    j.dom.dps.value = s.dps;
+  });
+  if (mir !== null) { mirrorMode = mir; mirrorOffset = mirOff; }
+
+  paintAll();
+  warns.forEach(function(w){ notice("warn", w); });
+  notice("ok","Loaded " + got.length + " joint row(s) from " + fname + ".", 6000);
+
+  if (connState === "on") pushState().catch(function(e){ notice("bad","The controller rejected the new limits: " + plainErr(e.message)); });
+  else notice("warn","Not connected, so the controller has not been told yet. These limits are pushed to it the moment you connect.", 8000);
+}
+
+function loadWaypointCsv(text, fname){
+  var t = tableFrom(text);
+  if (!t.head) { notice("bad", fname + ": no header row found."); return; }
+  if (t.head.indexOf("dwell_ms") < 0) { notice("bad", fname + ": missing the dwell_ms column."); return; }
+
+  var staged = [];
+  for (var i=0;i<t.recs.length;i++) {
+    var r = t.recs[i], ln = r.__line;
+    function bad(why){ notice("bad", fname + " line " + ln + ": " + why + " Nothing was loaded."); }
+    if (!isInt(r.dwell_ms) || Number(r.dwell_ms) < 0) { bad("dwell_ms must be a whole number of milliseconds, 0 or more."); return; }
+
+    var deg = {}, ok = true;
+    JOINT_DEFS.forEach(function(d){
+      if (!ok) return;
+      var v = String(r[d.col] === undefined ? "" : r[d.col]).trim();
+      if (v === "" || v === "-" || v === "–") { deg[d.id] = null; return; }
+      if (!isInt(v)) { bad(d.col + ' must be a whole number of degrees, or "-" to leave that joint alone.'); ok = false; return; }
+      var n = Number(v);
+      if (n < 0 || n > 180) { bad(d.col + " " + n + " is outside 0–180 degrees."); ok = false; return; }
+      deg[d.id] = n;   /* NOT checked against the joint's limits — clamping is the firmware's job
+                          and it reports CL=1 when it happens. */
+    });
+    if (!ok) return;
+
+    staged.push({ label:String(r.label || ("step " + (staged.length+1))), deg:deg, dwell:Number(r.dwell_ms) });
+  }
+
+  if (!staged.length) { notice("bad", fname + ": no waypoint rows found."); return; }
+  waypoints = staged;
+  renderWaypoints();
+  notice("ok","Loaded " + staged.length + " waypoint(s) from " + fname + ".", 6000);
+}
+
+function saveWaypointCsv(){
+  if (!waypoints.length) { notice("warn","There are no waypoints to save yet."); return; }
+  var out = [WP_COLS.join(",")];
+  waypoints.forEach(function(w, i){
+    var row = [String(i+1), String(w.label).replace(/,/g,";")];
+    JOINT_DEFS.forEach(function(d){
+      var v = w.deg[d.id];
+      row.push(v === null || v === undefined ? "-" : String(v));
+    });
+    row.push(String(w.dwell));
+    out.push(row.join(","));
+  });
+  var d = new Date();
+  function p2(n){ return (n<10?"0":"") + n; }
+  var name = "waypoints-" + d.getFullYear() + "-" + p2(d.getMonth()+1) + "-" + p2(d.getDate()) +
+             "-" + p2(d.getHours()) + p2(d.getMinutes()) + ".csv";
+  var url = URL.createObjectURL(new Blob([out.join("\n") + "\n"], { type:"text/csv" }));
+  var a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+}
+
+function readFile(input, handler){
+  var f = input.files && input.files[0];
+  if (!f) return;
+  var fr = new FileReader();
+  fr.onload = function(){ handler(String(fr.result), f.name); input.value = ""; };
+  fr.onerror = function(){ notice("bad","Could not read " + f.name + "."); input.value = ""; };
+  fr.readAsText(f);
+}
+
+
+/* ==========================================================================
+   LOG
+   ========================================================================== */
+var logCount = 0;
+function logLine(kind, text){
+  var box = el("logLines");
+  var div = document.createElement("div");
+  div.className = "l-" + kind;
+  div.textContent = text;
+  box.appendChild(div);
+  if (++logCount > LOG_MAX) { box.removeChild(box.firstChild); logCount--; }
+  box.scrollTop = box.scrollHeight;
+}
+
+
+/* ==========================================================================
+   BOOT
+   ========================================================================== */
+buildCards();
+buildWpHead();
+renderWaypoints();
+paintAll();
+
+el("btnPorts").onclick = function(){
+  if (USE_BRIDGE) refreshPorts();
+  else T.choosePort().then(function(){ return refreshPorts(); })
+                     .catch(function(){ /* the picker was dismissed */ });
+};
+if (!USE_BRIDGE) el("btnPorts").textContent = "CHOOSE PORT";
+
+/* DISCONNECT while joints are driven leaves the arm attached and holding, with
+   nothing but the firmware watchdog to shut it down a few seconds later. That
+   may be exactly what somebody wants, but it must be a decision, not a
+   side-effect of clicking the button that used to say CONNECT. */
+el("btnConnect").onclick    = function(){
+  if (connState === "off") { connect(); return; }
+  var live = JOINT_DEFS.filter(function(d){ return J[d.id].en; })
+                       .map(function(d){ return d.name; });
+  if (!live.length) { teardown(); return; }
+  var ok = window.confirm(
+    "These joints are still enabled and holding:\n\n    " + live.join(", ") + "\n\n" +
+    "Disconnecting stops this page commanding the arm. Press OK to detach them first — " +
+    "A GRAVITY-LOADED ARM SAGS WHEN IT IS DETACHED, so support it before you continue.\n\n" +
+    "Cancel to stay connected.");
+  if (!ok) return;
+  send("DIS A").catch(function(){}).then(function(){ teardown(); });
+};
+el("btnEstop").onclick      = doEstop;
+el("btnHold").onclick       = doHold;
+el("btnClear").onclick      = doClear;
+el("btnDisableAll").onclick = doDisableAll;
+el("btnRecord").onclick     = recordWaypoint;
+el("btnPlay").onclick       = function(){ playFrom(0, waypoints.length-1, el("chkLoop").checked); };
+
+/* STOP PLAYBACK USED NOT TO STOP THE ARM.
+   It set playAbort, which unwinds a JavaScript promise chain and nothing else.
+   The MOV already accepted by the firmware was untouched, and the interpolator
+   carried on walking the joint to the old target. Send STP first — that is the
+   command that actually stops motion — and only then abort the chain. */
+el("btnStopPlay").onclick   = function(){
+  var linked = (connState === "on");
+  var p = sendHold();
+  playAbort = true;
+  setPlayState("Stopping…");
+  p.then(function(){
+    /* Never claim the arm was frozen when there was no link to freeze it with —
+       sendHold resolves immediately in that case and has sent nothing. */
+    setPlayState(linked
+      ? "Playback stopped — joints frozen where they are, still powered and holding."
+      : "Playback stopped on this page only. THERE IS NO LINK TO THE CONTROLLER, so nothing was " +
+        "sent to stop the arm. Switch the KCD1 rocker OFF if it is still moving.");
+  }).catch(function(e){
+    notice("bad","STOP PLAYBACK could not reach the controller: " +
+                 plainErr(e && e.message ? e.message : String(e)) +
+                 " If the arm is still moving, press E-STOP or switch the KCD1 rocker OFF.");
+  });
+};
+el("btnSaveCsv").onclick    = saveWaypointCsv;
+el("fileWp").onchange       = function(){ readFile(this, loadWaypointCsv); };
+el("fileLim").onchange      = function(){ readFile(this, loadLimitsCsv); };
+el("btnCopyLog").onclick    = function(){
+  var txt = el("logLines").innerText;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(function(){ notice("ok","Serial log copied.", 2500); },
+                                           function(){ notice("warn","Could not copy. Select the log text by hand."); });
+  } else notice("warn","Copying is not available here. Select the log text by hand.");
+};
+el("btnClearLog").onclick   = function(){ el("logLines").innerHTML = ""; logCount = 0; };
+
+/* Deliberately NO keyboard shortcut for the e-stop. Escape is the universal
+   "back out of this" key — wiring it to a detach-everything would fire while
+   somebody was simply cancelling the adopt-angle box, and a gravity-loaded arm
+   sags when it is detached. The button is the e-stop. */
+
+/* LEAVING THE PAGE WITH THE ARM DRIVEN.
+   The old handler called T.tx("!") without awaiting it. On the bridge route
+   that is a fetch() started during unload, and a browser is under no obligation
+   to send it — the document is being torn down underneath it. So the one thing
+   this page could still do for the operator was the thing least likely to
+   happen. navigator.sendBeacon exists precisely for this: the browser takes
+   ownership of the request and sends it after the page is gone.
+
+   The body must NOT be application/json. That makes it a non-simple
+   cross-origin request, sendBeacon cannot run the preflight, and it silently
+   fails. text/plain keeps it a simple request; arm-bridge.py json.loads the
+   body without looking at Content-Type, so it parses the same either way.
+
+   Web Serial has no beacon equivalent — a best-effort synchronous write is
+   genuinely all there is. Either way this is a courtesy, not a guarantee:
+   THE ROCKER SWITCH IS THE STOP THAT WORKS. */
+function unloadEstop(){
+  if (connState !== "on") return;
+  if (USE_BRIDGE && navigator.sendBeacon) {
+    try {
+      navigator.sendBeacon(BRIDGE_URL + "/tx",
+        new Blob([JSON.stringify({ data:"!" })], { type:"text/plain;charset=UTF-8" }));
+      return;
+    } catch (err) { /* fall through to the best-effort write */ }
+  }
+  try { T.tx("!"); } catch (err) {}
+}
+window.addEventListener("beforeunload", unloadEstop);
+/* pagehide fires in cases beforeunload does not (bfcache, mobile task switch). */
+window.addEventListener("pagehide", unloadEstop);
+
+/* ---- background-tab supervision ------------------------------------------
+   See the long note beside WATCHDOG_MS. A hidden tab's timers are clamped to
+   roughly once a minute, so the heartbeat this page sends is NOT dependable
+   while the operator is looking at something else. We cannot fix that — no
+   browser API lets a file:// page opt out — so we refuse to pretend otherwise
+   and say plainly that motion is unsupervised. */
+function showBgWarning(){ el("bgStrip").classList.remove("hidden"); }
+function hideBgWarning(){ el("bgStrip").classList.add("hidden"); }
+
+document.addEventListener("visibilitychange", function(){
+  tabHidden = (document.visibilityState === "hidden");
+
+  if (tabHidden) {
+    if (connState === "on") {
+      showBgWarning();
+      logLine("evt", "; tab hidden — heartbeat is no longer dependable");
+    }
+    return;
+  }
+
+  hideBgWarning();
+  if (connState !== "on") return;
+
+  /* Back in front. Timers resume on their own, but everything on screen is as
+     old as the throttling was long, and the firmware watchdog may have detached
+     every joint while we were away (that arrives as EVT WDOG, which handleEvt
+     already latches). Ask for the truth rather than repainting stale numbers.
+
+     Deliberately only STA — NOT pushState. LIM/SPD/MIR are refused with ERR E9
+     while a joint is enabled, and joints usually are enabled at this point. */
+  logLine("evt", "; tab visible — re-syncing status");
+  staFreshMs = 0;
+  statusPoll().then(function(){
+    if (sys.es) return;
+    notice("ok","Back in front. Status re-read from the controller.", 3500);
+  });
+});
+
+/* Transport availability. Never look subtly broken. */
+if (!USE_BRIDGE && !HAS_WEBSERIAL) {
+  el("portSel").disabled = true;
+  el("btnPorts").disabled = true;
+  el("btnConnect").disabled = true;
+  notice("bad",
+    "This page needs Google Chrome or Microsoft Edge when opened directly from a file. " +
+    'Or double-click "START ARM GUI.bat" to run it through the local bridge instead.');
+} else {
+  refreshPorts();
+  if (!USE_BRIDGE) {
+    notice("warn","No-install mode: this page is talking to the board through Chrome itself. " +
+                  "Press CHOOSE PORT and pick the Arduino. If the port list empties after a reload, " +
+                  'just choose it again — or use "START ARM GUI.bat", which remembers it.', 12000);
+  }
+}
+
+notice("warn",
+  "Every joint below is UNCALIBRATED until someone bench-tests it. 70–110° is a placeholder, " +
+  "not this arm's travel. Nothing is driven until you enable a joint and tell it the angle it is sitting at.",
+  15000);
+</script>

@@ -1,0 +1,68 @@
+# joint-limits.csv - per-joint travel limits for factorylm_arm_controller
+#
+# EVERY NUMBER IN THIS FILE IS A PLACEHOLDER. Nobody has measured this arm.
+# 70-110 is the same conservative default the single-servo bench sketch uses.
+# It is NOT the mechanical travel of any joint here. Exactly one provisional
+# unloaded calibration row exists in this whole project.
+#
+# HOW TO FILL THIS IN - ONE JOINT AT A TIME:
+#   1. Bench-test that joint on its own with
+#      Software/emre_kalem_single_servo_bench_test, horn OFF, following
+#      Documentation/HOW-TO-TEST-EACH-SERVO.md.
+#   2. Find where it actually stops each way - the angle at which the joint
+#      reaches a mechanical limit or the servo starts to buzz and strain.
+#   3. Back off a few degrees from each end. That margin is the whole point.
+#   4. Put those two numbers in min_deg and max_deg. Set home_deg to a safe
+#      resting angle between them. Set calibrated to yes.
+#   5. Write the same numbers into Calibration_Notes/calibration-log.csv.
+#   6. In the arm console press LOAD LIMITS FILE and pick this file again.
+#
+# Only ever set calibrated=yes for a joint YOU measured. A row still sitting at
+# 70-110 with calibrated=yes is a lie the console will believe and repeat, and
+# the amber UNCALIBRATED badge is the only thing that would have warned you.
+#
+# Row joint_id=1 (shoulder) also needs mirror_mode before it can be enabled at
+# all. See that row's notes.
+#
+# ABOUT mirror_offset_deg - THE LAST COLUMN, AND WHY IT IS 0 EVERYWHERE
+#   It only means anything on the joint_id=1 row, and only when
+#   mirror_mode=inverted. It is the number of degrees the shoulder's mirror axis
+#   sits away from 90.
+#
+#   "Inverted" means the two shoulder servos turn opposite ways, mirrored about
+#   some centre angle. If the two horns were fitted perfectly symmetrically that
+#   centre is exactly 90 and the offset is 0. Horns fit on a splined shaft in
+#   whole-tooth steps - about 18 degrees apart on an MG996R - so perfectly
+#   symmetrical is the exception, not the rule. If the true mirror axis is
+#   really 96 degrees and you leave this at 0, the two servos are permanently
+#   fighting each other by 12 degrees the whole time joint 1 is enabled. They
+#   will hold, get hot, and eventually strip a gear.
+#
+#   0 IS A PLACEHOLDER, EXACTLY LIKE 70-110. Nobody has measured this arm, so
+#   nobody knows the real number. MEASURE IT, DO NOT GUESS IT:
+#     1. Do the mirror_mode test first (see the joint_id=1 row). You need to
+#        know it is inverted before an offset means anything.
+#     2. With the shoulder linkage UNBOLTED and the horns off, use the
+#        single-servo bench sketch on D4 and D5 SEPARATELY - never paired.
+#     3. Find the angle you must command each servo so the two output shafts
+#        point at each other in the same physical direction. Call them a and b.
+#     4. mirror_offset_deg = (a + b) / 2 - 90, rounded to a whole number.
+#        Both at 90 gives 0. a=84 and b=108 gives 6.
+#     5. Write it here, log it in Calibration_Notes/calibration-log.csv with how
+#        you measured it, and press LOAD LIMITS FILE again.
+#   Whole signed degrees only. Leave it at 0 until you have actually measured
+#   it - a wrong offset is worse than none, because it looks deliberate.
+#
+# There is deliberately NO row for joint_id 2. D5 is the second servo of the
+# shoulder pair and is never commanded on its own. The gap is not a mistake.
+#
+# Full column reference and legal values: Documentation/SERIAL-PROTOCOL.md
+# Do not put a comma inside any field. Use a semicolon or a dash.
+#
+joint_id,joint_name,uno_pins,min_deg,max_deg,home_deg,max_deg_per_sec,calibrated,mirror_mode,notes,mirror_offset_deg
+0,Base,D3,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG996R (type INFERRED from the BOM). Support the arm against rotation while testing.,0
+1,Shoulder,D4+D5,70,110,90,30,no,unknown,UNCALIBRATED and mirror_mode=unknown - this joint CANNOT be enabled until both are fixed. Determine the mirror at the bench with the single-servo sketch: centre D4 and D5 separately and never paired; note whether they must be given the same angle or mirrored about 90; then set mirror_mode to same or inverted. Guessing it makes two MG996Rs fight through one link and strip gears. Two MG996R (type INFERRED from the BOM). If it turns out to be inverted then also measure mirror_offset_deg - see the header block.,0
+3,Elbow,D6,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG996R (type INFERRED from the BOM). Lightest of the four MG996R joints - a sensible one to calibrate first.,0
+4,Wrist pitch,D9,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter.,0
+5,Wrist roll,D10,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (DOC-CONFIRMED; the only confirmed servo type on the arm) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. Least mechanical load of all seven.,0
+6,Gripper,D11,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. The useful range here is open-to-closed rather than a mechanical travel limit; the linkage may be loose. This is the servo that was actually on D3 in the one existing calibration-log row.,0
