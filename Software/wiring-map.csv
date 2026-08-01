@@ -1,0 +1,8 @@
+index,servo_name,uno_pin,servo_type,servo_type_source,first_test_note
+0,Base,D3,MG995/MG996R,INFERRED,Center unloaded; support arm against rotation
+1,Shoulder left,D4,MG995/MG996R,INFERRED,Center separately; never paired on the bench-test sketch
+2,Shoulder right,D5,MG995/MG996R,INFERRED,Center separately; mirror only when paired by the real controller
+3,Elbow,D6,MG995/MG996R,INFERRED,Support arm link / forearm
+4,Wrist pitch,D9,MG90S,INFERRED,Low load
+5,Wrist roll,D10,MG90S,DOC-CONFIRMED,Best first servo - least mechanical load
+6,Gripper,D11,MG90S,INFERRED,Linkage loose at first
