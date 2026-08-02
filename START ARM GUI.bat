@@ -40,6 +40,13 @@ echo.
 
 if not exist "%BRIDGE%" goto NOBRIDGE
 
+REM ---- preflight: clear stale bridges, and NAME whatever else holds the port.
+REM Only one program can hold a serial port. A leftover bridge, the Arduino IDE
+REM Serial Monitor, or a browser tab using Web Serial will each lock the others
+REM out, and the failure reads like a hardware fault when it is not.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%Documentation\preflight-arm-gui.ps1"
+if errorlevel 1 goto PORTBUSY
+
 echo  Looking for a Python that can talk to the USB port...
 
 REM ---- pass 1: find a Python that ALREADY has pyserial ----
@@ -103,6 +110,15 @@ echo  Double-click START ARM GUI.bat again to restart it.
 echo.
 pause
 exit /b 0
+
+
+:PORTBUSY
+echo.
+echo  Nothing was started, because the board is already in use.
+echo  The message above names what to close.
+echo.
+pause
+exit /b 1
 
 
 :NOBRIDGE
