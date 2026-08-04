@@ -140,6 +140,7 @@ miss an e-stop it did not initiate.
 | `SPD` | `<j> <dps>` | `OK SPD J<j> DPS=…` | Slew rate, 1–90 degrees per second. |
 | `STP` | — | `OK STP` | Abort motion on every enabled joint; hold the last commanded value. Joints stay driven. **Not an emergency stop.** |
 | `STP` | `<j>` | `OK STP J<j>` | Abort motion on one joint only. `E4` bad/reserved id, `E6` not enabled. |
+| `JOG` | `<j> <-1\|0\|1>` | `OK JOG J<j> DIR=<d>` | Jog toward the envelope edge and arm the command-age timer. `0` aborts and holds. **Must be refreshed every 250 ms.** |
 | `EST` | — | `OK EST` | E-STOP: detach everything, drive all pins LOW, **latch**. |
 | `CLR` | — | `OK CLR` | Clear the e-stop / watchdog latch. |
 | `WDG` | `<ms>` | `OK WDG MS=…` | Serial watchdog timeout. `0` = off (the boot default). |
@@ -203,6 +204,36 @@ A joint that is currently **jogging** refuses `LIM` outright with `ERR E9 … ST
 changes nothing at all. A joint the operator is physically holding does not get its envelope
 moved underneath it. The two `STATE=` values have different remedies — *let go of the control*
 versus *disable the joint* — so a host must render them differently.
+
+#### `JOG <j> <dir>` — held motion, with a command-age timeout
+
+`JOG` sets the joint's target to the envelope edge in `dir` and **arms a per-joint command-age
+timer**. `JOG <j> 0` aborts the jog and holds, exactly like `STP <j>`.
+
+**The host must re-send `JOG` every 250 ms while the operator holds the control.** Four
+consecutive misses — **1000 ms** — abort that joint's motion and hold the last commanded value.
+
+`MOV` deliberately does **not** arm the timer. A finite move must run to completion and must never
+be cut short by a timeout it did not ask for. `MOV`, `STP`, `DIS`, `EST` and `CLR` all clear it.
+
+##### The timeout is silent, and latches instead
+
+**Nothing is emitted when a jog times out.** No `EVT`, no unsolicited line of any kind. The
+condition that fires it is, by definition, the host having stopped listening — writing into that
+channel buys nothing and adds an unsolicited line to a strict accumulate-until-terminator reader.
+
+Instead the firmware latches a per-joint flag, surfaced as `JTO=<0|1>` on every `STA` joint line:
+
+> `JTO=1` — this joint's last jog ended because the controller stopped hearing from the host, not
+> because the operator let go.
+
+It is cleared by any accepted `JOG`, `STP`, `MOV`, `DIS`, `CLR`, or a board reset — any deliberate
+operator action addressed to that joint. **Never by the passage of time.** A host should render it
+as a fault, not as a normal stop: a hold nobody asked for is a symptom.
+
+The jog timeout **holds**; it does not detach and does not latch the machine. `EST` and the `WDG`
+watchdog do detach and latch, and a de-energised gravity-loaded arm sags. The jog timer is the
+fine net for a stalled control; `WDG` is the coarse net for a dead host.
 
 #### `MOV <j> <deg>` — clamps and reports; never silently
 
@@ -402,6 +433,7 @@ uppercased three-letter verb that caused it.
 | `E10` | `LIMITS` | `ERR E10 LIM JOINT=<j> …` | the `LIM` operands themselves are illegal |
 | `E11` | `MIRARG` | `ERR E11 MIR …` | the `MIR` mode word or offset is illegal |
 | `E12` | `SPEED` | `ERR E12 SPD JOINT=<j> REQ=… MIN=1 MAX=90` | slew rate outside 1–90 °/s |
+| `E14` | `JOGDIR` | `ERR E14 JOG JOINT=<j> REQDIR=<d>` | jog direction outside `-1..+1` |
 | `E13` | `MIRROR` | `ERR E13 ENA JOINT=1 MIR=UNKNOWN` | tried to enable joint 1 while the mirror is unknown |
 
 `E8` is the one error that does **not** echo a verb: the line was refused *before* it was

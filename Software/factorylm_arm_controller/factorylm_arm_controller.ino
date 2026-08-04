@@ -179,6 +179,20 @@ const uint8_t  LIM_MIN_SPAN_DEG = 5;
 
 const uint8_t  SPD_MIN_DPS =  1,     SPD_MAX_DPS  = 90;
 const uint16_t WDG_MIN_MS  = 200,    WDG_MAX_MS   = 10000;
+
+// Jog heartbeat.  The host re-sends JOG every JOG_BEAT_MS while the operator
+// holds the control; four consecutive misses abort that joint's motion and hold.
+//
+// Derived from the MEASURED command path, not guessed.  The console is a strict
+// one-command-in-flight FIFO; with routine PNG/STA polling paused during a jog a
+// round trip is ~60-120 ms, and with it running it is 180-300 ms.  A 600 ms
+// timeout would have left only 2-3 beats of margin in the good case, so a single
+// queue hiccup could false-trip a jog still being held.
+//
+// 1000 ms is still 4x tighter than the WDG serial watchdog, and at the default
+// 30 deg/s a 1000 ms overrun is 30 degrees - bounded by the envelope regardless.
+const uint16_t JOG_BEAT_MS    = 250;
+const uint16_t JOG_TIMEOUT_MS = 1000;
 const uint8_t  TICK_MS     = 20;     // interpolator period
 const uint8_t  TICK_CAP_MS = 200;    // largest elapsed slice honoured after a stall
 
@@ -473,6 +487,11 @@ static void disableJoint(uint8_t i) {
 
   j[i].en   = false;
   j[i].tgtC = j[i].setC;   // no stale target survives to the next enable
+
+  // The single choke point for DIS, DIS A, EST, '!' and the watchdog, so the jog
+  // state is cleared for all five here rather than in each caller.
+  j[i].jogActive   = false;
+  j[i].jogTimedOut = false;
 }
 
 // Adopt-before-drive.  adoptDeg is the operator's by-eye estimate of where the
@@ -553,7 +572,11 @@ static void doSta() {
     Serial.print(F(" MAX="));      Serial.print(j[i].maxD);
     Serial.print(F(" CAL="));      Serial.print(j[i].cal ? 1 : 0);
     Serial.print(F(" DPS="));      Serial.print(j[i].dps);
-    Serial.print(F(" MOV="));      Serial.println((j[i].en && j[i].setC != j[i].tgtC) ? 1 : 0);
+    Serial.print(F(" MOV="));      Serial.print((j[i].en && j[i].setC != j[i].tgtC) ? 1 : 0);
+    // JTO=1: this joint's last jog ended because the controller stopped hearing
+    // from the host, NOT because the operator let go.  Latched - the timeout
+    // itself is silent on the wire, so this field is the only way to find out.
+    Serial.print(F(" JTO="));      Serial.println(j[i].jogTimedOut ? 1 : 0);
   }
   Serial.print(F("SYS ES="));   Serial.print(estopLatched ? 1 : 0);
   Serial.print(F(" WD="));      Serial.print(wdgTripped ? 1 : 0);
@@ -790,6 +813,11 @@ static void doMov(uint8_t i, int32_t deg) {
   if (applied > (int32_t)j[i].maxD) { applied = (int32_t)j[i].maxD; cl = 1; }
   j[i].tgtC = (int16_t)(applied * 100);
 
+  // A finite move ENDS the jog and does not inherit its timeout.  Whatever the
+  // operator is doing now, it is not holding a joystick toward the envelope.
+  j[i].jogActive   = false;
+  j[i].jogTimedOut = false;
+
   okPre();
   Serial.print(F(" J"));     Serial.print(i);
   Serial.print(F(" REQ="));  Serial.print(deg);
@@ -827,7 +855,12 @@ static void doSpd(uint8_t i, int32_t dps) {
 //
 // Bare STP keeps its original meaning: abort every enabled joint.
 static void doStp() {
-  for (uint8_t i = 0; i < NJ; i++) if (j[i].en) j[i].tgtC = j[i].setC;
+  for (uint8_t i = 0; i < NJ; i++) {
+    if (!j[i].en) continue;
+    j[i].tgtC        = j[i].setC;
+    j[i].jogActive   = false;
+    j[i].jogTimedOut = false;
+  }
   okDone();
 }
 
@@ -836,10 +869,53 @@ static void doStp() {
 // indistinguishable; with several live, the difference is the whole point.
 static void doStpJoint(uint8_t i) {
   if (!j[i].en) { errJ(F("E6"), i); return; }
-  j[i].tgtC = j[i].setC;
+  j[i].tgtC        = j[i].setC;
+  j[i].jogActive   = false;   // an operator stop also disarms the jog timer
+  j[i].jogTimedOut = false;   // ...and retires the fault it may have recorded
   okPre();
   Serial.print(F(" J"));
   Serial.println(i);
+}
+
+// JOG j dir.  dir is -1, 0 or +1.  Sets the target to the envelope edge in that
+// direction and ARMS a per-joint command-age timer.  dir 0 aborts the jog and
+// holds, exactly like STP <j>.
+//
+// JOG is a separate verb from MOV on purpose: a finite move - the host's exact
+// angle entry, a waypoint - must run to completion and must never be cut short
+// by a timeout it did not ask for.  Only JOG arms the timer; MOV clears it.
+//
+// ANY accepted JOG also clears that joint's JTO latch: reaching here at all
+// means the host is talking again, which is what the latch recorded the absence
+// of.
+static void doJog(uint8_t i, int32_t dir) {
+  // Order mirrors doEna: latch first, then the ARGUMENT, then joint state.  A
+  // direction outside -1..+1 is malformed whatever the joint is doing, and
+  // reporting E6 for it would send the operator to look at the wrong thing.
+  if (estopLatched) { errJ(F("E7"), i); return; }
+  if (dir < -1 || dir > 1) {
+    errJPre(F("E14"), i);
+    Serial.print(F(" REQDIR="));
+    Serial.println(dir);
+    return;
+  }
+  if (!j[i].en) { errJ(F("E6"), i); return; }
+
+  j[i].jogTimedOut = false;
+
+  if (dir == 0) {
+    j[i].tgtC      = j[i].setC;
+    j[i].jogActive = false;
+  } else {
+    // Centidegrees: minD/maxD are whole degrees, tgtC is centidegrees.
+    j[i].tgtC      = (int16_t)(dir > 0 ? j[i].maxD : j[i].minD) * 100;
+    j[i].jogActive = true;
+    j[i].jogMs     = millis();
+  }
+
+  okPre();
+  Serial.print(F(" J"));    Serial.print(i);
+  Serial.print(F(" DIR=")); Serial.println(dir);
 }
 
 static void doEst(const __FlashStringHelper* src) {
@@ -853,6 +929,7 @@ static void doClr() {
   // joint without a deliberate operator action.
   estopLatched = false;
   wdgTripped   = false;
+  for (uint8_t i = 0; i < NJ; i++) j[i].jogTimedOut = false;
   okDone();
 }
 
@@ -883,7 +960,10 @@ static void doHlp() {
   Serial.println(F("; DIS j   |   DIS A        detach one / detach all"));
   Serial.println(F("; MOV j deg                set target; clamped, reply shows CL=1"));
   Serial.println(F("; SPD j dps                1..90 deg/s"));
-  Serial.println(F("; STP                      freeze targets, stay attached"));
+  Serial.println(F("; STP [j]                  abort motion, hold, stay attached"));
+  Serial.print  (F("; JOG j -1|0|1             jog to envelope edge; resend every "));
+  Serial.print(JOG_BEAT_MS);
+  Serial.println(F(" ms"));
   Serial.println(F("; EST (or !)               E-STOP: detach all + latch.  CLR clears"));
   Serial.println(F("; WDG ms                   0=off else 200..10000; host silence=stop"));
   Serial.println(F("; SYS WD=1 means the latch came from the watchdog, not the operator"));
@@ -977,6 +1057,14 @@ static void dispatch() {
     if (!intArg(0, &a0)) return;
     if (!jointArg(a0, &id)) return;
     doDis(id);
+    return;
+  }
+
+  if (VIS('J','O','G')) {
+    if (tokc != 2) { badArgc(); return; }
+    if (!intArg(0, &a0) || !intArg(1, &a1)) return;
+    if (!jointArg(a0, &id)) return;
+    doJog(id, a1);
     return;
   }
 
@@ -1176,6 +1264,28 @@ void loop() {
         j[i].setC += (int16_t)d;
         writeJoint(i);
       }
+    }
+  }
+
+  // ---- jog command-age timeout --------------------------------------------
+  // SILENT ON PURPOSE.  Nothing is printed here.  The condition that fires this
+  // is, by definition, "the host stopped talking to us", so writing into that
+  // channel buys nothing and adds an unsolicited line to a reader that is a
+  // strict accumulate-until-terminator FIFO.  The state is LATCHED instead and
+  // surfaced on STA as JTO=1, so a host that was away still learns what happened
+  // when it comes back.
+  //
+  // Holds rather than detaches: a detached gravity-loaded arm sags, which is
+  // worse than holding.  Deliberately gentler than the WDG watchdog below, which
+  // is the coarse net for a dead host.
+  //
+  // Rollover-safe unsigned subtraction, the same idiom as the tick and the
+  // watchdog.  jogActive - never "jogMs != 0" - is what says a jog is running.
+  for (uint8_t i = 0; i < NJ; i++) {
+    if (j[i].en && j[i].jogActive && (uint32_t)(now - j[i].jogMs) > JOG_TIMEOUT_MS) {
+      j[i].tgtC        = j[i].setC;
+      j[i].jogActive   = false;
+      j[i].jogTimedOut = true;
     }
   }
 
