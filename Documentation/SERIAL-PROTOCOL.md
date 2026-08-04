@@ -189,6 +189,21 @@ Limits are enforced in **logical joint space**. The physical write path applies 
 mirroring or pulse-width conversion, so the shoulder's second servo is derived from an
 already-clamped logical command and is never commanded directly.
 
+#### `LIM` on a joint that is already driven
+
+Accepted, **provided the new range still contains that joint's own commanded value.** A range
+that would exclude it is refused with `ERR E9 … STATE=enabled` — applying it would turn a limit
+edit into an unrequested move, which is precisely what `E9` was written to prevent. This narrows
+the refusal rather than removing it.
+
+A pending target outside the new range is **clamped inward**. Clamping can only make a move
+*shorter*, so **a limit edit can never create travel.**
+
+A joint that is currently **jogging** refuses `LIM` outright with `ERR E9 … STATE=jogging` and
+changes nothing at all. A joint the operator is physically holding does not get its envelope
+moved underneath it. The two `STATE=` values have different remedies — *let go of the control*
+versus *disable the joint* — so a host must render them differently.
+
 #### `MOV <j> <deg>` — clamps and reports; never silently
 
 Out-of-range moves are **accepted, clamped, and flagged** rather than rejected. This
@@ -383,7 +398,7 @@ uppercased three-letter verb that caused it.
 | `E6` | `STATE` | `ERR E6 <VERB> JOINT=<j>` | `MOV` on a disabled joint, or `ENA` on an enabled one |
 | `E7` | `ESTOP` | `ERR E7 <VERB> JOINT=<j>` | the e-stop / watchdog latch is set — send `CLR` first |
 | `E8` | `LINE` | `ERR E8 LINE` | inbound line exceeded 48 chars; discarded, not acted on |
-| `E9` | `MODE` | `ERR E9 <VERB> JOINT=<j> STATE=enabled` | `LIM` or `MIR` while that joint is enabled |
+| `E9` | `MODE` | `ERR E9 <VERB> JOINT=<j> STATE=enabled\|jogging` | `MIR` while joint 1 is enabled; a `LIM` whose new range would not contain that joint's own commanded value (`STATE=enabled`); or any `LIM` on a joint that is currently jogging (`STATE=jogging`) |
 | `E10` | `LIMITS` | `ERR E10 LIM JOINT=<j> …` | the `LIM` operands themselves are illegal |
 | `E11` | `MIRARG` | `ERR E11 MIR …` | the `MIR` mode word or offset is illegal |
 | `E12` | `SPEED` | `ERR E12 SPD JOINT=<j> REQ=… MIN=1 MAX=90` | slew rate outside 1–90 °/s |

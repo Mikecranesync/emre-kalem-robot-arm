@@ -221,6 +221,13 @@ struct Joint {
   uint8_t dps;    // slew rate, degrees per second
   bool    en;     // true only between ENA and DIS
   bool    cal;    // false = these limits are a placeholder, not a measurement
+
+  // Jog state.  jogActive is the ONLY thing that says a jog is running - never
+  // "jogMs != 0", because millis() is exactly 0 once every ~49.7 days and a jog
+  // armed on that tick would never time out.
+  bool     jogActive;
+  bool     jogTimedOut;  // LATCH: the last jog ended because the host went quiet
+  uint32_t jogMs;        // millis() of the last refresh; valid only when jogActive
 };
 Joint j[NJ];
 
@@ -586,7 +593,14 @@ static void doLimList() {
 // a bad min/max pair or a bad cal flag is a different failure with a different
 // remedy, and sharing the code made the GUI's plain-English message wrong.
 static void doLimSet(uint8_t i, int32_t mn, int32_t mx, int32_t cal) {
-  if (j[i].en) { errJPre(F("E9"), i); Serial.println(F(" STATE=enabled")); return; }
+  // A joint the operator is physically holding does not get its envelope moved
+  // underneath it.  Refusing costs one action - let go, then drag - and avoids a
+  // state where the limits and the control are both changing at once.
+  //
+  // Same E9 code, a DIFFERENT detail key: STATE=jogging, not STATE=enabled.  The
+  // remedies differ ("let go" vs "disable the joint"), so the host must be able
+  // to tell them apart without the error space growing.
+  if (j[i].jogActive) { errJPre(F("E9"), i); Serial.println(F(" STATE=jogging")); return; }
 
   if (mn < 0 || mx > 180 || mn >= mx) {
     errJPre(F("E10"), i);
@@ -609,17 +623,39 @@ static void doLimSet(uint8_t i, int32_t mn, int32_t mx, int32_t cal) {
     return;
   }
 
+  // Centidegrees, because setC/tgtC are centidegrees and mn/mx are whole
+  // degrees.  Same *100 conversion clampToLimits and enableJoint already use.
+  int16_t lo = (int16_t)mn * 100, hi = (int16_t)mx * 100;
+
+  // On a DRIVEN joint the new range is accepted only if it still contains that
+  // joint's own commanded value.  A range that would EXCLUDE it is refused,
+  // because applying it would turn a limit edit into an unrequested move - the
+  // operator tidies a number and a loaded arm swings.  That is exactly what E9
+  // was written to prevent; this narrows the refusal rather than removing it.
+  if (j[i].en && (j[i].setC < lo || j[i].setC > hi)) {
+    errJPre(F("E9"), i);
+    Serial.println(F(" STATE=enabled"));
+    return;
+  }
+
+  // ---- every check has passed; only now is anything written ----
   j[i].minD = (uint8_t)mn;
   j[i].maxD = (uint8_t)mx;
   j[i].cal  = (cal == 1);
 
-  // Keep the reported commanded angle inside the new envelope.  The joint is
-  // disabled, so this only tidies what STA displays; ENA overwrites setC with
-  // the operator's adopt angle anyway.
-  int16_t lo = (int16_t)mn * 100, hi = (int16_t)mx * 100;
-  if (j[i].setC < lo) j[i].setC = lo;
-  if (j[i].setC > hi) j[i].setC = hi;
-  j[i].tgtC = j[i].setC;
+  if (j[i].en) {
+    // Driven: setC is already inside the new range (checked above).  A pending
+    // target outside it is clamped INWARD - clamping can only make a move
+    // SHORTER, so a limit edit can never create travel.
+    if (j[i].tgtC < lo) j[i].tgtC = lo;
+    if (j[i].tgtC > hi) j[i].tgtC = hi;
+  } else {
+    // Disabled: tidy the reported commanded angle into the new envelope.  ENA
+    // overwrites setC with the operator's adopt angle anyway.
+    if (j[i].setC < lo) j[i].setC = lo;
+    if (j[i].setC > hi) j[i].setC = hi;
+    j[i].tgtC = j[i].setC;
+  }
 
   okPre();
   Serial.print(F(" J"));      Serial.print(i);
@@ -1048,6 +1084,9 @@ void setup() {
     j[i].dps  = DEF_DPS;
     j[i].en   = false;
     j[i].cal  = false;
+    j[i].jogActive   = false;
+    j[i].jogTimedOut = false;
+    j[i].jogMs       = 0;
   }
 
   lastRxMs   = millis();
