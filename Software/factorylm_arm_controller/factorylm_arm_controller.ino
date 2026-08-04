@@ -172,6 +172,11 @@ const uint8_t DEF_MAX_DEG = 110;
 const int16_t DEF_SET_C   = 9000;  // 90.00 degrees, in centidegrees
 const uint8_t DEF_DPS     =  30;   // degrees per second
 
+// A soft-limit span narrower than this is refused.  Below about 5 degrees the
+// envelope is too tight to jog inside usefully, and a slipped handle would pin a
+// joint against its own limits with no room to back off.
+const uint8_t  LIM_MIN_SPAN_DEG = 5;
+
 const uint8_t  SPD_MIN_DPS =  1,     SPD_MAX_DPS  = 90;
 const uint16_t WDG_MIN_MS  = 200,    WDG_MAX_MS   = 10000;
 const uint8_t  TICK_MS     = 20;     // interpolator period
@@ -565,10 +570,17 @@ static void doLimList() {
   Serial.println(F(" N=6"));
 }
 
-// LIM j min max cal.  Rejected unless the joint is DISABLED - you cannot move
-// the goalposts under a live joint.  CAL is set explicitly from the argument,
-// never inferred: a file that still holds the defaults must stay flagged
-// uncalibrated.
+// LIM j min max cal - ATOMIC.  Every check runs before ANY field is written, so
+// a rejected LIM leaves the previous envelope exactly as it was.  There is no
+// reachable state in which min has been updated and max has not.
+//
+// Rejected unless the joint is DISABLED - you cannot move the goalposts under a
+// live joint.  CAL is set explicitly from the argument, never inferred: a file
+// that still holds the defaults must stay flagged uncalibrated.
+//
+// Limits are enforced in LOGICAL joint space.  The physical write path
+// (clampToLimits -> mirrorC) applies them before any mirroring or pulse-width
+// conversion, so nothing here needs to know about D5.
 //
 // E10, not E5.  E5 is documented as "adopt angle outside this joint's MIN..MAX";
 // a bad min/max pair or a bad cal flag is a different failure with a different
@@ -581,6 +593,13 @@ static void doLimSet(uint8_t i, int32_t mn, int32_t mx, int32_t cal) {
     Serial.print(F(" REQMIN="));  Serial.print(mn);
     Serial.print(F(" REQMAX="));  Serial.print(mx);
     Serial.println(F(" LIMIT=0..180 MIN<MAX"));
+    return;
+  }
+  if ((mx - mn) < (int32_t)LIM_MIN_SPAN_DEG) {
+    errJPre(F("E10"), i);
+    Serial.print(F(" REQMIN="));  Serial.print(mn);
+    Serial.print(F(" REQMAX="));  Serial.print(mx);
+    Serial.print(F(" MINSPAN=")); Serial.println(LIM_MIN_SPAN_DEG);
     return;
   }
   if (cal != 0 && cal != 1) {

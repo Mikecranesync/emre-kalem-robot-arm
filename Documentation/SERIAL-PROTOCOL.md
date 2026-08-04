@@ -175,6 +175,20 @@ highest-risk event in this project — and it would fire on every enable, not ju
 Rejections: `E4` (bad or reserved id), `E7` (latched), `E5` (adopt outside this joint's
 MIN..MAX), `E6` (already enabled), `E13` (joint 1 while `MIR=UNKNOWN`).
 
+#### `LIM <j> <min> <max> <cal>` — atomic, and span-checked
+
+Every argument is validated **before any field is written**, so a rejected `LIM` leaves the
+previous envelope exactly as it was. There is no reachable state in which `min` has been updated
+and `max` has not.
+
+The minimum accepted span is **5°** — `ERR E10 … MINSPAN=5`. Below that the envelope is too tight
+to jog inside usefully, and a slipped handle would pin a joint against its own limits with no room
+to back off.
+
+Limits are enforced in **logical joint space**. The physical write path applies them before any
+mirroring or pulse-width conversion, so the shoulder's second servo is derived from an
+already-clamped logical command and is never commanded directly.
+
 #### `MOV <j> <deg>` — clamps and reports; never silently
 
 Out-of-range moves are **accepted, clamped, and flagged** rather than rejected. This
