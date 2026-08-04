@@ -144,6 +144,26 @@ written to prevent; this narrows the refusal rather than removing it.
 If a pending target falls outside the new range it is **clamped inward**. Clamping can only make
 a move shorter. **A limit edit can never create travel.**
 
+### 6d. `LIM` is refused outright while that joint is jogging
+
+**Settled 2026-08-04, overriding an earlier open question.** A joint with `jogActive = true`
+rejects `LIM` with `ERR E9 LIM JOINT=<j> STATE=jogging` and **changes nothing** — not the
+limits, not the target, not the jog.
+
+The earlier proposal was to clamp the target inward and let the jog continue inside the new
+envelope. That is defensible and it is still more mechanism than this is worth: it means the
+envelope can move underneath a control the operator is physically holding, and the resulting
+motion is a function of two inputs changing at once. Refusing is simpler to reason about, and it
+costs the operator one action — let go, then drag.
+
+`STATE=jogging` is a distinct detail key from the existing `STATE=enabled`, on the same `E9`
+code, so the error space does not grow and the console can render the two differently. The
+console must say *let go of the joystick first*, not *disable the joint first* — they are
+different remedies.
+
+The console disables that joint's envelope handles while it is jogging, so the refusal is a
+backstop rather than the normal path.
+
 ## 7. The joystick
 
 Replaces the position slider. Speed control, not position.
@@ -172,13 +192,71 @@ JOG <j> <-1|0|1>        ->  OK JOG J<j> DIR=<d>
   timer** for that joint.
 - The console re-sends `JOG` every **250 ms** while the joystick is held.
 - If a joint's jog timer is not refreshed within **1000 ms** — four missed heartbeats — the
-  firmware aborts that joint's motion, holds the last commanded value, and emits
-  `EVT JOGTIMEOUT J<j>`.
+  firmware sets `jogActive = false`, sets `tgtC = setC`, and **latches `JOG_TIMEOUT` for that
+  joint**.
 - `JOG <j> 0` and `STP <j>` both clear the timer. So does `DIS`, `EST`, and any `MOV`.
 - **`MOV` does not arm the timer.** A finite move — the `TARGET ANGLE` box, a waypoint — runs to
   completion and must never be cut short by a joystick timeout it did not ask for.
 
 Speed still comes from `SPD`, sent only when the mapped value changes by ≥1 °/s.
+
+### 7a-i. The timeout is silent on the wire — it latches instead
+
+**The firmware emits nothing when a jog times out.** No `EVT`, no unsolicited line of any kind.
+The host discovers it by reading state.
+
+Reason: the console is a strict one-command-in-flight FIFO that accumulates lines until an
+`OK`/`ERR` terminator. Every asynchronous line is a special case in that reader, and the one
+condition guaranteed to coincide with a jog timeout is *the host having stopped listening*.
+Emitting into a channel whose reader is, by definition, possibly gone buys nothing and adds a
+desync path.
+
+So the timeout sets a **per-joint latch**, surfaced as a new field on the existing status line:
+
+```
+STA J<i> EN=… SET=… TGT=… MIN=… MAX=… CAL=… DPS=… MOV=… JTO=<0|1>
+```
+
+`JTO=1` means *this joint's last jog ended because the controller stopped hearing from the host,
+not because the operator let go*. It persists until explicitly cleared, so a host that was away
+still learns what happened when it comes back.
+
+**The latch is cleared by** any accepted `JOG <j> ±1`, `JOG <j> 0`, `STP <j>`, bare `STP`,
+`MOV <j>`, `DIS <j>`, `DIS A`, `CLR`, or a board reset. In short: any deliberate operator action
+addressed to that joint clears it. Nothing clears it implicitly with time.
+
+**The console must render `JTO=1` as a fault, not as a normal stop.** A hold nobody asked for is
+a symptom — it means the USB cable, the bridge, or the tab stopped delivering.
+
+### 7a-ii. Heartbeats are never queued and never replayed
+
+A heartbeat is only meaningful if it is *fresh*. A queued one asserts, on arrival, that a hand
+was on the control at a moment that has already passed.
+
+- The console sends a heartbeat **only when the command channel is completely free** — nothing
+  in flight and nothing queued.
+- A heartbeat is **never** buffered, coalesced, or retried. If the channel is busy when the beat
+  fires, that beat is **dropped**, not deferred.
+- If the channel stays busy for four consecutive beats, the firmware times out. That is correct:
+  a command channel that cannot pass a single short line in a second **is** a stalled host, which
+  is exactly what the timeout exists to catch.
+
+### 7a-iii. Routine polling pauses while a jog is active
+
+`PNG` (250 ms) and `STA` (250 ms) both **stop** for the duration of a hold, and resume the moment
+it ends. During a jog the only traffic is the `JOG` heartbeat and any `SPD` change.
+
+- This gives the 1000 ms timeout a channel it does not have to share, turning the measured
+  180–300 ms three-way rotation into a single ~60–120 ms round trip.
+- **The firmware's serial watchdog is not endangered.** `lastRxMs` is fed by *any* fully-parsed
+  line reaching a handler, and `JOG` is one — so a 250 ms heartbeat feeds the 4000 ms `WDG`
+  exactly as `PNG` did.
+- **Consequence to be honest about in the UI:** `STA` is the only writer of the commanded-angle
+  readout, so while a jog is held **that number stops updating even though the joint is moving.**
+  It must not be left looking like a live reading. During a hold the console shows the joint as
+  moving and the numeric readout as stale — the true commanded angle arrives on the first `STA`
+  after release. Displaying a frozen number as though it were current would be the same class of
+  lie as the banned word *position*.
 
 **The timing is derived from the measured command path (Task 0 §9), revised up from a first
 guess of 200/600.** The console is a strict **one-command-in-flight FIFO** and already carries
@@ -215,8 +293,13 @@ firmware use rollover-safe unsigned subtraction; the jog check must match that i
 | | What it does | What it does **not** do |
 |---|---|---|
 | `STP <j>` (operator) | aborts that joint's interpolation, holds the commanded value | remove power; detach; know the shaft angle |
-| Jog timeout (fault) | same, plus `EVT JOGTIMEOUT J<j>` | remove power; detach; latch |
+| Jog timeout (fault) | same, plus latches `JTO=1` for that joint — **silent on the wire** | remove power; detach; latch *motion*; say anything unsolicited |
 | `EVT WDOG` (existing) | detaches every joint and latches, after 4000 ms of host silence | remove power |
+
+"Latch" means two different things in those rows and the difference matters. The jog timeout
+latches a **flag** — the joint stays powered and holding, and any deliberate command clears it.
+`EST` and the watchdog latch **the machine** — every joint is detached and nothing moves again
+until `CLR`.
 | `EST` / `!` | detaches every channel, drives pins low, **latches** | remove power — the rocker does that |
 
 The console must render a jog timeout differently from a stop the operator asked for. A hold the
@@ -308,6 +391,20 @@ Firmware boot defaults stay conservative and compiled-in. No EEPROM (§2).
 
 ## 11. Verification
 
+### 11-0. Operational rule for every test in this document
+
+**Exactly one transmitting client at a time.** Close the browser tab before running
+`protocol_check.py`, and stop the harness before reconnecting the console.
+
+`Link.tx()` in the bridge takes its lock only to read the port handle and then calls
+`ser.write()` **outside** it, on a `ThreadingHTTPServer` — so two clients transmitting at once
+can interleave bytes mid-line. The console alone cannot do this (single-in-flight FIFO), and
+nothing today triggers it.
+
+**That defect is deliberately kept separate from this feature.** It is one line, it belongs in
+its own commit with its own verification, and folding it in here would hide a transport fix
+inside a motion-control change. Until it is fixed, the rule above is the mitigation.
+
 ### 11a. The protocol harness — non-motion by default
 
 `Software/tests/protocol_check.py` must be **safe to run with servo power on**. Its default mode
@@ -319,8 +416,11 @@ excess arguments; invalid and reserved joint ids; reversed, equal, and out-of-ra
 below the minimum; trailing garbage; overlong input; repeated identical commands; reply grammar
 matched exactly; and **state unchanged after every rejected command**.
 
-`--motion-ok` coverage: enable one joint, jog it, confirm the timeout fires and holds, confirm
-`STP <j>` stops one joint and leaves others alone, confirm narrowing clamps a pending target.
+`--motion-ok` coverage: enable one joint, jog it, confirm the timeout fires and holds **and that
+nothing was emitted while it happened**, confirm `STA` then reports `JTO=1`, confirm a deliberate
+command clears the latch, confirm `LIM` on the jogging joint is refused with `STATE=jogging` and
+changes nothing, confirm `STP <j>` stops one joint and leaves others alone, and confirm narrowing
+clamps a pending target on a driven-but-not-jogging joint.
 
 ### 11b. The browser self-test
 
@@ -400,16 +500,21 @@ joint with no queue**, so `JOG` is a small addition rather than a new motion sub
 
 ## 15. Open questions
 
-Both original product questions are resolved: exact-angle entry is kept (§7d), and `LOCK` records
-accepted commanded limits rather than reached extremes (§8a).
+All prior questions are now settled.
 
-Four remain, all raised by Task 0 and all deferred to the task that can answer them with evidence:
+| Question | Resolution | Where |
+|---|---|---|
+| Exact-angle entry? | kept, as `TARGET ANGLE`, send-on-commit only | §7d |
+| What does `LOCK` claim? | accepted commanded soft limits, never mechanical extremes | §8a |
+| Coalesce or drop a busy-channel heartbeat? | **drop** — never queued, never replayed | §7a-ii |
+| `LIM` during an active jog? | **refused**, `E9 … STATE=jogging`, no state change | §6d |
+| Does the timeout announce itself? | **no** — silent, latches `JTO=1` on `STA` | §7a-i |
+| Routine polling during a jog? | **paused**, resumed on release | §7a-iii |
+| Bridge lock scope (C13)? | **separate commit**; one transmitting client at a time meanwhile | §11-0 |
 
-1. **Is 1000 ms the right jog timeout?** Derived from the measured command rotation, not from
-   bench data — nothing has ever jogged this arm. Revisit after the first powered jog.
-2. **Coalesce `JOG` newest-per-joint, or drop the beat while the outbox is non-empty?** Dropping
-   is simpler and arguably more honest.
-3. **How does a `LIM` on a driven joint interact with an active jog?** Proposed: clamp the target
-   inward and let the jog continue inside the new envelope. Needs its own harness case.
-4. **When to fix the bridge lock scope (C13)?** Recommend after this feature; nothing reaches it
-   today.
+One genuinely open item remains, and it cannot be closed from a desk:
+
+**Is 1000 ms the right jog timeout?** It is derived from the measured command rotation, and
+§7a-iii has since removed `PNG`/`STA` from that rotation — so the real margin is now larger than
+the number was chosen against. Nothing has ever jogged this arm. Re-measure on the first powered
+jog and tighten if the evidence supports it. Do not tighten it speculatively.

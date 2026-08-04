@@ -25,6 +25,8 @@
   Claude-Session: https://claude.ai/code/session_01Y439m3TLBSprzpjcp4ZfjQ
   ```
 - **Bench safety:** servo power OFF (rocker off, supply unplugged) for every task except Task 13. `protocol_check.py` in its default mode is safe with power on, but there is no reason to take that risk before Task 13.
+- **Exactly one transmitting client at a time.** Close the browser tab before running the harness; stop the harness before reconnecting the console. The bridge's `tx()` writes outside its lock on a threading server, so two clients can interleave bytes mid-line (Task 0, C13). **That defect stays in its own commit** — folding a transport fix into a motion-control change would hide it.
+- **`JOG` contract, settled:** 250 ms heartbeat, 1000 ms timeout; heartbeats are dropped rather than queued when the channel is busy; `PNG`/`STA` polling pauses for the duration of a hold; `LIM` on a jogging joint is refused outright; the timeout is **silent on the wire** and latches `JTO=1` on `STA`.
 - **Do not push, open a PR, or merge** until Task 13 and only with the operator's explicit go-ahead.
 
 ## Stop Conditions
@@ -54,7 +56,7 @@ Adversarial review of the actual diff and test output at three points. Fix findi
 |---|---|---|
 | `Software/tests/protocol_check.py` | **new** — non-motion protocol tests by default; `--motion-ok` for bounded motion | 1, 6 |
 | `Software/factorylm_arm_controller/factorylm_arm_controller.ino` | `STP <j>`, atomic `LIM`, logical enforcement, `JOG` + timeout | 2–5 |
-| `Documentation/SERIAL-PROTOCOL.md` | the contract — `STP` gains an argument, `E9` narrows, `JOG` and `EVT JOGTIMEOUT` are new | 2–5 |
+| `Documentation/SERIAL-PROTOCOL.md` | the contract — `STP` gains an argument, `E9` narrows, `JOG` and the `STA` field `JTO` are new | 2–5 |
 | `Software/arm-console/arm-console.html` | helpers, self-test, ack gate, envelope, joystick, target angle, lock | 7–12 |
 | `Software/tests/selftest.sh` | **new** — fails unless `SELFTEST_PASS` present and `SELFTEST_FAIL` absent | 7 |
 | `Calibration_Notes/calibration-log.csv` | one row per lock | 11 |
@@ -288,9 +290,24 @@ def motion_tests(b):
     print("     inspect TGT below: it must be 95 or lower, never 119")
     print("     " + " | ".join(b.cmd("STA")))
     expect("JOG is accepted on an enabled joint", b.cmd("JOG 3 1"), "OK JOG J3 DIR=1")
-    print("     holding 1.2 s with no heartbeat -- the timeout should fire")
-    time.sleep(1.2)
-    expect("jog timeout announced itself", b.cmd("STA"), "OK STA")
+    expect("LIM is refused while that joint is jogging",
+           b.cmd("LIM 3 70 100 0"), "STATE=jogging")
+    expect_unchanged("the refused LIM changed nothing at all",
+                     b, "LIM", "LIM J3 MIN=60 MAX=95")
+
+    print("     going quiet for 1.4 s -- the timeout should fire SILENTLY")
+    b.ser.reset_input_buffer()
+    time.sleep(1.4)
+    stray = b.ser.read(4096).decode("ascii", "replace").strip()
+    if stray:
+        print("  FAIL  the timeout emitted an unsolicited line: %r" % stray)
+        FAILURES.append("timeout must be silent")
+    else:
+        print("  PASS  the timeout was silent on the wire")
+
+    expect("the timeout latched JTO on the joint", b.cmd("STA"), "JTO=1")
+    expect("a deliberate command clears the latch", b.cmd("JOG 3 0"), "OK JOG J3 DIR=0")
+    expect("JTO is clear again", b.cmd("STA"), "JTO=0")
     b.cmd("DIS 3")
 
 
@@ -627,6 +644,27 @@ Servo power OFF for this run — the joint enables and the firmware emits pulses
   }
 ```
 
+- [ ] **Step 2b: Refuse `LIM` outright while that joint is jogging**
+
+Immediately **before** the `j[i].en` block from Step 2, so it wins and nothing below runs:
+
+```cpp
+  // A joint the operator is physically holding does not get its envelope moved
+  // underneath it.  Refusing costs one action -- let go, then drag -- and avoids
+  // a state where the limits and the control are both changing at once.
+  //
+  // Same E9 code, a DIFFERENT detail key: STATE=jogging, not STATE=enabled.  The
+  // remedies differ ("let go" vs "disable the joint"), so the console must be
+  // able to tell them apart without growing the error space.
+  if (j[i].jogActive) {
+    errJPre(F("E9"), i);
+    Serial.println(F(" STATE=jogging"));
+    return;
+  }
+```
+
+This is a **backstop**: the console disables that joint's envelope handles while it is jogging (Task 8), so the refusal should never be seen in normal use. It exists because "should never" is not "cannot".
+
 And after the three assignments, before `okPre()`:
 
 ```cpp
@@ -697,7 +735,7 @@ Claude-Session: https://claude.ai/code/session_01Y439m3TLBSprzpjcp4ZfjQ"
 
 **Files:** Modify `factorylm_arm_controller.ino` (joint record, `doJog`, dispatch, main loop, `doStpJoint`), `Documentation/SERIAL-PROTOCOL.md`
 
-**Interfaces:** Produces `JOG <j> <-1|0|1>` → `OK JOG J<j> DIR=<d>`, and `EVT JOGTIMEOUT J<j>`. Task 9 sends `JOG` on a 200 ms heartbeat.
+**Interfaces:** Produces `JOG <j> <-1|0|1>` → `OK JOG J<j> DIR=<d>`, and the per-joint latch surfaced as `JTO=<0|1>` on `STA`. The timeout emits nothing. Task 9 sends `JOG` on a 250 ms heartbeat.
 
 **Why this exists:** a board that has heard nothing for two seconds cannot tell a steady hand from a dead USB cable. Without this, a dropped link during a hold leaves the joint walking to the edge of an envelope the operator may have just widened to `0–180`.
 
@@ -727,11 +765,14 @@ const uint16_t JOG_TIMEOUT_MS = 1000;
 - [ ] **Step 3: Add the jog fields to the joint record**
 
 ```cpp
-  bool     jogActive;   // true only between JOG <j> +/-1 and whatever ends it
-  uint32_t jogMs;       // millis() of the last refresh; meaningful only when jogActive
+  bool     jogActive;     // true only between JOG <j> +/-1 and whatever ends it
+  bool     jogTimedOut;   // LATCH: the last jog ended because the host went quiet
+  uint32_t jogMs;         // millis() of the last refresh; meaningful only when jogActive
 ```
 
-Initialise both in `setup()`'s joint loop (`jogActive = false; jogMs = 0;`). Then restore the two `jogActive = false;` lines in `doStp` and `doStpJoint` that Task 2 Step 2 deferred.
+Initialise all three in `setup()`'s joint loop (`jogActive = false; jogTimedOut = false; jogMs = 0;`). Then restore the two `jogActive = false;` lines in `doStp` and `doStpJoint` that Task 2 Step 2 deferred.
+
+**`jogTimedOut` is the whole of the timeout's output.** The firmware says nothing on the wire when a jog times out — see Step 7. The latch is surfaced on `STA` as `JTO=<0|1>` and cleared by any deliberate operator command addressed to that joint.
 
 **Correction C7:** do **not** use `jogMs == 0` as the sentinel — `millis()` is exactly `0` once per ~49.7 days, and a jog armed on that tick would never time out. The separate flag costs 7 bytes of SRAM against 1643 free.
 
@@ -745,6 +786,10 @@ Initialise both in `setup()`'s joint loop (`jogActive = false; jogMs = 0;`). The
 // JOG is a separate verb from MOV on purpose: a finite move -- the target-angle
 // box, a waypoint -- must run to completion and must never be cut short by a
 // timeout it did not ask for.  Only JOG arms the timer; MOV clears it.
+//
+// ANY accepted JOG also clears that joint's JOG_TIMEOUT latch: reaching here at
+// all means the host is talking again, which is precisely what the latch was
+// recording the absence of.
 static void doJog(uint8_t i, int32_t dir) {
   if (!j[i].en) { errJPre(F("E6"), i); Serial.println(); return; }
   if (dir < -1 || dir > 1) {
@@ -753,6 +798,7 @@ static void doJog(uint8_t i, int32_t dir) {
     Serial.println(dir);
     return;
   }
+  j[i].jogTimedOut = false;
   if (dir == 0) {
     j[i].tgtC      = j[i].setC;
     j[i].jogActive = false;
@@ -792,7 +838,8 @@ Task 0 §13 enumerated every existing write to `tgtC`. The complete rule set:
 | `STP i` | cleared for joint `i` |
 | `MOV i deg` | cleared for joint `i` — **a finite move must not inherit the timeout** |
 | `SPD i dps` | untouched — speed changes mid-jog are normal |
-| `LIM i …` accepted on a driven joint | untouched; the target is clamped and the jog continues inside the new envelope |
+| `LIM i …` while `jogActive` | **refused** — `E9 … STATE=jogging`, nothing changes at all (Task 4 Step 2b) |
+| `LIM i …` on a driven but *not* jogging joint | untouched; the target is clamped inward |
 | `DIS i` / `DIS A` | cleared (via `disableJoint`) |
 | `EST` / `!` / watchdog trip | cleared for every joint (via `estopAll` → `disableJoint`) |
 | timeout fires | cleared for that joint |
@@ -818,21 +865,45 @@ grep -n "tgtC =" Software/factorylm_arm_controller/factorylm_arm_controller.ino
   // Rollover-safe unsigned subtraction, the same idiom the interpolator tick and
   // the serial watchdog already use.  jogActive -- never "jogMs != 0" -- is what
   // says a jog is running.
+  //
+  // SILENT ON PURPOSE.  Nothing is printed here.  The condition that fires this
+  // is, by definition, "the host stopped talking to us", so writing into that
+  // channel buys nothing and adds an unsolicited line to a reader that is a
+  // strict accumulate-until-terminator FIFO.  The state is LATCHED instead and
+  // surfaced on STA as JTO=1, so a host that was away still learns what happened
+  // when it comes back.
   for (uint8_t i = 0; i < NJ; i++) {
     if (j[i].en && j[i].jogActive && (uint32_t)(now - j[i].jogMs) > JOG_TIMEOUT_MS) {
-      j[i].tgtC      = j[i].setC;
-      j[i].jogActive = false;
-      Serial.print(F("EVT JOGTIMEOUT J"));
-      Serial.println(i);
+      j[i].tgtC        = j[i].setC;
+      j[i].jogActive   = false;
+      j[i].jogTimedOut = true;
     }
   }
 ```
 
 `now` is already computed at `:1071`; reuse it rather than calling `millis()` a second time.
 
+- [ ] **Step 7b: Surface the latch on `STA`**
+
+In `doSta()` (`:536-544`), append one field to each joint line, after `MOV=`:
+
+```cpp
+    Serial.print(F(" JTO="));      Serial.println(j[i].jogTimedOut ? 1 : 0);
+```
+
+(and drop the `println` from the `MOV=` line, which becomes a `print`).
+
+**This changes the `STA` grammar**, so the console's `STA` parser must tolerate the new key before the firmware ships it — it reads key=value pairs via `kv()`, so an unknown key is already harmless, but confirm that in Task 0's recorded grammar before relying on it.
+
+- [ ] **Step 7c: Clear the latch on every deliberate command**
+
+`jogTimedOut = false` belongs in: `doJog` (any accepted direction, Step 4), `doStpJoint`, `doStp` (every enabled joint), `doMov`, `doClr` (every joint), and `disableJoint` — which already covers `DIS`, `DIS A`, `EST`, `!` and the watchdog.
+
+Nothing clears it with the passage of time. The latch records a fault; only an operator action retires it.
+
 - [ ] **Step 8: Compile, upload with power OFF, run both harness modes**
 
-Expected: `JOG on a disabled joint` → `ERR E6`; `JOG with a bad direction` → `ERR E14`; in `--motion-ok`, `JOG 3 1` is accepted and an `EVT JOGTIMEOUT J3` line appears within ~1000 ms of the heartbeat stopping.
+Expected: `JOG on a disabled joint` → `ERR E6`; `JOG with a bad direction` → `ERR E14`; in `--motion-ok`, `JOG 3 1` is accepted, the wire stays **silent** for the 1.4 s quiet window, and the next `STA` reports `JTO=1`.
 
 - [ ] **Step 9: Update the protocol doc**
 
@@ -851,17 +922,27 @@ Add to the error table:
 Add to the events list:
 
 ```markdown
-| `EVT JOGTIMEOUT J<j>` | a jog was not refreshed within 1000 ms; that joint's motion was aborted and it is holding its last commanded value. Not a latch, not a detach, not an emergency stop. |
+| *(none)* | **The jog timeout emits nothing.** It latches `JTO=1` for that joint instead — see the `STA` grammar. |
+
+Update the `STA` grammar and its field table with the new key:
+
+```
+STA J<i> EN=… SET=… TGT=… MIN=… MAX=… CAL=… DPS=… MOV=… JTO=<0|1>
+```
+
+| `JTO` | `1` = this joint's last jog ended because the controller stopped hearing from the host, not because the operator let go. Latched; cleared by any accepted `JOG`, `STP`, `MOV`, `DIS`, `CLR`, or a reset. Never cleared by the passage of time. |
 ```
 
 And a prose block:
 
 > **Jog heartbeat.** `JOG` arms a per-joint command-age timer. The host must re-send `JOG` every
 > **250 ms** while the operator holds the control. Four consecutive misses (**1000 ms**) abort
-> that joint's motion and hold the last commanded value, announced by `EVT JOGTIMEOUT`. `MOV`
-> does **not** arm the timer — a finite move runs to completion. A timeout hold is
-> distinguishable from an operator `STP` by the event line, and the host should show it
-> differently: a hold nobody asked for is a symptom.
+> that joint's motion and hold the last commanded value. **Nothing is emitted** — the condition
+> that fires this is, by definition, the host having stopped listening, so the state is latched
+> as `JTO=1` on `STA` and cleared by any deliberate command addressed to that joint. `MOV` does
+> **not** arm the timer — a finite move runs to completion. A timeout hold is distinguishable
+> from an operator `STP` by that latch, and the host should show it differently: a hold nobody
+> asked for is a symptom.
 >
 > This is deliberately gentler, and four times tighter, than the `WDG` serial watchdog: `WDG`
 > detaches every joint and latches after 4000 ms of host silence, and a detached gravity-loaded
@@ -881,9 +962,10 @@ to 0-180.
 
 JOG arms a 1000 ms timer refreshed by a 250 ms heartbeat. On expiry the joint
 aborts motion and HOLDS its last commanded value, announced by EVT
-JOGTIMEOUT -- it does not detach and does not latch, because detaching makes
-a loaded arm sag. Deliberately gentler than the WDG serial watchdog, which
-is the coarse net for a dead host.
+a per-joint JTO flag on STA. It stays silent on the wire, because the very
+condition that fires it is the host having stopped listening. It holds rather
+than detaching, because detaching makes a loaded arm sag -- deliberately
+gentler than the WDG serial watchdog, which is the coarse net for a dead host.
 
 JOG is separate from MOV so that finite motion cannot inherit the timeout.
 
@@ -904,18 +986,25 @@ Claude-Session: https://claude.ai/code/session_01Y439m3TLBSprzpjcp4ZfjQ"
     b.cmd("ENA 3 90")
     b.cmd("JOG 3 1")
     for _ in range(6):
-        time.sleep(0.2)
+        time.sleep(0.25)
         b.cmd("JOG 3 1")
-    expect("a refreshed jog did not time out", b.cmd("STA"), "OK STA")
-    print("     no EVT JOGTIMEOUT should appear above")
+    expect("a refreshed jog did not time out", b.cmd("STA"), "JTO=0")
     b.cmd("JOG 3 0")
 
     print("\n-- a finite move does not inherit the jog timeout --")
     b.cmd("MOV 3 95")
-    time.sleep(1.0)
-    expect("finite move survived past the jog timeout", b.cmd("STA"), "OK STA")
-    print("     no EVT JOGTIMEOUT should appear above")
+    time.sleep(1.4)
+    expect("finite move survived past the jog timeout window", b.cmd("STA"), "JTO=0")
     b.cmd("DIS 3")
+
+    print("\n-- STP <j> stops one joint and leaves another alone --")
+    b.cmd("LIM 0 60 120 0"); b.cmd("LIM 3 60 120 0")
+    b.cmd("ENA 0 90"); b.cmd("ENA 3 90")
+    b.cmd("MOV 0 120"); b.cmd("MOV 3 120")
+    b.cmd("STP 3")
+    print("     inspect: J3 TGT must equal its SET; J0 TGT must still be 120")
+    print("     " + " | ".join(b.cmd("STA")))
+    b.cmd("DIS A")
 ```
 
 - [ ] **Step 2: Run both modes, servo power OFF** — expect `0 failure(s)`.
@@ -1418,7 +1507,7 @@ Keep `js-lo` / `js-hi` — `paintJoint` already writes them.
        outcome, not a bug to paper over. */
     function joyBeatTick(){
       if (!joyHeld || !joyLastDir) return;
-      if (outboxDepth() > 0) return;
+      if (!channelFree()) return;              /* dropped, never deferred */
       if (connState === "on" && j.en) send(fmtJog(d.id, joyLastDir));
     }
     function joyDown(e){
@@ -1453,20 +1542,53 @@ Keep `js-lo` / `js-hi` — `paintJoint` already writes them.
     j.dom.joyDead.style.width = (JOY_DEAD * 100) + "%";
 ```
 
-- [ ] **Step 4b: Expose the outbox depth**
-
-`outbox` is a module-level array in the transport section. Add beside `trimOutbox()`:
+- [ ] **Step 4b: Expose "is the channel free", and pause routine polling during a jog**
 
 ```javascript
-/* Read-only view of the queue depth, so the jog heartbeat can decline to add a
-   motion command to a backlog. */
-function outboxDepth(){ return outbox.length; }
+/* A heartbeat is only meaningful if it is FRESH. A queued one asserts, on
+   arrival, that a hand was on the control at a moment that has already passed.
+   So the beat is DROPPED when the channel is busy -- never buffered, never
+   coalesced, never retried.
+
+   If the channel stays busy for four consecutive beats the firmware times out,
+   and that is the correct outcome: a channel that cannot pass one short line in
+   a second IS a stalled host, which is what the timeout exists to catch. */
+function channelFree(){ return liveAwaiters() === 0 && outbox.length === 0; }
+
+/* Routine polling stops for the duration of a hold, so the heartbeat has a
+   channel it does not share. The firmware's 4000 ms serial watchdog is NOT
+   endangered: lastRxMs is fed by any fully-parsed line reaching a handler, and
+   JOG is one -- a 250 ms heartbeat feeds it exactly as PNG did. */
+var jogHolds = 0;
+function jogPollPause(){
+  if (jogHolds++ === 0) {
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+    if (staTimer)  { clearInterval(staTimer);  staTimer  = null; }
+  }
+}
+function jogPollResume(){
+  if (jogHolds > 0) jogHolds--;
+  if (jogHolds === 0 && connState === "on") {
+    if (!pingTimer) pingTimer = setInterval(function(){ send("PNG").catch(function(){}); }, PING_MS);
+    if (!staTimer)  staTimer  = setInterval(function(){ if (!playing) statusPoll(); }, STATUS_MS);
+    statusPoll();          /* one immediate poll: the readout has been stale since the hold began */
+  }
+}
 ```
 
-Also extend `trimOutbox()`'s coalescing comment to name `JOG`: it collapses `PNG` and `STA` only,
-and `JOG` must never reach it because Step 4 skips the beat while anything is queued. **If a
-future change makes `JOG` reachable there, it must coalesce newest-per-joint — replaying a stale
-motion command is a different class of bug from replaying a stale ping.**
+Call `jogPollPause()` in `joyDown` and `jogPollResume()` in `joyReleaseLocal`. The counter — rather than a bool — means a second joint's joystick cannot resume polling while the first is still held.
+
+`teardown` / `linkLost` must reset `jogHolds = 0` alongside the existing timer clears, or a connection dropped mid-hold leaves polling permanently off.
+
+**Do not add `JOG` to `trimOutbox()`.** It coalesces `PNG`/`STA` only, and `JOG` must never reach it — `channelFree()` guarantees that. Extend its comment to say so, so a future change does not quietly make a motion command replayable.
+
+- [ ] **Step 4c: Be honest that the readout is stale during a hold**
+
+`STA` is the only writer of `j.set`, so with polling paused **the commanded-angle number stops updating while the joint is moving**. It must not sit there looking like a live reading.
+
+In `paintJoint`, while that joint is jogging, mark the readout stale — dim it and label it, e.g. `moving — angle updates when you let go`. On release, `jogPollResume()`'s immediate `statusPoll()` refreshes it.
+
+Displaying a frozen number as though it were current is the same class of lie as the banned word *position*.
 
 - [ ] **Step 5: Global dead-man**, near `sendHold()`:
 
@@ -1483,25 +1605,35 @@ document.addEventListener("visibilitychange", function(){ if (document.hidden) j
 
 Also call `joyReleaseAll()` wherever the console already handles a dropped connection.
 
-- [ ] **Step 6: Render a jog timeout distinctly**
+- [ ] **Step 6: Render the `JTO` latch distinctly**
 
-Wherever `EVT` lines are handled, add:
+**There is no event to listen for.** The firmware is silent when a jog times out; it latches `JTO=1` and the console finds out on the next `STA`.
+
+Where `STA` joint lines are parsed, read the new key and react on the rising edge only:
 
 ```javascript
-  if (/^EVT JOGTIMEOUT J(\d+)/.test(line)) {
-    var jid = line.match(/^EVT JOGTIMEOUT J(\d+)/)[1];
-    joyRelease(Number(jid));
-    notice("bad", "J" + jid + " stopped on its own: the controller did not hear from this page " +
-                  "for a second and aborted the move. The joint is holding, still powered. " +
-                  "Check the USB cable before jogging again.", 12000);
+  /* JTO=1 means this joint's last jog ended because the controller stopped
+     hearing from us -- not because the operator let go. A hold nobody asked for
+     is a symptom, so it must not look like a normal stop. Edge-triggered: the
+     latch persists until a deliberate command clears it, and we must not
+     re-notify on every poll. */
+  var jto = (v.JTO === "1");
+  if (jto && !j.jogTimedOut) {
+    joyRelease(id);
+    notice("bad", "J" + id + " stopped on its own. The controller did not hear from this page " +
+                  "for a second and ended the move. The joint is holding, still powered. " +
+                  "Check the USB cable and the bridge window before jogging again.", 12000);
   }
+  j.jogTimedOut = jto;
 ```
 
-A hold nobody asked for is a symptom, and must not look like a normal stop.
+Add `jogTimedOut:false` to the joint record literal, and paint a persistent marker on the card while it is true — the latch outlives the toast.
+
+Because polling is paused during a hold (Step 4b), the first `STA` carrying `JTO=1` normally arrives on release or reconnect. That is the intended timing: by then the joint has already stopped and is holding.
 
 - [ ] **Step 7: Remove the dead slider line in `paintJoint`** (`if (!j.dragging) D.slider.value = ...`). Leave `j.wantMove` — Task 10 refills it and `:1167` still drains it.
 
-- [ ] **Step 8: Verify** — `selftest.sh` green. Then, servo power OFF, bridge up, J3 enabled: hold the joystick and confirm `JOG 3 1` repeats about five times a second and no `EVT JOGTIMEOUT` appears. Release, confirm `JOG 3 0`. Hold, then pull the USB — confirm the firmware emits `EVT JOGTIMEOUT` on reconnect-free inspection via the harness.
+- [ ] **Step 8: Verify** — `selftest.sh` green. Then, servo power OFF, bridge up, J3 enabled: hold the joystick and confirm `JOG 3 1` repeats about four times a second, that `PNG` and `STA` stop for the duration, and that the readout is marked stale. Release, confirm `JOG 3 0`, that polling resumes with an immediate `STA`, and that the readout refreshes. Then hold and close the tab — reopen, connect, and confirm the first `STA` reports `JTO=1` and the card shows the fault.
 
 - [ ] **Step 9: Commit**
 
@@ -1515,8 +1647,13 @@ heartbeat is mandatory: the firmware aborts a jog it has not heard about for
 1000 ms, because it cannot distinguish a steady hand from a dead cable.
 
 Pointer loss, window blur, tab hide and transport failure are all treated as
-letting go. EVT JOGTIMEOUT is rendered as a fault rather than a normal stop
+letting go. The JTO latch is rendered as a fault rather than a normal stop
 -- a hold nobody asked for is a symptom.
+
+Routine PNG/STA polling pauses for the duration of a hold so the heartbeat
+has a channel it does not share, and the commanded-angle readout is marked
+stale while it is paused rather than showing a frozen number as if it were
+current.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01Y439m3TLBSprzpjcp4ZfjQ"
