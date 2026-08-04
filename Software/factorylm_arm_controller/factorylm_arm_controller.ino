@@ -764,11 +764,27 @@ static void doSpd(uint8_t i, int32_t dps) {
   Serial.print(F(" DPS="));  Serial.println(j[i].dps);
 }
 
-// Freeze every target at its current commanded angle.  Joints stay ATTACHED and
-// holding.  NOT latching - a following MOV works immediately.
+// STP aborts motion.  It is NOT an emergency stop: it cancels the remaining
+// interpolation and holds the last COMMANDED value, with the channel still
+// driven.  It does not remove power and it cannot know the shaft angle - the
+// rocker switch and the inline fuse are the emergency stop.  NOT latching - a
+// following MOV works immediately.
+//
+// Bare STP keeps its original meaning: abort every enabled joint.
 static void doStp() {
   for (uint8_t i = 0; i < NJ; i++) if (j[i].en) j[i].tgtC = j[i].setC;
   okDone();
+}
+
+// STP <j> aborts ONE joint, so releasing one joystick cannot freeze a joint the
+// operator is not touching.  With a single joint enabled the two forms are
+// indistinguishable; with several live, the difference is the whole point.
+static void doStpJoint(uint8_t i) {
+  if (!j[i].en) { errJ(F("E6"), i); return; }
+  j[i].tgtC = j[i].setC;
+  okPre();
+  Serial.print(F(" J"));
+  Serial.println(i);
 }
 
 static void doEst(const __FlashStringHelper* src) {
@@ -860,7 +876,14 @@ static void dispatch() {
   if (VIS('V','E','R')) { if (tokc != 0) { badArgc(); return; } doVer(); return; }
   if (VIS('P','N','G')) { if (tokc != 0) { badArgc(); return; } doPng(); return; }
   if (VIS('S','T','A')) { if (tokc != 0) { badArgc(); return; } doSta(); return; }
-  if (VIS('S','T','P')) { if (tokc != 0) { badArgc(); return; } doStp(); return; }
+  if (VIS('S','T','P')) {
+    if (tokc == 0) { doStp(); return; }
+    if (tokc != 1) { badArgc(); return; }
+    if (!intArg(0, &a0)) return;
+    if (!jointArg(a0, &id)) return;
+    doStpJoint(id);
+    return;
+  }
   if (VIS('H','L','P')) { if (tokc != 0) { badArgc(); return; } doHlp(); return; }
   if (VIS('C','L','R')) { if (tokc != 0) { badArgc(); return; } doClr(); return; }
   if (VIS('E','S','T')) { if (tokc != 0) { badArgc(); return; } doEst(F("CMD")); return; }

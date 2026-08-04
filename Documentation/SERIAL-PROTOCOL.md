@@ -138,13 +138,28 @@ miss an e-stop it did not initiate.
 | `DIS` | `A` | `OK DIS ALL` | Same, every joint. Not a latch. |
 | `MOV` | `<j> <deg>` | `OK MOV J<j> REQ=… SET=… CL=…` | Set the target. Non-blocking. |
 | `SPD` | `<j> <dps>` | `OK SPD J<j> DPS=…` | Slew rate, 1–90 degrees per second. |
-| `STP` | — | `OK STP` | Freeze every target where it is. Joints stay driven. |
+| `STP` | — | `OK STP` | Abort motion on every enabled joint; hold the last commanded value. Joints stay driven. **Not an emergency stop.** |
+| `STP` | `<j>` | `OK STP J<j>` | Abort motion on one joint only. `E4` bad/reserved id, `E6` not enabled. |
 | `EST` | — | `OK EST` | E-STOP: detach everything, drive all pins LOW, **latch**. |
 | `CLR` | — | `OK CLR` | Clear the e-stop / watchdog latch. |
 | `WDG` | `<ms>` | `OK WDG MS=…` | Serial watchdog timeout. `0` = off (the boot default). |
 | `HLP` | — | `OK HLP` | Help, as `;` comment lines. |
 
 ### The commands that need more than a table row
+
+#### `STP` is a motion abort, not an emergency stop
+
+`STP` cancels the remaining interpolation and holds the last **commanded** value. The channel
+stays driven. It does not remove power, does not detach, and cannot know the shaft angle — these
+servos report nothing.
+
+`EST` and the serial watchdog are a different thing: they detach every channel and **latch**, and
+a de-energised gravity-loaded arm sags. **The rocker switch and the inline fuse are the only
+emergency stop.**
+
+Bare `STP` aborts every enabled joint. `STP <j>` aborts one — so a host that releases one control
+cannot freeze a joint the operator is not touching. With a single joint enabled the two forms are
+indistinguishable; with several live, the difference is the whole point.
 
 #### `ENA <j> <adopt_deg>` — adopt-before-drive
 
