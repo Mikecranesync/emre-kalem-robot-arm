@@ -61,7 +61,12 @@ Adversarial review of the actual diff and test output at three points. Fix findi
 
 ---
 
-## Task 0: Verify every anchor before touching code
+## Task 0: Verify every anchor before touching code — ✅ COMPLETE 2026-08-04
+
+> **Findings: `Documentation/2026-08-04-envelope-joystick-baseline.md`.** Ten corrections
+> (C1, C2, C4, C7–C13) are already folded into this plan and the spec. Baseline build confirmed
+> at **11650 B flash / 405 B SRAM**, `arduino-cli 1.5.1`, `arduino:avr 1.8.8`, `Servo 1.3.0`.
+> No stop condition was hit. The steps below are retained as the record of what was checked.
 
 **Files:** Create `Documentation/2026-08-04-envelope-joystick-baseline.md`
 
@@ -387,21 +392,23 @@ Expected: `FAIL` — today `STP 3` returns `ERR E2`.
 // aborts one, so releasing one joystick cannot freeze a joint the operator is
 // not touching.
 static void doStp() {
-  for (uint8_t i = 0; i < NJ; i++) if (j[i].en) { j[i].tgtC = j[i].setC; j[i].jogMs = 0; }
+  for (uint8_t i = 0; i < NJ; i++) if (j[i].en) { j[i].tgtC = j[i].setC; j[i].jogActive = false; }
   okDone();
 }
 
 static void doStpJoint(uint8_t i) {
   if (!j[i].en) { errJPre(F("E6"), i); Serial.println(); return; }
   j[i].tgtC = j[i].setC;
-  j[i].jogMs = 0;                    // an operator stop also disarms the jog timer
+  j[i].jogActive = false;            // an operator stop also disarms the jog timer
   okPre();
   Serial.print(F(" J"));
   Serial.println(i);
 }
 ```
 
-`jogMs` is added to the joint record in Task 5. **Until Task 5 lands, omit both `jogMs` lines** — add them back as part of Task 5, Step 3.
+`jogActive` is added to the joint record in Task 5. **Until Task 5 lands, omit both `jogActive` lines** — add them back as part of Task 5, Step 3.
+
+**Correction C7 (Task 0):** the first draft used `jogMs = 0` as the "not jogging" sentinel. `millis()` returns exactly `0` once per ~49.7 days, so a jog armed on that tick would never time out. A separate `bool` costs 7 bytes of SRAM and removes the case entirely.
 
 - [ ] **Step 3: Widen the dispatch** (replaces the single `STP` line found in Task 0, Step 2)
 
@@ -502,7 +509,7 @@ const uint8_t LIM_MIN_SPAN_DEG = 5;
 // so a rejected LIM leaves the previous envelope exactly as it was.  There is
 // no state in which min has been updated and max has not.
 //
-// Limits are enforced in LOGICAL joint space, before degToCmd, before any
+// Limits are enforced in LOGICAL joint space, before the centidegree
 // calibration offset, and before shoulder mirroring.  The mirrored physical
 // servo is derived from the accepted logical command, never commanded directly.
 //
@@ -541,9 +548,11 @@ static void doLimSet(uint8_t i, int32_t mn, int32_t mx, int32_t cal) {
 
 Keep the existing `okPre()` reply block below unchanged.
 
-- [ ] **Step 4: Verify the parser rejects trailing garbage**
+- [ ] **Step 4: Verify the parser rejects trailing garbage — VERIFY ONLY, no change expected**
 
-Task 0 Step 5 recorded whether `intArg` accepts `90abc`. If it does **not** reject it, fix `intArg` so any non-digit after the number is an `E3`, and note the change in the commit. If it already rejects it, the harness case simply passes.
+**Correction C4 (Task 0):** `parseInt` (`:280-293`) already rejects any non-digit, an empty field, a bare `-`, and overflow past `100000`. It is deliberately neither `atoi` (returns 0 on garbage, indistinguishable from a real 0) nor `sscanf` (~1.5 KB of AVR stdio). The harness case `MOV 3 90abc → ERR E3` should pass without any firmware change.
+
+Confirm it does. If it somehow does not, stop and report — that would mean the file is not the one Task 0 read.
 
 - [ ] **Step 5: Compile, upload with power OFF, re-run**
 
@@ -559,8 +568,8 @@ Expected: every limits-validation case PASSes, including `no rejected LIM change
 
 > `LIM` is **atomic**: every argument is validated before any field is written, so a rejected
 > `LIM` leaves the previous envelope untouched. The minimum accepted span is **5°**
-> (`ERR E10 … MINSPAN=5`). Limits are enforced in logical joint space, before `degToCmd`,
-> before calibration offsets and before shoulder mirroring.
+> (`ERR E10 … MINSPAN=5`). Limits are enforced in logical joint space, before the centidegree
+> conversion, before calibration offsets and before shoulder mirroring.
 
 - [ ] **Step 7: Commit**
 
@@ -603,12 +612,13 @@ Servo power OFF for this run — the joint enables and the firmware emits pulses
   // operator tidies a number and a loaded arm swings.  That is exactly what E9
   // was written to prevent; this narrows the refusal rather than removing it.
   //
-  // Comparison happens in COMMAND units, because setC/tgtC are command units and
-  // mn/mx are whole degrees.  degToCmd is the only conversion allowed here.
+  // Comparison happens in CENTIDEGREES, because setC/tgtC are centidegrees and
+  // mn/mx are whole degrees.  Degrees -> centidegrees is *100, the same inline
+  // conversion clampToLimits, enableJoint and doLimSet already use.
   int16_t loC = 0, hiC = 0;
   if (j[i].en) {
-    loC = degToCmd((uint8_t)mn);
-    hiC = degToCmd((uint8_t)mx);
+    loC = (int16_t)mn * 100;
+    hiC = (int16_t)mx * 100;
     if (j[i].setC < loC || j[i].setC > hiC) {
       errJPre(F("E9"), i);
       Serial.println(F(" STATE=enabled"));
@@ -628,9 +638,21 @@ And after the three assignments, before `okPre()`:
   }
 ```
 
-- [ ] **Step 3: Confirm the physical clamp after mirroring**
+- [ ] **Step 3: Confirm the physical clamp after mirroring — VERIFY ONLY, no change expected**
 
-Using Task 0 Step 4's mapping, find where the shoulder's mirrored physical command is produced and confirm it is clamped to the servo's absolute bounds **after** the mirror transform. If it is not, add the clamp and say so in the commit. Enforcing only in logical space would let a mirror offset push a physical servo past its travel while the logical value looked legal.
+**Correction C2 (Task 0):** this is already structural and must not be rebuilt.
+
+- `writeJoint()` (`:415`) clamps `setC` via `clampToLimits()` **first**, then computes
+  `mirrorC(setC)` for D5.
+- `mirrorC()` (`:400`) clamps its own output to `[0, 18000]` centidegrees, using an `int32`
+  intermediate so `18000 + 2*offset` cannot overflow.
+- `enableJoint()` (`:470`) takes the same path.
+- `doMir()` (`:664-677`) refuses an `INV` offset whose image of joint 1's whole `MIN..MAX` would
+  fall outside `0..180`.
+
+Confirm all four still hold after your change and say so in the commit. **Adding another clamp
+here would be duplicate machinery, which is exactly the drift the firmware's "one clamp on the
+write path" comment warns against.**
 
 - [ ] **Step 4: Compile, upload with power OFF, re-run both modes**
 
@@ -662,7 +684,7 @@ refused, because applying it would turn a limit edit into an unrequested
 move. A pending target outside the new range is clamped inward, and clamping
 can only shorten a move, never create travel.
 
-Comparison is done in command units via degToCmd -- setC is not a degree.
+Comparison is done in centidegrees (deg * 100) -- setC is not a degree.
 MIR on an enabled shoulder stays refused.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
@@ -685,16 +707,33 @@ Claude-Session: https://claude.ai/code/session_01Y439m3TLBSprzpjcp4ZfjQ"
 
 ```cpp
 // Jog heartbeat.  The console re-sends JOG every JOG_BEAT_MS while the joystick
-// is held; three consecutive misses abort that joint's motion and hold.
-// Chosen against the existing rate: a command round-trip at 115200 sits well
-// under 200 ms, so three misses is a real fault, not jitter.  At the default
-// 30 deg/s a 600 ms overrun is 18 degrees of unintended travel -- which is why
-// it is not longer.
-const uint16_t JOG_BEAT_MS    = 200;
-const uint16_t JOG_TIMEOUT_MS = 600;
+// is held; four consecutive misses abort that joint's motion and hold.
+//
+// Derived from the MEASURED command path, not guessed (see the Task 0 baseline
+// doc, section 9).  The console is a strict one-command-in-flight FIFO already
+// carrying PNG every 250 ms and STA every 250 ms; adding JOG makes a three-way
+// rotation, each serialised, each quantised by the bridge's 60 ms /rx poll, with
+// a STA reply costing ~36 ms of transmit on its own.  Realistic rotation is
+// 180-300 ms, so a 600 ms timeout would have left only 2-3 beats of margin in the
+// GOOD case and a single queue hiccup could false-trip a jog still being held.
+//
+// 1000 ms is still 4x tighter than the existing 4000 ms WDG watchdog, and at the
+// default 30 deg/s a 1000 ms overrun is 30 degrees -- bounded by the envelope in
+// any case.
+const uint16_t JOG_BEAT_MS    = 250;
+const uint16_t JOG_TIMEOUT_MS = 1000;
 ```
 
-- [ ] **Step 3: Add `jogMs` to the joint record** — a `uint32_t`, `0` meaning "not jogging". Then restore the two `jogMs = 0;` lines in `doStp` and `doStpJoint` that Task 2 Step 2 deferred.
+- [ ] **Step 3: Add the jog fields to the joint record**
+
+```cpp
+  bool     jogActive;   // true only between JOG <j> +/-1 and whatever ends it
+  uint32_t jogMs;       // millis() of the last refresh; meaningful only when jogActive
+```
+
+Initialise both in `setup()`'s joint loop (`jogActive = false; jogMs = 0;`). Then restore the two `jogActive = false;` lines in `doStp` and `doStpJoint` that Task 2 Step 2 deferred.
+
+**Correction C7:** do **not** use `jogMs == 0` as the sentinel — `millis()` is exactly `0` once per ~49.7 days, and a jog armed on that tick would never time out. The separate flag costs 7 bytes of SRAM against 1643 free.
 
 - [ ] **Step 4: Write `doJog`**
 
@@ -715,11 +754,13 @@ static void doJog(uint8_t i, int32_t dir) {
     return;
   }
   if (dir == 0) {
-    j[i].tgtC = j[i].setC;
-    j[i].jogMs = 0;
+    j[i].tgtC      = j[i].setC;
+    j[i].jogActive = false;
   } else {
-    j[i].tgtC  = degToCmd(dir > 0 ? j[i].maxD : j[i].minD);
-    j[i].jogMs = millis();
+    /* Centidegrees: minD/maxD are whole degrees, tgtC is centidegrees. */
+    j[i].tgtC      = (int16_t)(dir > 0 ? j[i].maxD : j[i].minD) * 100;
+    j[i].jogActive = true;
+    j[i].jogMs     = millis();
   }
   okPre();
   Serial.print(F(" J"));   Serial.print(i);
@@ -739,9 +780,33 @@ static void doJog(uint8_t i, int32_t dir) {
   }
 ```
 
-- [ ] **Step 6: Clear the timer wherever motion is otherwise decided**
+- [ ] **Step 6: Clear the flag wherever motion is otherwise decided**
 
-In the `MOV` handler, after it accepts a move, add `j[i].jogMs = 0;` — a finite move ends the jog. `DIS`, `estopAll()` and `doStp*` must also clear it. Grep for every write to `tgtC` and confirm each one either arms or clears `jogMs` deliberately.
+Task 0 §13 enumerated every existing write to `tgtC`. The complete rule set:
+
+| Event | `jogActive` |
+|---|---|
+| `JOG i ±1` | **set**, `jogMs = millis()` |
+| `JOG i 0` | cleared |
+| `STP` (bare) | cleared for **every** joint |
+| `STP i` | cleared for joint `i` |
+| `MOV i deg` | cleared for joint `i` — **a finite move must not inherit the timeout** |
+| `SPD i dps` | untouched — speed changes mid-jog are normal |
+| `LIM i …` accepted on a driven joint | untouched; the target is clamped and the jog continues inside the new envelope |
+| `DIS i` / `DIS A` | cleared (via `disableJoint`) |
+| `EST` / `!` / watchdog trip | cleared for every joint (via `estopAll` → `disableJoint`) |
+| timeout fires | cleared for that joint |
+| reset | cleared by `setup()` |
+
+Put the clear in `disableJoint()` (`:444`) rather than in each caller — it is already the single
+choke point for `DIS`, `EST` and the watchdog, and it already does `tgtC = setC` for exactly this
+class of reason.
+
+Then grep every write to `tgtC` and confirm each one either arms or clears the flag deliberately:
+
+```bash
+grep -n "tgtC =" Software/factorylm_arm_controller/factorylm_arm_controller.ino
+```
 
 - [ ] **Step 7: Enforce the timeout in the main loop**, beside the existing interpolator tick:
 
@@ -750,27 +815,31 @@ In the `MOV` handler, after it accepts a move, add `j[i].jogMs = 0;` — a finit
   // it does not detach and it does not latch.  Detaching would make a loaded arm
   // sag, which is worse than holding.  This is deliberately gentler than the
   // serial watchdog (WDG), which is the coarse net for a dead host.
-  uint32_t nowMs = millis();
+  // Rollover-safe unsigned subtraction, the same idiom the interpolator tick and
+  // the serial watchdog already use.  jogActive -- never "jogMs != 0" -- is what
+  // says a jog is running.
   for (uint8_t i = 0; i < NJ; i++) {
-    if (j[i].en && j[i].jogMs && (uint32_t)(nowMs - j[i].jogMs) > JOG_TIMEOUT_MS) {
-      j[i].tgtC  = j[i].setC;
-      j[i].jogMs = 0;
+    if (j[i].en && j[i].jogActive && (uint32_t)(now - j[i].jogMs) > JOG_TIMEOUT_MS) {
+      j[i].tgtC      = j[i].setC;
+      j[i].jogActive = false;
       Serial.print(F("EVT JOGTIMEOUT J"));
       Serial.println(i);
     }
   }
 ```
 
+`now` is already computed at `:1071`; reuse it rather than calling `millis()` a second time.
+
 - [ ] **Step 8: Compile, upload with power OFF, run both harness modes**
 
-Expected: `JOG on a disabled joint` → `ERR E6`; `JOG with a bad direction` → `ERR E14`; in `--motion-ok`, `JOG 3 1` is accepted and an `EVT JOGTIMEOUT J3` line appears within ~600 ms of the heartbeat stopping.
+Expected: `JOG on a disabled joint` → `ERR E6`; `JOG with a bad direction` → `ERR E14`; in `--motion-ok`, `JOG 3 1` is accepted and an `EVT JOGTIMEOUT J3` line appears within ~1000 ms of the heartbeat stopping.
 
 - [ ] **Step 9: Update the protocol doc**
 
 Add to the verb table:
 
 ```markdown
-| `JOG` | `<j> <-1\|0\|1>` | `OK JOG J<j> DIR=<d>` | Jog toward the envelope edge and arm the command-age timer. `0` aborts and holds. Must be refreshed every 200 ms. |
+| `JOG` | `<j> <-1\|0\|1>` | `OK JOG J<j> DIR=<d>` | Jog toward the envelope edge and arm the command-age timer. `0` aborts and holds. Must be refreshed every 250 ms. |
 ```
 
 Add to the error table:
@@ -782,17 +851,21 @@ Add to the error table:
 Add to the events list:
 
 ```markdown
-| `EVT JOGTIMEOUT J<j>` | a jog was not refreshed within 600 ms; that joint's motion was aborted and it is holding its last commanded value. Not a latch, not a detach, not an emergency stop. |
+| `EVT JOGTIMEOUT J<j>` | a jog was not refreshed within 1000 ms; that joint's motion was aborted and it is holding its last commanded value. Not a latch, not a detach, not an emergency stop. |
 ```
 
 And a prose block:
 
 > **Jog heartbeat.** `JOG` arms a per-joint command-age timer. The host must re-send `JOG` every
-> **200 ms** while the operator holds the control. Three consecutive misses (**600 ms**) abort
+> **250 ms** while the operator holds the control. Four consecutive misses (**1000 ms**) abort
 > that joint's motion and hold the last commanded value, announced by `EVT JOGTIMEOUT`. `MOV`
 > does **not** arm the timer — a finite move runs to completion. A timeout hold is
 > distinguishable from an operator `STP` by the event line, and the host should show it
 > differently: a hold nobody asked for is a symptom.
+>
+> This is deliberately gentler, and four times tighter, than the `WDG` serial watchdog: `WDG`
+> detaches every joint and latches after 4000 ms of host silence, and a detached gravity-loaded
+> arm sags. The jog timer holds instead, because a stalled joystick is not a dead host.
 
 - [ ] **Step 10: Commit**
 
@@ -806,7 +879,7 @@ from a dead USB cable. Without this, a dropped link mid-hold leaves the
 joint walking to the edge of an envelope the operator may have just widened
 to 0-180.
 
-JOG arms a 600 ms timer refreshed by a 200 ms heartbeat. On expiry the joint
+JOG arms a 1000 ms timer refreshed by a 250 ms heartbeat. On expiry the joint
 aborts motion and HOLDS its last commanded value, announced by EVT
 JOGTIMEOUT -- it does not detach and does not latch, because detaching makes
 a loaded arm sag. Deliberately gentler than the WDG serial watchdog, which
@@ -1222,14 +1295,14 @@ In `pushState()`, clear `ackMin`/`ackMax` for every joint **before** the `LIM` l
     D.envJoint.style.display = j.en ? "block" : "none";
     D.envMin.textContent = j.min + "\u00b0";
     D.envMax.textContent = j.max + "\u00b0";
-    var stt = envState(d0(j));
+    var stt = envState(id);
     D.ack.textContent = stt;
     D.ack.className = "ackpill js-ack " +
       (stt === "ACKNOWLEDGED" ? "ack-ok" : stt === "PENDING" ? "ack-pending" : "ack-default");
   }
 ```
 
-`d0(j)` is whatever this file already uses to get a joint's id inside `paintJoint` — use the existing local, do not invent a helper.
+**Correction C10 (Task 0):** an earlier draft invented a `d0(j)` helper. `paintJoint(id)` (`:1527`) already takes `id` as its parameter and opens with `var j = J[id], d = j.def, D = j.dom;`. Use `id` directly.
 
 And gate motion in `paintAll`:
 
@@ -1313,7 +1386,7 @@ Keep `js-lo` / `js-hi` — `paintJoint` already writes them.
 
 ```javascript
     var joyHeld = false, joyLastDps = 0, joyLastDir = 0, joyBeat = null;
-    var JOY_BEAT_MS = 200;      /* must be <= the firmware's JOG_BEAT_MS */
+    var JOY_BEAT_MS = 250;      /* must match the firmware's JOG_BEAT_MS */
 
     function joyU(clientX){
       var r = j.dom.joy.getBoundingClientRect();
@@ -1333,10 +1406,19 @@ Keep `js-lo` / `js-hi` — `paintJoint` already writes them.
       if (s.dir !== joyLastDir) { joyLastDir = s.dir; send(fmtJog(d.id, s.dir)); }
     }
     /* The heartbeat is not optional. The firmware aborts a jog it has not heard
-       about for 600 ms, because a board that has heard nothing cannot tell a
-       steady hand from a dead cable. */
+       about for 1000 ms, because a board that has heard nothing cannot tell a
+       steady hand from a dead cable.
+
+       Correction C9 (Task 0): the outbox is a strict one-in-flight FIFO already
+       carrying PNG and STA every 250 ms. If the queue backs up, an un-coalesced
+       heartbeat ACCUMULATES and then REPLAYS -- stale MOTION commands, which is
+       far worse than a stale PNG. So the beat is skipped whenever anything is
+       still queued: a backed-up queue IS a stalled host, which is precisely what
+       the firmware timeout exists to catch. Letting it fire is the honest
+       outcome, not a bug to paper over. */
     function joyBeatTick(){
       if (!joyHeld || !joyLastDir) return;
+      if (outboxDepth() > 0) return;
       if (connState === "on" && j.en) send(fmtJog(d.id, joyLastDir));
     }
     function joyDown(e){
@@ -1371,6 +1453,21 @@ Keep `js-lo` / `js-hi` — `paintJoint` already writes them.
     j.dom.joyDead.style.width = (JOY_DEAD * 100) + "%";
 ```
 
+- [ ] **Step 4b: Expose the outbox depth**
+
+`outbox` is a module-level array in the transport section. Add beside `trimOutbox()`:
+
+```javascript
+/* Read-only view of the queue depth, so the jog heartbeat can decline to add a
+   motion command to a backlog. */
+function outboxDepth(){ return outbox.length; }
+```
+
+Also extend `trimOutbox()`'s coalescing comment to name `JOG`: it collapses `PNG` and `STA` only,
+and `JOG` must never reach it because Step 4 skips the beat while anything is queued. **If a
+future change makes `JOG` reachable there, it must coalesce newest-per-joint — replaying a stale
+motion command is a different class of bug from replaying a stale ping.**
+
 - [ ] **Step 5: Global dead-man**, near `sendHold()`:
 
 ```javascript
@@ -1395,7 +1492,7 @@ Wherever `EVT` lines are handled, add:
     var jid = line.match(/^EVT JOGTIMEOUT J(\d+)/)[1];
     joyRelease(Number(jid));
     notice("bad", "J" + jid + " stopped on its own: the controller did not hear from this page " +
-                  "for 600 ms and aborted the move. The joint is holding, still powered. " +
+                  "for a second and aborted the move. The joint is holding, still powered. " +
                   "Check the USB cable before jogging again.", 12000);
   }
 ```
@@ -1415,7 +1512,7 @@ git commit -m "feat(console): spring-back joystick on a 200 ms JOG heartbeat
 
 Deflection sets speed, capped at the joint's own max_deg_per_sec. The
 heartbeat is mandatory: the firmware aborts a jog it has not heard about for
-600 ms, because it cannot distinguish a steady hand from a dead cable.
+1000 ms, because it cannot distinguish a steady hand from a dead cable.
 
 Pointer loss, window blur, tab hide and transport failure are all treated as
 letting go. EVT JOGTIMEOUT is rendered as a fault rather than a normal stop
@@ -1550,14 +1647,18 @@ function lockAxis(id){
   });
 }
 
+/* Correction C11: p2() is a NESTED function inside another handler (:2025), not
+   a global, so it cannot be called from here. Two digits, inline. */
+function pad2(n){ return (n < 10 ? "0" : "") + n; }
+
 function downloadCalibrationRow(id){
   var j = J[id], d = j.def, now = new Date();
-  var stamp = now.getFullYear() + "-" + p2(now.getMonth()+1) + "-" + p2(now.getDate()) +
-              " " + p2(now.getHours()) + ":" + p2(now.getMinutes());
+  var stamp = now.getFullYear() + "-" + pad2(now.getMonth()+1) + "-" + pad2(now.getDate()) +
+              " " + pad2(now.getHours()) + ":" + pad2(now.getMinutes());
   var row = [stamp, id, d.name, d.pins,
              j.min, j.max, j.home,
              '"OK LIM J' + id + ' MIN=' + j.min + ' MAX=' + j.max + ' CAL=1"',
-             (sysInfo && sysInfo.fw) || "unknown",
+             fwVersion || "unknown",
              CONSOLE_VERSION,
              '"accepted commanded soft limits - not mechanical extremes"'].join(",");
   var url = URL.createObjectURL(new Blob([row + "\n"], { type:"text/csv" }));
@@ -1569,7 +1670,22 @@ function downloadCalibrationRow(id){
 }
 ```
 
-`sysInfo.fw` is whatever the console already stores from the `VER` reply — use the existing field found in Task 0. `CONSOLE_VERSION` is a new `var` near the top of the script; set it to the current console version string.
+**Correction C12 (Task 0): `sysInfo` does not exist, and the firmware version is currently thrown away.** The handshake parses the `VER` reply into a local `v` and checks `v.NAME` against `EXPECT_NAME` only (`:1040`, `:1087`); `v.FW` is discarded. `sys` (`:555`) holds `{es, wd, mir, uncal}` and no version.
+
+So this task must first **capture it**. Add near the other module-level state:
+
+```javascript
+var fwVersion = "";                    /* FW= from the VER handshake; "" until connected */
+var CONSOLE_VERSION = "1.1.0";         /* bump with the console, recorded in every lock row */
+```
+
+and in **both** places that validate the handshake, immediately after the `NAME` check passes:
+
+```javascript
+      fwVersion = v.FW || "";
+```
+
+Clear it wherever the connection is torn down, next to the existing `staFreshMs = 0;` resets, so a stale version can never be written into a calibration row after a disconnect.
 
 - [ ] **Step 4: SAVE LIMITS FILE**, beside `LOAD LIMITS FILE`:
 
@@ -1600,7 +1716,7 @@ el("saveLim").onclick = downloadLimitsCsv;
 - [ ] **Step 5: Paint the button and badge** — in `paintJoint`:
 
 ```javascript
-  if (D.lock) D.lock.disabled = !(j.en && j.envTouched && envState(d0(j)) === "ACKNOWLEDGED");
+  if (D.lock) D.lock.disabled = !(j.en && j.envTouched && envState(id) === "ACKNOWLEDGED");
   if (D.cal) {
     D.cal.textContent = j.cal ? "MEASURED" : "UNCALIBRATED \u2014 LIMITS ARE A PLACEHOLDER";
     D.cal.className = "pill " + (j.cal ? "ok" : "uncal") + " js-cal";
@@ -1720,7 +1836,7 @@ The PR body must state: flash/SRAM before and after, both harness results, self-
 
 **Spec coverage.** §3 vocabulary → Global Constraints, enforced at both review checkpoints. §5 card → Tasks 8–11. §6 envelope → Task 8; §6a logical enforcement → Task 4 Steps 2–3; §6b atomicity → Task 3; §6c narrowing → Task 4. §7 joystick → Task 9; §7a `JOG` → Task 5; §7b timeout semantics → Task 5 Steps 7, 9 and Task 9 Step 6; §7c dead-man → Task 9 Step 5; §7d target angle → Task 10. §8 lock → Task 11; §8a claim wording and schema → Task 11 Steps 1, 3. §9 ack gate → Task 8 Step 4. §10 invariants → Global Constraints. §11a harness → Tasks 1, 6; §11b self-test → Task 7; §11c bench sequence → Task 13. §12 deferred → no task, correctly. §14 — no open questions remain.
 
-**Placeholder scan.** No TBDs. Every code step carries real code. Three deliberate unknowns each have a resolution step rather than an assumption: `degToCmd` (Task 0 Step 3), the logical-to-physical mapping (Task 0 Step 4), and whether `intArg` already rejects trailing garbage (Task 3 Step 4). Two identifiers are named as "use what Task 0 found" rather than invented: `d0(j)` in `paintJoint` and `sysInfo.fw`.
+**Placeholder scan.** No TBDs. Every code step carries real code. **Task 0 has run** — all three of the previously-deferred unknowns are now resolved against source, and the four invented identifiers it exposed (`degToCmd`, `d0(j)`, global `p2()`, `sysInfo.fw`) are corrected in place rather than left as instructions to figure out later. Every remaining mention of `degToCmd` in this document is either a Task 0 step that went looking for it or a correction note recording that it does not exist.
 
 **Type consistency.** `joySpeed` → `{dir, dps}` in Tasks 7, 9. `envClampHandle` → `{value, blocked}` in Tasks 7, 8. `mirrorImageOk` → `{ok, lo, hi}` in Tasks 7, 8, 12. `limRowOk` → Boolean in Tasks 7, 8, 12. `sendLim(id)` → `Promise<Boolean>` in Tasks 8, 11 — note it resolves `false` rather than rejecting, which is why `lockAxis` checks the value and rolls `j.cal` back. `fmtJog`/`fmtLim` → String in Tasks 7, 8, 9. `JOY_DEAD` and `LIM_MIN_SPAN` are defined once in Task 7; `LIM_MIN_SPAN` must equal the firmware's `LIM_MIN_SPAN_DEG` from Task 3, and Review Checkpoint 2 should confirm it.
 
