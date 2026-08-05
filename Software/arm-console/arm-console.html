@@ -578,7 +578,7 @@ JOINT_DEFS.forEach(function (d) {
     def:d, min:DEF_MIN, max:DEF_MAX, home:DEF_HOME, dps:DEF_DPS,
     cal:false, notes:"",
     en:false, set:DEF_HOME, tgt:DEF_HOME, mov:false,
-    dom:null, dragging:false, wantMove:null, adoptOpen:false,
+    dom:null, dragging:false, wantMove:null, adoptOpen:false, envDragging:false,
     /* envelope acknowledgment: the firmware keeps NOTHING across a reset, so
        the console must never assume its own limits are live on the board. */
     envTouched:false, ackMin:null, ackMax:null, ackPending:false, jogTimedOut:false
@@ -668,6 +668,27 @@ function limRowOk(r){
   if (mn < 0 || mx > 180) return false;
   if (mn >= mx) return false;
   return (mx - mn) >= LIM_MIN_SPAN;
+}
+
+/* STA is the board's truth for every field EXCEPT the two numbers the operator
+   currently has under their finger.
+   -----------------------------------------------------------------------
+   The status poll runs at 4 Hz and used to write MIN/MAX unconditionally. An
+   envelope drag only sends its LIM on pointerup, so for the whole drag the
+   board still reports the OLD envelope — and every poll overwrote the handle
+   the operator was holding and repainted it back to the old value. Pause the
+   mouse for a quarter second and the handle jumped home; release right after a
+   poll and pointerup sent the OLD numbers, so the drag was silently discarded.
+   That is the "it will not stay where I put it" fault.
+   Guarding the ABSORB rather than pausing the poll is deliberate: the poll is
+   also what feeds the firmware's 4000 ms serial watchdog, and a slow drag with
+   the poll paused would let the board detach every joint mid-drag. It also
+   covers a reply that was already in flight when the drag began, which pausing
+   the timer cannot. */
+function absorbEnvelope(j, v){
+  if (j.envDragging) return;
+  if ("MIN" in v) j.min = Number(v.MIN);
+  if ("MAX" in v) j.max = Number(v.MAX);
 }
 
 /* Command formatting lives in one place so the self-test can check the exact
@@ -1050,8 +1071,7 @@ function absorbData(line){
     if ("EN"  in v) j.en  = v.EN === "1";
     if ("SET" in v) j.set = Number(v.SET);
     if ("TGT" in v) j.tgt = Number(v.TGT);
-    if ("MIN" in v) j.min = Number(v.MIN);
-    if ("MAX" in v) j.max = Number(v.MAX);
+    absorbEnvelope(j, v);
     if ("CAL" in v) j.cal = v.CAL === "1";
     if ("DPS" in v) j.dps = Number(v.DPS);
     if ("MOV" in v) j.mov = v.MOV === "1";
@@ -1864,7 +1884,16 @@ function buildCards(){
       j.dom.envMsg.textContent = "";
       envDrag = null;
       j.envTouched = true;
-      sendLim(d.id);
+      /* The guard stays up until the controller has answered. Dropping it at
+         pointerup would let a poll that is already in flight overwrite the
+         handles between the release and the acknowledgment — the same fault,
+         just a narrower window. sendLim swallows its own errors and always
+         resolves, so this runs on a refusal too, and the DEFAULT pill is then
+         the honest report that the board did not take the range. */
+      sendLim(d.id).then(function(){
+        j.envDragging = false;
+        paintJoint(d.id);
+      });
     }
     function envDown(which){
       return function(e){
@@ -1874,6 +1903,7 @@ function buildCards(){
         if (j.jogging) { notice("warn", "Let go of J" + d.id + "'s joystick before changing its envelope."); return; }
         e.preventDefault();
         envDrag = which;
+        j.envDragging = true;
         window.addEventListener("pointermove", envMove);
         window.addEventListener("pointerup", envUp);
         window.addEventListener("pointercancel", envUp);
@@ -2767,6 +2797,20 @@ function runSelfTest(){
   /* the minimum span is enforced from BOTH handles, not just one */
   eq("min handle keeps the 5 deg span", envClampHandle("min", 109, jOff), { value:105, blocked:false });
   eq("max handle keeps the 5 deg span", envClampHandle("max", 71, jOff),  { value:75,  blocked:false });
+
+  /* -- the 4 Hz status poll must not overwrite a handle being dragged --
+     Without the guard the poll wrote the board's OLD envelope back over the
+     operator's drag four times a second, and pointerup then sent those old
+     numbers. These three cases are that fault. */
+  var jIdle = { min:70, max:110, envDragging:false };
+  absorbEnvelope(jIdle, { MIN:"20", MAX:"160" });
+  eq("STA sets the envelope when idle",        [jIdle.min, jIdle.max], [20, 160]);
+  var jHeld = { min:40, max:150, envDragging:true };
+  absorbEnvelope(jHeld, { MIN:"70", MAX:"110" });
+  eq("STA cannot move a handle under a finger", [jHeld.min, jHeld.max], [40, 150]);
+  var jPart = { min:70, max:110, envDragging:false };
+  absorbEnvelope(jPart, { MAX:"120" });
+  eq("STA carrying only MAX leaves min alone",  [jPart.min, jPart.max], [70, 120]);
 
   /* -- shoulder mirror -- */
   eq("mirror legal at offset 0",  mirrorImageOk(70, 110, "inverted", 0),  { ok:true,  lo:70,   hi:110 });
