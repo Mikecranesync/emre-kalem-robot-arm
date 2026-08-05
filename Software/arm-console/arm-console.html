@@ -336,6 +336,26 @@ details.log summary{
 .l-sys{color:var(--move)}
 
 .footnote{color:var(--dimmer);font-size:13px;margin-top:22px;max-width:80ch}
+
+/* ---- envelope + joystick ---------------------------------------------- */
+.lbl{font-size:11px;letter-spacing:1.2px;color:var(--dimmer);margin:14px 2px 4px}
+.env{position:relative;height:38px;margin:0 2px;touch-action:none}
+.envtrack{position:absolute;top:14px;left:0;right:0;height:6px;background:var(--panel-3);border-radius:3px}
+.envband{position:absolute;top:14px;height:6px;background:var(--move);opacity:.55;border-radius:3px}
+.envjoint{position:absolute;top:6px;width:2px;height:22px;background:var(--ok)}
+.envh{position:absolute;top:4px;width:14px;height:26px;margin-left:-7px;background:var(--panel-2);
+      border:2px solid var(--move);border-radius:4px;cursor:ew-resize;touch-action:none}
+.envh.blocked{border-color:var(--fault);background:var(--fault-bg)}
+.envh.locked{border-color:var(--grey);cursor:not-allowed;opacity:.5}
+.envnums{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;
+         color:var(--move);margin:2px 2px 0}
+.envmsg{color:var(--warn);font-size:12px;min-height:16px;margin:2px 2px 0}
+.ackpill{font-size:10px;letter-spacing:.6px;border-radius:999px;padding:2px 8px;margin-left:8px;
+         border:1px solid var(--grey);background:var(--grey-bg);color:var(--dim)}
+.ackpill.pending{border-color:var(--warn);background:var(--warn-bg);color:var(--warn)}
+.ackpill.acked{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
+.gatebar{background:var(--warn-bg);border:1px solid var(--warn);color:#ffd591;border-radius:var(--radius);
+         padding:9px 12px;margin:0 0 12px;font-size:13px}
 </style>
 
 
@@ -390,6 +410,7 @@ details.log summary{
 
 <main>
   <div class="notices" id="notices"></div>
+  <div class="gatebar hidden" id="gateBar"></div>
 
   <section class="block">
     <h2>Joints</h2>
@@ -535,7 +556,10 @@ JOINT_DEFS.forEach(function (d) {
     def:d, min:DEF_MIN, max:DEF_MAX, home:DEF_HOME, dps:DEF_DPS,
     cal:false, notes:"",
     en:false, set:DEF_HOME, tgt:DEF_HOME, mov:false,
-    dom:null, dragging:false, wantMove:null, adoptOpen:false
+    dom:null, dragging:false, wantMove:null, adoptOpen:false,
+    /* envelope acknowledgment: the firmware keeps NOTHING across a reset, so
+       the console must never assume its own limits are live on the board. */
+    envTouched:false, ackMin:null, ackMax:null, ackPending:false, jogTimedOut:false
   };
 });
 
@@ -1190,6 +1214,51 @@ function verHandshake(){
 
 /* The firmware keeps NOTHING across a reset, by design. Opening the port reset
    it, so everything this page knows has to be pushed back every single time. */
+/* ==========================================================================
+   THE ACKNOWLEDGMENT GATE
+   Opening the port RESETS the board and the firmware keeps nothing, so the
+   console must never assume its own limits are live. A joystick driving against
+   limits the board never confirmed is the failure this exists to prevent.
+   ========================================================================== */
+function envState(id){
+  var j = J[id];
+  if (j.ackPending) return "PENDING";
+  if (j.ackMin === j.min && j.ackMax === j.max) return "ACKNOWLEDGED";
+  return "DEFAULT";
+}
+
+function allEnvelopesAcked(){
+  for (var k = 0; k < JOINT_DEFS.length; k++) {
+    if (envState(JOINT_DEFS[k].id) !== "ACKNOWLEDGED") return false;
+  }
+  return true;
+}
+
+/* One LIM for one joint, and the acknowledgment recorded. cal is passed through
+   unchanged: dragging an envelope handle is not a measurement, so it must never
+   set the flag. Only LOCK does that. */
+function sendLim(id){
+  var j = J[id];
+  if (connState !== "on") return Promise.resolve(false);
+  if (!limRowOk({ min:j.min, max:j.max })) {
+    notice("bad", "J" + id + ": " + j.min + "–" + j.max + "° is not a legal envelope. " +
+                  "Limits sit inside 0–180 and must be at least " + LIM_MIN_SPAN + "° apart.");
+    return Promise.resolve(false);
+  }
+  j.ackPending = true; paintJoint(id);
+  return send(fmtLim(id, j.min, j.max, j.cal))
+    .then(function(){
+      j.ackMin = j.min; j.ackMax = j.max; j.ackPending = false;
+      paintAll();
+      return true;
+    })
+    .catch(function(e){
+      j.ackPending = false; paintAll();
+      notice("warn", plainErr(e.message, J[id].def));
+      return false;
+    });
+}
+
 function pushState(){
   /* WDG GOES FIRST, BEFORE THE TWELVE LIM/SPD ROUND-TRIPS.
      The firmware boots with wdgMs = 0, i.e. the watchdog DISABLED. The LIM/SPD
@@ -1199,10 +1268,14 @@ function pushState(){
      nothing to be dropped by a watchdog that trips during the push. */
   var chain = Promise.resolve().then(function(){ return send("WDG " + WATCHDOG_MS); });
 
+  /* A reconnect RESETS the board, so every envelope starts unacknowledged again.
+     Clearing these first is what makes the gate honest rather than decorative. */
+  JOINT_DEFS.forEach(function(d){ J[d.id].ackMin = null; J[d.id].ackMax = null; });
+
   JOINT_DEFS.forEach(function(d){
     var j = J[d.id];
     chain = chain
-      .then(function(){ return send("LIM " + d.id + " " + j.min + " " + j.max + " " + (j.cal ? 1 : 0)); })
+      .then(function(){ return sendLim(d.id); })
       .then(function(){ return send("SPD " + d.id + " " + j.dps); });
   });
 
@@ -1487,6 +1560,16 @@ function buildCards(){
         '<div class="deg-sub">commanded &mdash; the servo sends nothing back to confirm it</div>' +
         '<div class="tgt js-tgt"></div>' +
       '</div>' +
+      '<div class="lbl">ENVELOPE &mdash; the soft stops<span class="ackpill js-ack">DEFAULT</span></div>' +
+      '<div class="env js-env">' +
+        '<div class="envtrack"></div>' +
+        '<div class="envband js-envband"></div>' +
+        '<div class="envjoint js-envjoint"></div>' +
+        '<div class="envh js-hmin"></div>' +
+        '<div class="envh js-hmax"></div>' +
+      '</div>' +
+      '<div class="envnums"><span class="js-envmin">70&deg;</span><span class="js-envmax">110&deg;</span></div>' +
+      '<div class="envmsg js-envmsg"></div>' +
       '<input type="range" class="js-slider" min="70" max="110" step="1" value="90" disabled>' +
       '<div class="scale"><span class="js-lo">70&deg;</span><span class="js-hi">110&deg;</span></div>' +
       '<div class="clampmsg js-clamp"></div>' +
@@ -1512,6 +1595,9 @@ function buildCards(){
       card:c, cal:q(".js-cal"), state:q(".js-state"), mirror:q(".js-mirror"),
       deg:q(".js-deg"), degBox:c.querySelector(".deg"), tgt:q(".js-tgt"),
       slider:q(".js-slider"), lo:q(".js-lo"), hi:q(".js-hi"), clamp:q(".js-clamp"),
+      env:q(".js-env"), envBand:q(".js-envband"), envJoint:q(".js-envjoint"),
+      hmin:q(".js-hmin"), hmax:q(".js-hmax"), ack:q(".js-ack"),
+      envMin:q(".js-envmin"), envMax:q(".js-envmax"), envMsg:q(".js-envmsg"),
       adopt:q(".js-adopt"), adoptVal:q(".js-adoptval"), adoptErr:q(".js-adopterr"),
       enable:q(".js-enable"), dis:q(".js-dis"), dps:q(".js-dps"), note:q(".js-note")
     };
@@ -1531,6 +1617,63 @@ function buildCards(){
     j.dom.slider.addEventListener("change", function(){
       j.dragging = false; j.wantMove = Number(j.dom.slider.value);
     });
+
+    /* ---- envelope drag ---------------------------------------------------
+       A handle can never be pulled past the joint's own commanded value while
+       that joint is driven: squeezing the envelope past the joint would make the
+       arm move because someone tidied a number. The firmware refuses such a LIM
+       with E9; this stops it ever being sent. */
+    var envDrag = null;
+    function envDegFromX(clientX){
+      var r = j.dom.env.getBoundingClientRect();
+      return (clientX - r.left) / r.width * 180;
+    }
+    function envMove(e){
+      var res = envClampHandle(envDrag, envDegFromX(e.clientX), j);
+      if (d.id === 1) {
+        var chk = mirrorImageOk(envDrag === "min" ? res.value : j.min,
+                                envDrag === "max" ? res.value : j.max,
+                                mirrorMode, mirrorOffset);
+        if (!chk.ok) {
+          j.dom.envMsg.textContent =
+            "That range would drive the shoulder's second servo to " + chk.lo + "–" + chk.hi +
+            "°, outside 0–180. Two servos would fight through one link.";
+          return;
+        }
+      }
+      if (envDrag === "min") j.min = res.value; else j.max = res.value;
+      j.dom[envDrag === "min" ? "hmin" : "hmax"].classList.toggle("blocked", res.blocked);
+      j.dom.envMsg.textContent = res.blocked
+        ? "The joint is here. Disable it to bring the envelope in further."
+        : "";
+      paintJoint(d.id);
+    }
+    function envUp(){
+      window.removeEventListener("pointermove", envMove);
+      window.removeEventListener("pointerup", envUp);
+      window.removeEventListener("pointercancel", envUp);
+      j.dom.hmin.classList.remove("blocked");
+      j.dom.hmax.classList.remove("blocked");
+      j.dom.envMsg.textContent = "";
+      envDrag = null;
+      j.envTouched = true;
+      sendLim(d.id);
+    }
+    function envDown(which){
+      return function(e){
+        /* The firmware refuses LIM on a jogging joint (E9 STATE=jogging). Not
+           offering the drag at all is the normal path; that refusal is the
+           backstop. */
+        if (j.jogging) { notice("warn", "Let go of J" + d.id + "'s joystick before changing its envelope."); return; }
+        e.preventDefault();
+        envDrag = which;
+        window.addEventListener("pointermove", envMove);
+        window.addEventListener("pointerup", envUp);
+        window.addEventListener("pointercancel", envUp);
+      };
+    }
+    j.dom.hmin.addEventListener("pointerdown", envDown("min"));
+    j.dom.hmax.addEventListener("pointerdown", envDown("max"));
 
     j.dom.enable.onclick = function(){ openAdopt(d.id); };
     j.dom.dis.onclick    = function(){ doDisable(d.id); };
@@ -1619,6 +1762,24 @@ function paintJoint(id){
   D.note.textContent = noteText;
   D.note.classList.toggle("hidden", !noteText);
 
+  /* envelope */
+  var a = clampi(j.min, 0, 180) / 180 * 100, b = clampi(j.max, 0, 180) / 180 * 100;
+  D.hmin.style.left      = a + "%";
+  D.hmax.style.left      = b + "%";
+  D.envBand.style.left   = a + "%";
+  D.envBand.style.width  = (b - a) + "%";
+  D.envJoint.style.left  = (clampi(j.set, 0, 180) / 180 * 100) + "%";
+  D.envJoint.style.display = j.en ? "block" : "none";
+  D.envMin.textContent   = j.min + "°";
+  D.envMax.textContent   = j.max + "°";
+  var estt = envState(id);
+  D.ack.textContent = estt;
+  D.ack.className   = "ackpill js-ack" +
+    (estt === "ACKNOWLEDGED" ? " acked" : estt === "PENDING" ? " pending" : "");
+  var envLocked = !!j.jogging || connState !== "on";
+  D.hmin.classList.toggle("locked", envLocked);
+  D.hmax.classList.toggle("locked", envLocked);
+
   D.slider.min = j.min; D.slider.max = j.max;
   D.lo.textContent = j.min + "°";
   D.hi.textContent = j.max + "°";
@@ -1627,8 +1788,13 @@ function paintJoint(id){
 
   if (Number(D.dps.value) !== j.dps && document.activeElement !== D.dps) D.dps.value = j.dps;
 
+  /* THE GATE. Motion controls stay dead until the firmware has acknowledged
+     every envelope. Opening the port reset the board; until each LIM comes back
+     OK, the console does not know what the limits actually are. */
+  var gate = allEnvelopesAcked();
   var mirrorBlocked = (id === 1 && mirrorMode === "unknown");
-  D.enable.disabled = !(connState === "on") || sys.es || j.en || mirrorBlocked;
+  D.enable.disabled = !(connState === "on") || sys.es || j.en || mirrorBlocked || !gate;
+  D.slider.disabled = D.slider.disabled || !gate;
   D.dis.disabled    = !(connState === "on") || !j.en;
   D.dps.disabled    = (connState !== "on");
   if (!live || j.en) { closeAdoptIfOpen(j, id); }
@@ -1666,6 +1832,20 @@ function paintTop(){
 
   el("hdr").classList.toggle("estopped", !!sys.es);
   el("estopStrip").classList.toggle("hidden", !sys.es);
+
+  /* One banner, not six toasts: the operator needs to know WHY every ENABLE is
+     dead, and a per-joint notice would bury it. */
+  var gateBar = el("gateBar");
+  if (gateBar) {
+    var gated = (connState === "on") && !allEnvelopesAcked();
+    gateBar.classList.toggle("hidden", !gated);
+    if (gated) {
+      var waiting = JOINT_DEFS.filter(function(d){ return envState(d.id) !== "ACKNOWLEDGED"; })
+                              .map(function(d){ return "J" + d.id; }).join(", ");
+      gateBar.textContent = "Motion is disabled until the controller confirms every joint's " +
+        "envelope. Waiting on: " + waiting + ".";
+    }
+  }
 
   var anyEnabled = JOINT_DEFS.some(function(d){ return J[d.id].en; });
   el("btnRecord").disabled = !(connState === "on") || sys.es || !anyEnabled;
