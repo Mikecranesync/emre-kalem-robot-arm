@@ -509,6 +509,13 @@ static void enableJoint(uint8_t i, int16_t adoptDeg) {
   j[i].setC = c;
   j[i].tgtC = c;
 
+  // A freshly enabled joint is never mid-jog.  That is already true by
+  // construction - doEna refuses an enabled joint, and every route to disabled
+  // runs through disableJoint() which clears these - but stating it here makes
+  // the invariant structural instead of something a reader has to re-derive.
+  j[i].jogActive   = false;
+  j[i].jogTimedOut = false;
+
   if (i == 1 && PIN_B[1] < NUM_DIGITAL_PINS) {
     int16_t r = mirrorC(c);
     // BOTH pre-loads before EITHER attach.  One shoulder servo driving against

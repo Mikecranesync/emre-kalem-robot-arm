@@ -128,6 +128,32 @@ def expect_absent(name, reply, needle, pending=None):
     _record(name, needle not in joined, joined, "NOT " + needle, pending)
 
 
+def sta(b):
+    """STA as {joint_id: {KEY: value}} plus {'SYS': {...}}.
+
+    Lets a test assert on one joint's field instead of a substring of the whole
+    dump -- which is the difference between "J3 stopped" and "some line
+    somewhere contained TGT=90".
+    """
+    out = {}
+    for line in b.cmd("STA"):
+        parts = line.split()
+        if not parts:
+            continue
+        if parts[0].startswith("STA") and len(parts) > 1 and parts[1].startswith("J"):
+            jid = int(parts[1][1:])
+            out[jid] = dict(p.split("=", 1) for p in parts[2:] if "=" in p)
+        elif parts[0] == "SYS":
+            out["SYS"] = dict(p.split("=", 1) for p in parts[1:] if "=" in p)
+    return out
+
+
+def expect_field(name, snap, jid, key, want, pending=None):
+    got = snap.get(jid, {}).get(key)
+    _record(name, got == want, "J%s %s=%s" % (jid, key, got),
+            "J%s %s=%s" % (jid, key, want), pending)
+
+
 def find_port():
     for p in list_ports.comports():
         if "2341" in (p.hwid or ""):
@@ -272,15 +298,47 @@ def motion_tests(b):
     expect("JTO is clear again", b.cmd("STA"), "JTO=0",
            pending="Task 5 adds the jog-timeout latch")
 
+    print("\n-- a refreshed jog does NOT time out --")
+    b.cmd("JOG 3 1")
+    for _ in range(6):
+        time.sleep(0.25)
+        b.cmd("JOG 3 1")
+    expect_field("a jog refreshed every 250 ms stayed alive", sta(b), 3, "JTO", "0")
+    b.cmd("JOG 3 0")
+
     print("\n-- a finite move must not inherit the jog timeout --")
     b.cmd("MOV 3 95")
     time.sleep(1.4)
-    expect_absent("finite move survived past the jog timeout window",
-                  b.cmd("STA"), "JTO=1",
-                  pending="Task 5 adds the jog-timeout latch")
+    expect_field("finite move survived past the jog timeout window",
+                 sta(b), 3, "JTO", "0")
 
-    b.cmd("DIS 3")
-    expect("the joint is disabled again", b.cmd("STA"), "STA J3 EN=0")
+    print("\n-- STP <j> stops ONE joint and leaves the other alone --")
+    b.cmd("DIS A")
+    b.cmd("LIM 0 60 120 0")
+    b.cmd("LIM 3 60 120 0")
+    b.cmd("SPD 0 1")            # 1 deg/s: both stay in motion long enough to compare
+    b.cmd("SPD 3 1")
+    b.cmd("ENA 0 90")
+    b.cmd("ENA 3 90")
+    b.cmd("MOV 0 120")
+    b.cmd("MOV 3 120")
+    b.cmd("STP 3")
+    snap = sta(b)
+    expect_field("the stopped joint holds its commanded value", snap, 3, "MOV", "0")
+    expect_field("the untouched joint is still moving", snap, 0, "MOV", "1")
+    expect_field("the untouched joint kept its target", snap, 0, "TGT", "120")
+    b.cmd("STP")
+    expect_field("bare STP then stops the other one too", sta(b), 0, "MOV", "0")
+
+    b.cmd("DIS A")
+    snap = sta(b)
+    expect_field("J3 is disabled again", snap, 3, "EN", "0")
+    expect_field("J0 is disabled again", snap, 0, "EN", "0")
+    b.cmd("LIM 0 70 110 0")
+    b.cmd("LIM 3 70 110 0")
+    b.cmd("SPD 0 30")
+    b.cmd("SPD 3 30")
+    expect("limits restored to the defaults", b.cmd("LIM"), "LIM J3 MIN=70 MAX=110")
 
 
 def main():
