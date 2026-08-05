@@ -154,6 +154,13 @@ BODY_MAX = 65536            # largest POST body worth reading; real ones are tin
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HTML_PATH = os.path.join(HERE, "arm-console.html")
+# Served so the console can re-apply the envelope automatically after a connect.
+# Opening the port RESETS the Arduino, and the firmware keeps NOTHING across a
+# reset - so without this the operator must re-pick the same file by hand every
+# single time, and a reset they cannot see reads as "the shoulder stopped
+# working". Read-only, and only ever this one fixed filename beside the bridge:
+# no part of the request names it, so no request can reach any other file.
+LIMITS_PATH = os.path.join(HERE, "joint-limits.csv")
 
 # ---------------------------------------------------------------------------
 # THE PER-LAUNCH ACCESS CODE
@@ -709,6 +716,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ports": list_ports()})
             except Exception as exc:
                 self._json({"ports": [], "error": "Could not list serial ports: %s" % exc})
+            return
+
+        if path == "/limits":
+            # Text, not a file download: the console runs it through exactly the
+            # same parser and validator as the LOAD LIMITS FILE picker, so an
+            # edited row is refused here for the same reasons and with the same
+            # words. Missing file is reported, never silently treated as empty.
+            try:
+                with open(LIMITS_PATH, "r", encoding="utf-8") as fh:
+                    self._json({"ok": True,
+                                "name": os.path.basename(LIMITS_PATH),
+                                "csv": fh.read()})
+            except OSError as exc:
+                self._json({"ok": False,
+                            "error": "Could not read %s: %s" % (LIMITS_PATH, exc)})
             return
 
         if path == "/rx":

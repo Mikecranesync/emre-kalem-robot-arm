@@ -1280,6 +1280,12 @@ function connect(){
       }
       fwText = "FW " + (v.FW || "?") + " · protocol " + (v.PROTO || "?") + " · " + (v.JOINTS || "?") + " joints";
       fwVersion = v.FW || "";
+      /* Stage the limits file BEFORE the push, so the one pushState below
+         carries the operator's envelope and mirror rather than the firmware
+         defaults the reset just restored. */
+      return autoLoadLimits();
+    })
+    .then(function(){
       return pushState();
     })
     .then(function(){
@@ -2396,7 +2402,13 @@ function tableFrom(text){
 
 function isInt(s){ return /^-?\d+$/.test(String(s).trim()); }
 
-function loadLimitsCsv(text, fname){
+/* skipPush is for the connect path ONLY. loadLimitsCsv normally pushes what it
+   staged, but connect() pushes anyway two lines later, and two pushes means the
+   board is told the same thing twice and a refusal is reported twice. The
+   connect path stages here and lets its own pushState carry it - so a rejected
+   row still tears the connection down, which is the behaviour that already
+   existed. */
+function loadLimitsCsv(text, fname, skipPush){
   var anyEnabled = JOINT_DEFS.some(function(d){ return J[d.id].en; });
   if (anyEnabled) {
     notice("warn","Disable every joint before loading a limits file. The controller will not move a joint's " +
@@ -2503,8 +2515,36 @@ function loadLimitsCsv(text, fname){
   warns.forEach(function(w){ notice("warn", w); });
   notice("ok","Loaded " + got.length + " joint row(s) from " + fname + ".", 6000);
 
+  if (skipPush) return;
   if (connState === "on") pushState().catch(function(e){ notice("bad","The controller rejected the new limits: " + plainErr(e.message)); });
   else notice("warn","Not connected, so the controller has not been told yet. These limits are pushed to it the moment you connect.", 8000);
+}
+
+/* Re-apply joint-limits.csv on every connect.
+   ------------------------------------------
+   Opening the port RESETS the Arduino (Optiboot, on DTR) and the firmware keeps
+   NOTHING across a reset: every joint goes back to 70–110 and the shoulder
+   mirror back to UNKNOWN, which makes ENA J1 refuse with E13. Before this the
+   operator had to re-pick the same file by hand after every connect, and when
+   they did not, a joint that had worked a minute earlier was simply dead with
+   no visible cause.
+   Bridge only. The no-install Web Serial route runs from file:// with no
+   filesystem access, so it keeps the picker; saying so is better than a silent
+   difference in behaviour between the two transports. */
+function autoLoadLimits(){
+  if (!USE_BRIDGE) return Promise.resolve();
+  return httpJson("GET","/limits").then(function(r){
+    if (!r || !r.ok || typeof r.csv !== "string") {
+      notice("warn","Could not read joint-limits.csv automatically" +
+                    (r && r.error ? " (" + r.error + ")" : "") +
+                    ". Use LOAD LIMITS FILE — until you do, every joint is at the " +
+                    "firmware default of 70–110° and the shoulder cannot be enabled.", 12000);
+      return;
+    }
+    loadLimitsCsv(r.csv, r.name || "joint-limits.csv", true);
+  }).catch(function(){
+    notice("warn","Could not read joint-limits.csv automatically. Use LOAD LIMITS FILE.", 10000);
+  });
 }
 
 function loadWaypointCsv(text, fname){
