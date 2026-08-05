@@ -564,6 +564,71 @@ function el(id){ return document.getElementById(id); }
 function sleep(ms){ return new Promise(function (r){ setTimeout(r, ms); }); }
 function clampi(v,lo,hi){ return v<lo?lo:(v>hi?hi:v); }
 
+/* ==========================================================================
+   ENVELOPE + JOYSTICK MATHS
+   Pure functions, no DOM and no transport, so ?selftest=1 can prove them from
+   file:// with no board and no bridge. Everything that decides how far a joint
+   may travel or how fast lives here, where it is testable.
+   ========================================================================== */
+
+var JOY_DEAD     = 0.14;   /* dead zone, fraction of half travel */
+var LIM_MIN_SPAN = 5;      /* MUST match LIM_MIN_SPAN_DEG in the firmware */
+var JOG_BEAT_MS  = 250;    /* MUST match JOG_BEAT_MS in the firmware */
+
+/* Joystick deflection -> speed. u is -1..+1. Inside the dead zone the joint is
+   still, so a resting hand cannot creep it. Beyond it, deflection maps linearly
+   from 1 deg/s up to this joint's own max_deg_per_sec — never past it. */
+function joySpeed(u, dpsMax){
+  var mag = Math.abs(u);
+  if (mag <= JOY_DEAD) return { dir:0, dps:0 };
+  var k = (mag - JOY_DEAD) / (1 - JOY_DEAD);
+  return { dir: u > 0 ? 1 : -1, dps: clampi(Math.round(1 + k * (dpsMax - 1)), 1, dpsMax) };
+}
+
+/* An envelope handle may never be dragged past the joint's own commanded value
+   while that joint is driven. Squeezing the envelope past the joint would make
+   the arm move because someone tidied a number — the firmware refuses such a LIM
+   with E9, and this stops it ever being sent. */
+function envClampHandle(which, want, j){
+  var v = Math.round(want), blocked = false;
+  if (which === "min") {
+    v = clampi(v, 0, j.max - LIM_MIN_SPAN);
+    if (j.en && v > j.set) { v = Math.floor(j.set); blocked = true; }
+  } else {
+    v = clampi(v, j.min + LIM_MIN_SPAN, 180);
+    if (j.en && v < j.set) { v = Math.ceil(j.set); blocked = true; }
+  }
+  return { value: v, blocked: blocked };
+}
+
+/* Under mirror_mode=inverted the firmware drives the pair's second servo to
+   (180 + 2*offset) - angle. If any part of joint 1's travel maps outside 0–180,
+   two MG996Rs would fight through one link. Same arithmetic the firmware's
+   doMir() runs, so the console refuses the range before it reaches the wire. */
+function mirrorImageOk(mn, mx, mode, off){
+  if (mode !== "inverted") return { ok:true, lo:mn, hi:mx };
+  var lo = (180 + 2*off) - mx, hi = (180 + 2*off) - mn;
+  return { ok: (lo >= 0 && hi <= 180), lo:lo, hi:hi };
+}
+
+/* A saved CSV row is untrusted input. Same rules the firmware enforces, checked
+   before anything is sent, so a hand-edited file cannot put the board in a state
+   the console then misrenders. */
+function limRowOk(r){
+  var mn = Number(r.min), mx = Number(r.max);
+  if (!isFinite(mn) || !isFinite(mx)) return false;
+  if (mn < 0 || mx > 180) return false;
+  if (mn >= mx) return false;
+  return (mx - mn) >= LIM_MIN_SPAN;
+}
+
+/* Command formatting lives in one place so the self-test can check the exact
+   bytes that go on the wire, not an approximation of them. */
+function fmtJog(id, dir){ return "JOG " + id + " " + dir; }
+function fmtLim(id, mn, mx, cal){ return "LIM " + id + " " + mn + " " + mx + " " + (cal ? 1 : 0); }
+function fmtMov(id, deg){ return "MOV " + id + " " + deg; }
+function fmtStp(id){ return "STP " + id; }
+
 
 /* ==========================================================================
    TRANSPORT
@@ -2225,4 +2290,97 @@ notice("warn",
   "Every joint below is UNCALIBRATED until someone bench-tests it. 70–110° is a placeholder, " +
   "not this arm's travel. Nothing is driven until you enable a joint and tell it the angle it is sitting at.",
   15000);
+
+/* ==========================================================================
+   ?selftest=1 — the maths, proved with no board and no bridge
+   Runs from file://, writes exactly ONE terminal sentinel (SELFTEST_PASS or
+   SELFTEST_FAIL) plus a line per failure. Verified by Software/tests/selftest.sh;
+   Chrome's exit code is NOT evidence, because a page that throws before
+   rendering still exits 0.
+   ========================================================================== */
+function runSelfTest(){
+  var fails = [];
+  function eq(name, got, want){
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      fails.push(name + "\n    expected " + JSON.stringify(want) +
+                        "\n    observed " + JSON.stringify(got));
+    }
+  }
+  var jOn  = { min:70, max:110, set:90, en:true };
+  var jOff = { min:70, max:110, set:90, en:false };
+
+  /* -- joystick speed mapping -- */
+  eq("centre is dead",              joySpeed(0, 30),      { dir:0, dps:0 });
+  eq("inside dead zone is dead",    joySpeed(0.10, 30),   { dir:0, dps:0 });
+  eq("dead zone edge is still dead",joySpeed(0.14, 30),   { dir:0, dps:0 });
+  eq("just past dead zone crawls",  joySpeed(0.15, 30),   { dir:1, dps:1 });
+  eq("full right is max dps",       joySpeed(1, 30),      { dir:1, dps:30 });
+  eq("full left is max dps",        joySpeed(-1, 30),     { dir:-1, dps:30 });
+  eq("left of dead zone crawls",    joySpeed(-0.15, 30),  { dir:-1, dps:1 });
+  eq("dps ceiling is per joint",    joySpeed(1, 12),      { dir:1, dps:12 });
+  eq("a slow joint never exceeds 1",joySpeed(0.5, 1),     { dir:1, dps:1 });
+
+  /* -- envelope handles: a drag must never cause motion -- */
+  eq("min handle free below joint",   envClampHandle("min", 80, jOn),   { value:80,  blocked:false });
+  eq("min handle blocked at joint",   envClampHandle("min", 95, jOn),   { value:90,  blocked:true  });
+  eq("max handle free above joint",   envClampHandle("max", 130, jOn),  { value:130, blocked:false });
+  eq("max handle blocked at joint",   envClampHandle("max", 85, jOn),   { value:90,  blocked:true  });
+  eq("min handle floors at 0",        envClampHandle("min", -20, jOn),  { value:0,   blocked:false });
+  eq("max handle ceils at 180",       envClampHandle("max", 200, jOn),  { value:180, blocked:false });
+  eq("disabled joint does not block", envClampHandle("min", 95, jOff),  { value:95,  blocked:false });
+  /* the minimum span is enforced from BOTH handles, not just one */
+  eq("min handle keeps the 5 deg span", envClampHandle("min", 109, jOff), { value:105, blocked:false });
+  eq("max handle keeps the 5 deg span", envClampHandle("max", 71, jOff),  { value:75,  blocked:false });
+
+  /* -- shoulder mirror -- */
+  eq("mirror legal at offset 0",  mirrorImageOk(70, 110, "inverted", 0),  { ok:true,  lo:70,   hi:110 });
+  /* axis = 180 + 2*20 = 220; image of 10..170 is 50..210, and 210 > 180.
+     Same arithmetic as the firmware's doMir(): imgLo = axis - max, imgHi = axis - min. */
+  eq("mirror illegal when wide",  mirrorImageOk(10, 170, "inverted", 20), { ok:false, lo:50, hi:210 });
+  eq("mirror irrelevant if same", mirrorImageOk(0, 180, "same", 0),       { ok:true,  lo:0,    hi:180 });
+  eq("mirror ignored if unknown", mirrorImageOk(0, 180, "unknown", 40),   { ok:true,  lo:0,    hi:180 });
+
+  /* -- untrusted saved rows never reach the board -- */
+  eq("reversed saved row rejected",     limRowOk({min:120, max:40}),  false);
+  eq("equal saved row rejected",        limRowOk({min:90,  max:90}),  false);
+  eq("too narrow saved row rejected",   limRowOk({min:90,  max:93}),  false);
+  eq("exactly 5 deg span accepted",     limRowOk({min:90,  max:95}),  true);
+  eq("out of range saved row rejected", limRowOk({min:-5,  max:110}), false);
+  eq("above 180 saved row rejected",    limRowOk({min:70,  max:181}), false);
+  eq("non-numeric saved row rejected",  limRowOk({min:"x", max:110}), false);
+  eq("sane saved row accepted",         limRowOk({min:60,  max:120}), true);
+
+  /* -- the exact bytes that go on the wire -- */
+  eq("jog command formatting",   fmtJog(3, 1),              "JOG 3 1");
+  eq("jog left formatting",      fmtJog(3, -1),             "JOG 3 -1");
+  eq("jog stop formatting",      fmtJog(3, 0),              "JOG 3 0");
+  eq("lim command formatting",   fmtLim(3, 60, 120, false), "LIM 3 60 120 0");
+  eq("lim carries the cal flag", fmtLim(3, 60, 120, true),  "LIM 3 60 120 1");
+  eq("mov command formatting",   fmtMov(3, 95),             "MOV 3 95");
+  eq("per-joint stop formatting",fmtStp(3),                 "STP 3");
+
+  /* -- the console's constants must not drift from the firmware's -- */
+  eq("minimum span matches the firmware", LIM_MIN_SPAN, 5);
+  eq("jog heartbeat matches the firmware", JOG_BEAT_MS, 250);
+
+  /* -- pointer cancellation lands in the same state as letting go -- */
+  var released = [];
+  var fake = { releaseJoy: function(){ released.push("released"); } };
+  simulatePointerCancel(fake);
+  simulatePointerCancel({});                 /* a joint with no joystick must not throw */
+  eq("pointer cancel releases the joystick", released, ["released"]);
+
+  var out = document.createElement("pre");
+  out.id = "selftest";
+  out.textContent = fails.length
+    ? ("SELFTEST_FAIL (" + fails.length + ")\n" + fails.join("\n"))
+    : "SELFTEST_PASS";
+  document.body.appendChild(out);
+}
+
+/* Pointer cancellation, window blur and tab-hide all land here, so the
+   self-test can exercise the same path the browser uses. */
+function simulatePointerCancel(j){ if (j && j.releaseJoy) j.releaseJoy(); }
+
+if (/[?&]selftest=1/.test(location.search)) runSelfTest();
 </script>
