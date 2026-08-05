@@ -337,6 +337,22 @@ details.log summary{
 
 .footnote{color:var(--dimmer);font-size:13px;margin-top:22px;max-width:80ch}
 
+/* ---- joystick --------------------------------------------------------- */
+.joy{position:relative;height:44px;margin:0 2px;touch-action:none;cursor:grab}
+.joy.dead{opacity:.45;cursor:not-allowed}
+.joytrack{position:absolute;top:17px;left:0;right:0;height:8px;background:var(--panel-3);border-radius:4px}
+.joydead{position:absolute;top:17px;height:8px;background:var(--line);border-radius:4px}
+.joyfill{position:absolute;top:17px;height:8px;background:var(--move);border-radius:4px}
+.joycentre{position:absolute;top:11px;left:50%;width:1px;height:20px;background:var(--dimmer)}
+.joyh{position:absolute;top:7px;left:50%;width:34px;height:28px;margin-left:-17px;background:var(--panel-2);
+      border:2px solid var(--dim);border-radius:6px;display:flex;align-items:center;justify-content:center}
+.joyh span{width:14px;height:2px;background:var(--dim);box-shadow:0 -4px 0 var(--dim),0 4px 0 var(--dim)}
+.joyh.live{border-color:var(--move);background:var(--move-bg)}
+.joyh.live span{background:var(--move);box-shadow:0 -4px 0 var(--move),0 4px 0 var(--move)}
+.stale{color:var(--warn) !important}
+.jtoflag{border:1px solid var(--fault);background:var(--fault-bg);color:var(--fault);border-radius:var(--radius);
+         padding:6px 9px;margin:6px 2px 0;font-size:12px}
+
 /* ---- envelope + joystick ---------------------------------------------- */
 .lbl{font-size:11px;letter-spacing:1.2px;color:var(--dimmer);margin:14px 2px 4px}
 .env{position:relative;height:38px;margin:0 2px;touch-action:none}
@@ -893,6 +909,41 @@ function trimOutbox(){
    about. It still pushes an awaiter through the normal FIFO — writing straight
    to the transport would mis-file every later reply by one, which is the exact
    bug this section exists to prevent. */
+/* A heartbeat must be FRESH or not sent at all, so the jog beat asks whether
+   the channel is completely clear -- nothing in flight AND nothing queued. */
+function channelFree(){ return liveAwaiters() === 0 && outbox.length === 0; }
+
+/* Routine polling stops for the duration of a hold, so the heartbeat has a
+   channel it does not share. The firmware's serial watchdog is NOT endangered:
+   lastRxMs is fed by any fully-parsed line reaching a handler, and JOG is one,
+   so a 250 ms beat feeds the 4000 ms WDG exactly as PNG did.
+   A counter, not a bool: a second joint's joystick must not resume polling
+   while the first is still held. */
+var jogHolds = 0;
+function jogPollPause(){
+  if (jogHolds++ === 0) {
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+    if (staTimer)  { clearInterval(staTimer);  staTimer  = null; }
+  }
+}
+function jogPollResume(){
+  if (jogHolds > 0) jogHolds--;
+  if (jogHolds === 0 && connState === "on") {
+    if (!pingTimer) pingTimer = setInterval(function(){ send("PNG").catch(function(){}); }, PING_MS);
+    if (!staTimer)  staTimer  = setInterval(function(){ if (!playing) statusPoll(); }, STATUS_MS);
+    statusPoll();   /* the readout has been stale since the hold began */
+  }
+}
+
+/* Letting go, losing the pointer, losing the window, the tab going to the
+   background and the transport failing are all the same event: stop. The
+   firmware's jog timeout is the backstop for the cases the browser never gets
+   to report at all. */
+function joyRelease(id){ if (J[id] && J[id].releaseJoy) J[id].releaseJoy(); }
+function joyReleaseAll(){ JOINT_DEFS.forEach(function(d){ joyRelease(d.id); }); }
+window.addEventListener("blur", joyReleaseAll);
+document.addEventListener("visibilitychange", function(){ if (document.hidden) joyReleaseAll(); });
+
 function send(line, timeoutMs, priority){
   if (connState === "off") return Promise.reject(new Error("Not connected."));
   return new Promise(function(resolve, reject){
@@ -996,6 +1047,23 @@ function absorbData(line){
     if ("CAL" in v) j.cal = v.CAL === "1";
     if ("DPS" in v) j.dps = Number(v.DPS);
     if ("MOV" in v) j.mov = v.MOV === "1";
+
+    /* JTO=1: this joint's last jog ended because the controller stopped hearing
+       from us, NOT because the operator let go. The firmware is SILENT when a
+       jog times out -- it latches this flag and we find out here, which is why
+       there is no EVT to listen for.
+       Edge-triggered: the latch persists until a deliberate command clears it,
+       so re-notifying on every poll would bury the operator in toasts. */
+    if ("JTO" in v) {
+      var jto = (v.JTO === "1");
+      if (jto && !j.jogTimedOut) {
+        joyRelease(id);
+        notice("bad", "J" + id + " stopped on its own. The controller did not hear from this page " +
+                      "for a second and ended the move. The joint is holding, still powered. " +
+                      "Check the USB cable and the bridge window before jogging again.", 12000);
+      }
+      j.jogTimedOut = jto;
+    }
     paintJoint(id);
   } else if (t[0] === "SYS") {
     var s = kv(t.slice(1));
@@ -1056,6 +1124,10 @@ function stopTimers(){
   stopRx();
   [pingTimer, staTimer, moveTimer].forEach(function(t){ if (t) clearInterval(t); });
   pingTimer = staTimer = moveTimer = null;
+  /* A link dropped mid-hold would otherwise leave the counter above zero and
+     polling permanently off after the next reconnect. */
+  jogHolds = 0;
+  JOINT_DEFS.forEach(function(d){ J[d.id].jogging = false; });
 }
 
 function startTimers(){
@@ -1555,6 +1627,8 @@ function buildCards(){
       '<div class="badges"><span class="pill uncal js-cal"></span><span class="pill off js-state"></span></div>' +
       '<div class="mirrorrow js-mirror hidden"></div>' +
       '<div class="cardnote js-note hidden"></div>' +
+      '<div class="jtoflag js-jto hidden">This joint stopped on its own: the controller lost contact ' +
+        'with this page mid-move. It is holding, still powered. Any command clears this.</div>' +
       '<div class="readout">' +
         '<div class="deg off"><span class="js-deg">90</span><span class="u">&deg;</span></div>' +
         '<div class="deg-sub">commanded &mdash; the servo sends nothing back to confirm it</div>' +
@@ -1570,7 +1644,14 @@ function buildCards(){
       '</div>' +
       '<div class="envnums"><span class="js-envmin">70&deg;</span><span class="js-envmax">110&deg;</span></div>' +
       '<div class="envmsg js-envmsg"></div>' +
-      '<input type="range" class="js-slider" min="70" max="110" step="1" value="90" disabled>' +
+      '<div class="lbl">JOYSTICK &mdash; hold to move, let go to stop</div>' +
+      '<div class="joy js-joy">' +
+        '<div class="joytrack"></div>' +
+        '<div class="joydead js-joydead"></div>' +
+        '<div class="joyfill js-joyfill"></div>' +
+        '<div class="joycentre"></div>' +
+        '<div class="joyh js-joyh"><span></span></div>' +
+      '</div>' +
       '<div class="scale"><span class="js-lo">70&deg;</span><span class="js-hi">110&deg;</span></div>' +
       '<div class="clampmsg js-clamp"></div>' +
       '<div class="adopt hidden js-adopt">' +
@@ -1594,7 +1675,9 @@ function buildCards(){
     j.dom = {
       card:c, cal:q(".js-cal"), state:q(".js-state"), mirror:q(".js-mirror"),
       deg:q(".js-deg"), degBox:c.querySelector(".deg"), tgt:q(".js-tgt"),
-      slider:q(".js-slider"), lo:q(".js-lo"), hi:q(".js-hi"), clamp:q(".js-clamp"),
+      lo:q(".js-lo"), hi:q(".js-hi"), clamp:q(".js-clamp"),
+      joy:q(".js-joy"), joyH:q(".js-joyh"), joyFill:q(".js-joyfill"), joyDead:q(".js-joydead"),
+      jto:q(".js-jto"),
       env:q(".js-env"), envBand:q(".js-envband"), envJoint:q(".js-envjoint"),
       hmin:q(".js-hmin"), hmax:q(".js-hmax"), ack:q(".js-ack"),
       envMin:q(".js-envmin"), envMax:q(".js-envmax"), envMsg:q(".js-envmsg"),
@@ -1602,21 +1685,80 @@ function buildCards(){
       enable:q(".js-enable"), dis:q(".js-dis"), dps:q(".js-dps"), note:q(".js-note")
     };
 
-    j.dom.slider.addEventListener("pointerdown", function(){ j.dragging = true; });
-    ["pointerup","pointercancel","blur"].forEach(function(ev){
-      j.dom.slider.addEventListener(ev, function(){ j.dragging = false; });
-    });
-    j.dom.slider.addEventListener("input", function(){
-      var v = Number(j.dom.slider.value);
-      /* The slider sets the TARGET, never the commanded angle. Writing j.set
-         here made the big readout show an angle nothing had been told to go to
-         yet — an uncommanded number presented as fact. j.set is fed by STA and
-         by nothing else. */
-      j.tgt = v; j.wantMove = v; paintJoint(d.id);
-    });
-    j.dom.slider.addEventListener("change", function(){
-      j.dragging = false; j.wantMove = Number(j.dom.slider.value);
-    });
+    /* ---- joystick --------------------------------------------------------
+       Speed, not position. Deflection maps to deg/s, capped at this joint's own
+       max_deg_per_sec. Holding sends SPD once and then a JOG heartbeat; the
+       firmware's interpolator does the walking. */
+    var joyHeld = false, joyLastDps = 0, joyLastDir = 0, joyBeat = null;
+
+    function joyU(clientX){
+      var r = j.dom.joy.getBoundingClientRect();
+      return clampi(((clientX - r.left) / r.width - 0.5) * 2, -1, 1);
+    }
+    function joyPaintHandle(u, s2){
+      j.dom.joyH.style.left = (50 + u * 50) + "%";
+      if (s2.dps) {
+        j.dom.joyFill.style.left  = (u > 0 ? 50 : 50 + u * 50) + "%";
+        j.dom.joyFill.style.width = (Math.abs(u) * 50) + "%";
+      } else {
+        j.dom.joyFill.style.width = "0%";
+      }
+    }
+    function joyApply(u){
+      var s2 = joySpeed(u, j.dps);
+      joyPaintHandle(u, s2);
+      if (connState !== "on" || !j.en) return;
+      if (s2.dps && s2.dps !== joyLastDps) { joyLastDps = s2.dps; send("SPD " + d.id + " " + s2.dps); }
+      if (s2.dir !== joyLastDir) { joyLastDir = s2.dir; send(fmtJog(d.id, s2.dir)); }
+    }
+    /* A heartbeat is only meaningful if it is FRESH. A queued one asserts, on
+       arrival, that a hand was on the control at a moment that has already
+       passed. So it is DROPPED when the channel is busy -- never buffered,
+       never coalesced, never retried. Four dropped beats means the firmware
+       times out, which is correct: a channel that cannot pass one short line in
+       a second IS a stalled host. */
+    function joyBeatTick(){
+      if (!joyHeld || !joyLastDir) return;
+      if (!channelFree()) return;
+      if (connState === "on" && j.en) send(fmtJog(d.id, joyLastDir));
+    }
+    function joyDown(e){
+      if (!allEnvelopesAcked()) { notice("warn", "Wait for the controller to confirm every envelope."); return; }
+      if (!j.en) { notice("warn", "Enable J" + d.id + " before moving it."); return; }
+      if (sys.es) { notice("warn", "The e-stop is latched. Press CLEAR E-STOP first."); return; }
+      e.preventDefault();
+      joyHeld = true; joyLastDps = 0; joyLastDir = 0;
+      j.jogging = true;
+      j.dom.joyH.classList.add("live");
+      window.addEventListener("pointermove", joyMove);
+      window.addEventListener("pointerup", joyReleaseLocal);
+      window.addEventListener("pointercancel", joyReleaseLocal);
+      joyBeat = setInterval(joyBeatTick, JOG_BEAT_MS);
+      jogPollPause();
+      joyApply(joyU(e.clientX));
+      paintJoint(d.id);
+    }
+    function joyMove(e){ if (joyHeld) joyApply(joyU(e.clientX)); }
+    function joyReleaseLocal(){
+      if (!joyHeld) return;
+      joyHeld = false;
+      j.jogging = false;
+      if (joyBeat) { clearInterval(joyBeat); joyBeat = null; }
+      window.removeEventListener("pointermove", joyMove);
+      window.removeEventListener("pointerup", joyReleaseLocal);
+      window.removeEventListener("pointercancel", joyReleaseLocal);
+      j.dom.joyH.classList.remove("live");
+      j.dom.joyH.style.left = "50%";
+      j.dom.joyFill.style.width = "0%";
+      joyLastDps = 0; joyLastDir = 0;
+      if (connState === "on" && j.en) send(fmtJog(d.id, 0));
+      jogPollResume();
+      paintJoint(d.id);
+    }
+    j.releaseJoy = joyReleaseLocal;
+    j.dom.joy.addEventListener("pointerdown", joyDown);
+    j.dom.joyDead.style.left  = (50 - JOY_DEAD * 50) + "%";
+    j.dom.joyDead.style.width = (JOY_DEAD * 100) + "%";
 
     /* ---- envelope drag ---------------------------------------------------
        A handle can never be pulled past the joint's own commanded value while
@@ -1754,7 +1896,14 @@ function paintJoint(id){
      has not reached. */
   D.deg.textContent = String(Math.round(j.set));
   D.degBox.classList.toggle("off", !j.en);
-  D.tgt.textContent = (j.en && j.tgt !== j.set) ? ("→ target " + Math.round(j.tgt) + "°") : "";
+  /* STA is the only writer of j.set, and routine polling is PAUSED while a
+     joystick is held -- so during a hold this number stops updating even though
+     the joint is moving. Saying so is the point: showing a frozen number as if
+     it were current is the same class of lie as the word "position". */
+  D.tgt.classList.toggle("stale", !!j.jogging);
+  D.tgt.textContent = j.jogging
+    ? "moving — angle updates when you let go"
+    : ((j.en && j.tgt !== j.set) ? ("→ target " + Math.round(j.tgt) + "°") : "");
 
   /* Notes from joint-limits.csv, plus any pin-provenance hint, shown on the
      card rather than hidden in a tooltip. */
@@ -1772,6 +1921,7 @@ function paintJoint(id){
   D.envJoint.style.display = j.en ? "block" : "none";
   D.envMin.textContent   = j.min + "°";
   D.envMax.textContent   = j.max + "°";
+  D.jto.classList.toggle("hidden", !j.jogTimedOut);
   var estt = envState(id);
   D.ack.textContent = estt;
   D.ack.className   = "ackpill js-ack" +
@@ -1780,11 +1930,8 @@ function paintJoint(id){
   D.hmin.classList.toggle("locked", envLocked);
   D.hmax.classList.toggle("locked", envLocked);
 
-  D.slider.min = j.min; D.slider.max = j.max;
   D.lo.textContent = j.min + "°";
   D.hi.textContent = j.max + "°";
-  if (!j.dragging) D.slider.value = clampi(Math.round(j.set), j.min, j.max);
-  D.slider.disabled = !(live && j.en);
 
   if (Number(D.dps.value) !== j.dps && document.activeElement !== D.dps) D.dps.value = j.dps;
 
@@ -1794,7 +1941,7 @@ function paintJoint(id){
   var gate = allEnvelopesAcked();
   var mirrorBlocked = (id === 1 && mirrorMode === "unknown");
   D.enable.disabled = !(connState === "on") || sys.es || j.en || mirrorBlocked || !gate;
-  D.slider.disabled = D.slider.disabled || !gate;
+  D.joy.classList.toggle("dead", !(live && j.en && gate));
   D.dis.disabled    = !(connState === "on") || !j.en;
   D.dps.disabled    = (connState !== "on");
   if (!live || j.en) { closeAdoptIfOpen(j, id); }
