@@ -2858,6 +2858,13 @@ function runSelfTest(){
      Same arithmetic as the firmware's doMir(): imgLo = axis - max, imgHi = axis - min. */
   eq("mirror illegal when wide",  mirrorImageOk(10, 170, "inverted", 20), { ok:false, lo:50, hi:210 });
   eq("mirror irrelevant if same", mirrorImageOk(0, 180, "same", 0),       { ok:true,  lo:0,    hi:180 });
+  /* The shipped shoulder row is inverted across the FULL 0-180 at offset 0,
+     which lands exactly on the boundary. Pinned because the config depends on
+     it: at any non-zero offset this same range goes illegal. */
+  eq("inverted full travel legal at offset 0",
+                                  mirrorImageOk(0, 180, "inverted", 0),   { ok:true,  lo:0,    hi:180 });
+  eq("inverted full travel illegal off axis",
+                                  mirrorImageOk(0, 180, "inverted", 5),   { ok:false, lo:10,   hi:190 });
   eq("mirror ignored if unknown", mirrorImageOk(0, 180, "unknown", 40),   { ok:true,  lo:0,    hi:180 });
 
   /* -- untrusted saved rows never reach the board -- */
