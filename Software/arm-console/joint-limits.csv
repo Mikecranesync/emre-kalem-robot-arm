@@ -1,9 +1,21 @@
 # joint-limits.csv - per-joint travel limits for factorylm_arm_controller
 #
 # EVERY NUMBER IN THIS FILE IS A PLACEHOLDER. Nobody has measured this arm.
-# 70-110 is the same conservative default the single-servo bench sketch uses.
-# It is NOT the mechanical travel of any joint here. Exactly one provisional
+# 0-180 is the WIDEST range that exists: it is the SERVO's electrical range, and
+# the firmware rejects anything outside it (LIM replies E.. LIMIT=0..180). It is
+# NOT the mechanical travel of any joint here. Near the ends several joints will
+# buzz, strain, or reach a hard stop - that is expected, not a fault. It is the
+# edge you are meant to find and back off from. Exactly one provisional
 # unloaded calibration row exists in this whole project.
+#
+# WHY 0-180 AND NOT THE OLD 70-110: changed 2026-08-05 on request, to stop the
+# console clamping every jog into a 40-degree window before anything has been
+# measured. The envelope no longer guards you - the operator does. Move in small
+# steps, listen, and stop at the first buzz or strain.
+#
+# The FIRMWARE still boots at 70-110 (DEF_MIN_DEG / DEF_MAX_DEG). That is
+# deliberate: after any board reset the tight envelope is back until someone
+# presses LOAD LIMITS FILE. Reset = safe default; loading this file = wide open.
 #
 # HOW TO FILL THIS IN - ONE JOINT AT A TIME:
 #   1. Bench-test that joint on its own with
@@ -18,8 +30,9 @@
 #   6. In the arm console press LOAD LIMITS FILE and pick this file again.
 #
 # Only ever set calibrated=yes for a joint YOU measured. A row still sitting at
-# 70-110 with calibrated=yes is a lie the console will believe and repeat, and
-# the amber UNCALIBRATED badge is the only thing that would have warned you.
+# the full 0-180 with calibrated=yes is a lie the console will believe and
+# repeat, and the amber UNCALIBRATED badge is the only thing that would have
+# warned you. Every row below is still calibrated=no for exactly that reason.
 #
 # Row joint_id=1 (shoulder) also needs mirror_mode before it can be enabled at
 # all. See that row's notes.
@@ -38,8 +51,9 @@
 #   fighting each other by 12 degrees the whole time joint 1 is enabled. They
 #   will hold, get hot, and eventually strip a gear.
 #
-#   0 IS A PLACEHOLDER, EXACTLY LIKE 70-110. Nobody has measured this arm, so
-#   nobody knows the real number. MEASURE IT, DO NOT GUESS IT:
+#   0 IS A PLACEHOLDER, EXACTLY LIKE THE 0-180 TRAVEL NUMBERS. Nobody has
+#   measured this arm, so nobody knows the real number. MEASURE IT, DO NOT
+#   GUESS IT:
 #     1. Do the mirror_mode test first (see the joint_id=1 row). You need to
 #        know it is inverted before an offset means anything.
 #     2. With the shoulder linkage UNBOLTED and the horns off, use the
@@ -53,6 +67,12 @@
 #   Whole signed degrees only. Leave it at 0 until you have actually measured
 #   it - a wrong offset is worse than none, because it looks deliberate.
 #
+#   NOTE ON THE NEW 0-180 ROW FOR JOINT 1: a full-width shoulder row is only
+#   legal while mirror_offset_deg is 0. The mirrored servo is driven to
+#   (180 + 2*offset) - angle, so any non-zero offset pushes part of 0-180
+#   outside the servo's own 0-180 and the console will refuse the row. When you
+#   finally measure a non-zero offset you MUST narrow joint 1's min/max to suit.
+#
 # There is deliberately NO row for joint_id 2. D5 is the second servo of the
 # shoulder pair and is never commanded on its own. The gap is not a mistake.
 #
@@ -60,9 +80,9 @@
 # Do not put a comma inside any field. Use a semicolon or a dash.
 #
 joint_id,joint_name,uno_pins,min_deg,max_deg,home_deg,max_deg_per_sec,calibrated,mirror_mode,notes,mirror_offset_deg
-0,Base,D3,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG996R (type INFERRED from the BOM). Support the arm against rotation while testing.,0
-1,Shoulder,D4+D5,70,110,90,30,no,unknown,UNCALIBRATED and mirror_mode=unknown - this joint CANNOT be enabled until both are fixed. Determine the mirror at the bench with the single-servo sketch: centre D4 and D5 separately and never paired; note whether they must be given the same angle or mirrored about 90; then set mirror_mode to same or inverted. Guessing it makes two MG996Rs fight through one link and strip gears. Two MG996R (type INFERRED from the BOM). If it turns out to be inverted then also measure mirror_offset_deg - see the header block.,0
-3,Elbow,D6,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG996R (type INFERRED from the BOM). Lightest of the four MG996R joints - a sensible one to calibrate first.,0
-4,Wrist pitch,D9,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter.,0
-5,Wrist roll,D10,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (DOC-CONFIRMED; the only confirmed servo type on the arm) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. Least mechanical load of all seven.,0
-6,Gripper,D11,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. The useful range here is open-to-closed rather than a mechanical travel limit; the linkage may be loose. This is the servo that was actually on D3 in the one existing calibration-log row.,0
+0,Base,D3,0,180,90,30,no,,UNCALIBRATED - 0-180 is the servo's full electrical range and NOT measured travel. Bench-test this joint then narrow min_deg / max_deg to what it really reaches and set calibrated=yes. MG996R (type INFERRED from the BOM). Support the arm against rotation while testing. NOTE the one existing calibration-log row says the servo physically on D3 was the GRIPPER - settle that before trusting this row.,0
+1,Shoulder,D4+D5,0,180,90,30,no,unknown,UNCALIBRATED and mirror_mode=unknown - this joint CANNOT be enabled until both are fixed; the firmware refuses with E13. 0-180 here is only legal while mirror_offset_deg is 0 - see the header block. Determine the mirror at the bench with the single-servo sketch: centre D4 and D5 separately and never paired; note whether they must be given the same angle or mirrored about 90; then set mirror_mode to same or inverted. Guessing it makes two MG996Rs fight through one link and strip gears. Two MG996R (type INFERRED from the BOM). If it turns out to be inverted then also measure mirror_offset_deg and narrow this row to match.,0
+3,Elbow,D6,0,180,90,30,no,,UNCALIBRATED - 0-180 is the servo's full electrical range and NOT measured travel. Bench-test this joint then narrow min_deg / max_deg to what it really reaches and set calibrated=yes. MG996R (type INFERRED from the BOM). Lightest of the four MG996R joints - a sensible one to calibrate first.,0
+4,Wrist pitch,D9,0,180,90,30,no,,UNCALIBRATED - 0-180 is the servo's full electrical range and NOT measured travel. Bench-test this joint then narrow min_deg / max_deg to what it really reaches and set calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter.,0
+5,Wrist roll,D10,0,180,90,30,no,,UNCALIBRATED - 0-180 is the servo's full electrical range and NOT measured travel. Bench-test this joint then narrow min_deg / max_deg to what it really reaches and set calibrated=yes. MG90S (DOC-CONFIRMED; the only confirmed servo type on the arm) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. Least mechanical load of all seven.,0
+6,Gripper,D11,0,180,90,30,no,,UNCALIBRATED - 0-180 is the servo's full electrical range and NOT measured travel. Bench-test this joint then narrow min_deg / max_deg to what it really reaches and set calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. A gripper hits its own linkage long before 0 or 180 - open-to-closed is the useful range here and the linkage may be loose. This is the servo that was actually on D3 in the one existing calibration-log row.,0
