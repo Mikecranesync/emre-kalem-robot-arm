@@ -28,6 +28,26 @@ if [ ! -f "$CHROME" ]; then
   exit 2
 fi
 
+# Syntax-check the inline script first, when node is available. Without this a
+# stray character anywhere in 2500 lines reports only as "the page threw before
+# rendering", which is true but useless. node names the line.
+if command -v node >/dev/null 2>&1; then
+  TMPJS="$(mktemp -t armconsole.XXXXXX.js 2>/dev/null || echo "${TMP:-/tmp}/armconsole.$$.js")"
+  python -c "
+import io,re,sys
+s = io.open(sys.argv[1], encoding='utf-8').read()
+b = re.findall(r'<script>(.*?)</script>', s, re.S)
+io.open(sys.argv[2], 'w', encoding='utf-8', newline='\n').write(b[-1] if b else '')
+" "$PAGE_FILE" "$TMPJS" 2>/dev/null
+  if [ -s "$TMPJS" ] && ! node --check "$TMPJS" >/dev/null 2>&1; then
+    echo "SELFTEST FAILED: the console's inline script does not parse."
+    node --check "$TMPJS" 2>&1 | head -12
+    rm -f "$TMPJS"
+    exit 1
+  fi
+  rm -f "$TMPJS"
+fi
+
 # --virtual-time-budget makes the dump deterministic: it fires after the page's
 # timers settle rather than at an arbitrary moment.
 DOM="$("$CHROME" --headless=new --disable-gpu --virtual-time-budget=5000 \

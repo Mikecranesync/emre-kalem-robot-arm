@@ -337,6 +337,12 @@ details.log summary{
 
 .footnote{color:var(--dimmer);font-size:13px;margin-top:22px;max-width:80ch}
 
+.targetrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 2px 0;font-size:12px;
+           letter-spacing:.6px;color:var(--dimmer)}
+.targetrow input{width:92px;text-align:right;background:var(--panel-2);border:1px solid var(--line);
+                 border-radius:6px;padding:9px;min-height:40px;color:var(--text);font-family:var(--mono)}
+.tack{font-family:var(--mono);font-size:12px;color:var(--dim)}
+
 /* ---- joystick --------------------------------------------------------- */
 .joy{position:relative;height:44px;margin:0 2px;touch-action:none;cursor:grab}
 .joy.dead{opacity:.45;cursor:not-allowed}
@@ -595,6 +601,8 @@ var mirrorOffset = 0;
 var sys        = { es:0, wd:0, mir:"UNKNOWN", uncal:JOINT_DEFS.length };
 var connState  = "off";         // off | busy | on
 var fwText     = "";
+var fwVersion  = "";              /* FW= from the VER handshake; "" until connected */
+var CONSOLE_VERSION = "1.2.0";    /* recorded in every lock row */
 var waypoints  = [];            // {label, deg:{id->int|null}, dwell}
 var playing    = false, playAbort = false;
 var tabHidden  = false;         // this tab is in the background — see WATCHDOG_MS
@@ -1141,7 +1149,7 @@ function teardown(){
   flushPending("Disconnected.");
   playAbort = true; playing = false;
   resyncing = false; timeoutRun = 0; staFreshMs = 0;
-  connState = "off"; fwText = "";
+  connState = "off"; fwText = ""; fwVersion = "";
   JOINT_DEFS.forEach(function(d){ J[d.id].en = false; J[d.id].mov = false; });
   /* The background banner is about unsupervised MOTION. With no link there is
      nothing being commanded, and leaving it up would compete with the more
@@ -1251,6 +1259,7 @@ function connect(){
                         ". Flash Software/factorylm_arm_controller and try again.");
       }
       fwText = "FW " + (v.FW || "?") + " · protocol " + (v.PROTO || "?") + " · " + (v.JOINTS || "?") + " joints";
+      fwVersion = v.FW || "";
       return pushState();
     })
     .then(function(){
@@ -1329,6 +1338,56 @@ function sendLim(id){
       notice("warn", plainErr(e.message, J[id].def));
       return false;
     });
+}
+
+/* ==========================================================================
+   LOCK THIS AXIS
+   The ONLY code path permitted to set the calibrated flag. Nothing infers it.
+   The amber UNCALIBRATED badge is the only warning that a joint's range is a
+   placeholder, so a system that could clear it on its own would be lying.
+
+   What this records is the ACCEPTED COMMANDED soft limits -- the handle values
+   the firmware acknowledged. It is NOT a claim about the joint's mechanical
+   extremes; nothing in this system can observe those.
+   ========================================================================== */
+function pad2(n){ return (n < 10 ? "0" : "") + n; }
+
+function lockAxis(id){
+  var j = J[id];
+  if (!j.en) {
+    notice("warn", "Enable J" + id + " and settle it where you want its centre first."); return;
+  }
+  if (!j.envTouched) {
+    notice("warn", "Move J" + id + "'s envelope handles first. Locking the placeholder would record " +
+                   "a range nobody chose."); return;
+  }
+  var prevCal = j.cal, prevHome = j.home;
+  j.cal  = true;
+  j.home = Math.round(j.set);
+  sendLim(id).then(function(ok){
+    if (!ok) { j.cal = prevCal; j.home = prevHome; paintJoint(id); return; }
+    notice("ok", "J" + id + " " + j.def.name + " locked at " + j.min + "–" + j.max + "°, centre " +
+                 j.home + "° — accepted by the controller. Save the limits file to keep it past a reset.", 9000);
+    downloadCalibrationRow(id);
+    paintAll();
+  });
+}
+
+/* One row per lock. COMMANDED values only -- there is no observation of where
+   the joint actually is, and there will not be until something external watches
+   the arm. The schema is append-only for exactly that reason. */
+function downloadCalibrationRow(id){
+  var j = J[id], d = j.def, now = new Date();
+  var stamp = now.getFullYear() + "-" + pad2(now.getMonth()+1) + "-" + pad2(now.getDate()) +
+              " " + pad2(now.getHours()) + ":" + pad2(now.getMinutes());
+  var row = [stamp, id, d.name, d.pins, j.min, j.max, j.home,
+             '"OK LIM J' + id + ' MIN=' + j.min + ' MAX=' + j.max + ' CAL=1"',
+             fwVersion || "unknown", CONSOLE_VERSION,
+             '"accepted commanded soft limits - not mechanical extremes"'].join(",");
+  var url = URL.createObjectURL(new Blob([row + "\n"], { type:"text/csv" }));
+  var a = document.createElement("a");
+  a.href = url; a.download = "calibration-row-J" + id + ".csv"; a.click();
+  URL.revokeObjectURL(url);
 }
 
 function pushState(){
@@ -1664,9 +1723,14 @@ function buildCards(){
         '</div>' +
         '<div class="adopterr js-adopterr"></div>' +
       '</div>' +
+      '<div class="targetrow">TARGET ANGLE ' +
+        '<input type="number" class="js-target" step="1">' +
+        '<button class="btn small js-send">SEND</button>' +
+        '<span class="tack js-tack"></span></div>' +
       '<div class="cardactions">' +
         '<button class="btn go js-enable">ENABLE</button>' +
         '<button class="btn js-dis">DISABLE</button>' +
+        '<button class="btn small js-lock" disabled>LOCK THIS AXIS</button>' +
         '<label class="spd">deg/s <input type="number" class="js-dps" min="1" max="90" step="1" value="30"></label>' +
       '</div>';
     grid.appendChild(c);
@@ -1677,7 +1741,8 @@ function buildCards(){
       deg:q(".js-deg"), degBox:c.querySelector(".deg"), tgt:q(".js-tgt"),
       lo:q(".js-lo"), hi:q(".js-hi"), clamp:q(".js-clamp"),
       joy:q(".js-joy"), joyH:q(".js-joyh"), joyFill:q(".js-joyfill"), joyDead:q(".js-joydead"),
-      jto:q(".js-jto"),
+      jto:q(".js-jto"), target:q(".js-target"), sendBtn:q(".js-send"), tack:q(".js-tack"),
+      lock:q(".js-lock"),
       env:q(".js-env"), envBand:q(".js-envband"), envJoint:q(".js-envjoint"),
       hmin:q(".js-hmin"), hmax:q(".js-hmax"), ack:q(".js-ack"),
       envMin:q(".js-envmin"), envMax:q(".js-envmax"), envMsg:q(".js-envmsg"),
@@ -1817,6 +1882,36 @@ function buildCards(){
     j.dom.hmin.addEventListener("pointerdown", envDown("min"));
     j.dom.hmax.addEventListener("pointerdown", envDown("max"));
 
+    /* ---- exact angle -----------------------------------------------------
+       Sends on Enter or the button ONLY, never on input. A box that transmits
+       while you type turns a three-digit number into three moves, the first two
+       of them wrong. */
+    function sendTarget(){
+      if (!allEnvelopesAcked()) { notice("warn", "Wait for the controller to confirm every envelope."); return; }
+      if (!j.en)  { notice("warn", "Enable J" + d.id + " first."); return; }
+      if (sys.es) { notice("warn", "The e-stop is latched. Press CLEAR E-STOP first."); return; }
+      var raw = Number(j.dom.target.value);
+      if (j.dom.target.value === "" || !isFinite(raw)) { j.dom.tack.textContent = "not a number"; return; }
+      var v = clampi(Math.round(raw), j.min, j.max);
+      j.dom.target.value = v;
+      j.dom.tack.textContent = "sending " + v + "°…";
+      send(fmtMov(d.id, v)).then(function(res){
+        /* Show what the controller ACCEPTED, not what was typed. */
+        var vv = kv(res.tokens.slice(2));
+        if ("SET" in vv) { j.tgt = Number(vv.SET); j.dom.target.value = vv.SET; }
+        j.dom.tack.textContent = "accepted " + (vv.SET !== undefined ? vv.SET : v) + "°" +
+                                 (vv.CL === "1" ? " (clamped)" : "");
+        paintJoint(d.id);
+      }).catch(function(e){
+        j.dom.tack.textContent = "refused";
+        notice("warn", plainErr(e.message, d));
+      });
+    }
+    j.dom.sendBtn.onclick = sendTarget;
+    j.dom.target.addEventListener("keydown", function(e){ if (e.key === "Enter") sendTarget(); });
+
+    j.dom.lock.onclick = function(){ lockAxis(d.id); };
+
     j.dom.enable.onclick = function(){ openAdopt(d.id); };
     j.dom.dis.onclick    = function(){ doDisable(d.id); };
     j.dom.adopt.querySelector(".js-confirm").onclick = function(){ confirmAdopt(d.id); };
@@ -1922,6 +2017,9 @@ function paintJoint(id){
   D.envMin.textContent   = j.min + "°";
   D.envMax.textContent   = j.max + "°";
   D.jto.classList.toggle("hidden", !j.jogTimedOut);
+  D.lock.disabled = !(live && j.en && j.envTouched && envState(id) === "ACKNOWLEDGED");
+  D.target.disabled  = !(live && j.en && allEnvelopesAcked());
+  D.sendBtn.disabled = D.target.disabled;
   var estt = envState(id);
   D.ack.textContent = estt;
   D.ack.className   = "ackpill js-ack" +
@@ -2329,13 +2427,24 @@ function loadLimitsCsv(text, fname){
          than to have the firmware refuse the MIR and leave the shoulder
          un-enableable with no explanation. */
       if (mirOff !== 0 && m === "inverted") {
-        var loImg = (180 + 2*mirOff) - mx, hiImg = (180 + 2*mirOff) - mn;
-        if (loImg < 0 || hiImg > 180) {
+        /* One implementation, shared with the envelope drag. This arithmetic
+           used to live only here, so dragging J1's handles could stage a range
+           the loader would have refused. */
+        var img = mirrorImageOk(mn, mx, "inverted", mirOff);
+        if (!img.ok) {
           bad("mirror_offset_deg " + mirOff + " would drive the shoulder's second servo to " +
-              loImg + "–" + hiImg + "°, which is outside 0–180. Reduce the offset or narrow min_deg/max_deg.");
+              img.lo + "–" + img.hi + "°, which is outside 0–180. Reduce the offset or narrow min_deg/max_deg.");
           return;
         }
       }
+    }
+
+    /* Same rules the firmware enforces and the drag path uses, so a hand-edited
+       file cannot stage a row the board will reject. */
+    if (!limRowOk({ min:mn, max:mx })) {
+      bad("min_deg " + mn + " / max_deg " + mx + " is not a legal envelope. Limits sit inside " +
+          "0–180 and must be at least " + LIM_MIN_SPAN + "° apart.");
+      return;
     }
 
     if (cal && mn === DEF_MIN && mx === DEF_MAX) {
