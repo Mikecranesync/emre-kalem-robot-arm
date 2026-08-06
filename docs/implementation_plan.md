@@ -278,7 +278,22 @@ See M5. Every marker size in the design scales linearly off an assumed 60° HFOV
   `full_electrical_range` flag carries the suspicion, and it is what keeps
   `is_calibrated` False even if joint 6 were fixed tomorrow.
 
-### 7.5 The console and the adapter are mutually exclusive
+### 7.5 Install editable, not plain
+
+`calibration.py` resolves its default paths relative to its own file position, so
+it finds `joint-limits.csv` and `lock-artifacts/` by walking up to the repo root.
+That works under `pip install -e` because of the src layout, and it is how the
+loader was verified. It **breaks under a non-editable `pip install .`**: the
+defaults would point into site-packages and `load_calibration()` would raise
+"file not found".
+
+Recoverable — `EmreArmConfig` exposes `limits_csv`, `lock_artifacts_dir` and
+`wiring_map_csv` explicitly, so a non-editable install just has to set them. But
+`pip install -e` is the supported path, and the calibration files deliberately
+stay in the repository rather than being packaged, because they are operational
+records that get edited, not shipped assets.
+
+### 7.6 The console and the adapter are mutually exclusive
 
 The adapter opens the serial port directly and is its sole owner. The wire
 protocol correlates replies by **echoed verb with no sequence numbers**, so two

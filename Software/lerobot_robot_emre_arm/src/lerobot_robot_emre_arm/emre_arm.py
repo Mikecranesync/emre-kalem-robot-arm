@@ -359,6 +359,34 @@ class EmreArm(Robot):
     # The loop
     # ------------------------------------------------------------------
 
+    def _check_latch(self, snap: dict[Any, dict[str, str]]) -> None:
+        """Notice a stop we did not initiate, on the tick it happens.
+
+        `EVT ESTOP` / `EVT WDOG` are asynchronous, and the next command's input
+        flush can discard them, so they are not a reliable channel. The LATCH is:
+        `SYS ES=1` means the e-stop is latched and every subsequent command
+        returns E7; `SYS WD=1` means the latch came from the watchdog rather than
+        from an operator. Both are in the STA snapshot we already have.
+
+        Without this check a mid-episode watchdog trip is silent: every joint
+        reports EN=0, every commanded value becomes NaN, and the recorded episode
+        gives no clue why.
+        """
+        sys_row = snap.get("SYS", {})
+        if sys_row.get("ES") != "1":
+            return
+        self._enabled.clear()
+        raise RuntimeError(
+            "the board is E-STOP LATCHED"
+            + (" and the latch came from the WATCHDOG -- the host went quiet long "
+               "enough that the firmware detached every joint"
+               if sys_row.get("WD") == "1" else " (operator-initiated)")
+            + ". EVERY JOINT IS DETACHED and a gravity-loaded arm has sagged. "
+            "Recovery is CLR, then ENA <j> <FRESHLY ESTIMATED adopt angle> per "
+            "joint -- the staleness is mechanical, so the previous adopt angles "
+            "are no longer true."
+        )
+
     def get_observation(self) -> dict[str, Any]:
         """One STA round trip, plus whatever the cameras and observer provide.
 
@@ -371,7 +399,13 @@ class EmreArm(Robot):
             raise RuntimeError("not connected")
         assert self._link is not None
 
+        # Tells the idle watcher the control loop is alive. Must come from here
+        # and from send_action() only -- the heartbeat is wire traffic, not loop
+        # traffic, and counting it would make the idle timeout unreachable.
+        self._link.note_loop_activity()
+
         snap = parse_sta(self._link.command("STA"))
+        self._check_latch(snap)
 
         commanded: dict[int, float] = {}
         for jid in JOINT_IDS:
@@ -431,6 +465,7 @@ class EmreArm(Robot):
                 "now; there is no feedback to derive one from."
             )
         assert self._link is not None
+        self._link.note_loop_activity()      # see get_observation()
 
         out: dict[str, float] = {}
         for jid in JOINT_IDS:

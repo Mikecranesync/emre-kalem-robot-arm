@@ -221,7 +221,16 @@ class SerialLink:
         self._io = threading.Lock()          # serialises command round-trips
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
-        self._last_activity = time.monotonic()
+
+        # DELIBERATELY NOT UPDATED BY command(). The idle watcher must measure
+        # activity of the CONTROL LOOP, not activity on the wire -- and the
+        # heartbeat is activity on the wire. Feeding this from command() would
+        # let the heartbeat refresh it every 250 ms, so the idle timeout could
+        # never elapse and `DIS A` would be unreachable. That would leave the one
+        # failure this watcher exists to catch -- a wedged loop in a live process,
+        # invisible to the firmware watchdog because the heartbeat keeps it fed --
+        # completely uncovered.
+        self._last_loop_activity = time.monotonic()
         self._idle_parked = False
         self.firmware_version: str | None = None
         self.events: list[str] = []
@@ -315,16 +324,28 @@ class SerialLink:
 
     # -- commands ----------------------------------------------------------
 
+    def note_loop_activity(self) -> None:
+        """Called by the CONTROL LOOP -- get_observation() and send_action() only.
+
+        Never called from command(), and never from the heartbeat. See the
+        comment on `_last_loop_activity`.
+        """
+        self._last_loop_activity = time.monotonic()
+        if self._idle_parked:
+            # The loop is running again. The joints are detached and the arm has
+            # almost certainly sagged, so re-enabling is the caller's decision and
+            # needs a FRESH adopt angle -- clearing this flag only stops the
+            # watcher from issuing DIS A over and over at a detached arm.
+            log.warning(
+                "control loop resumed after an idle park. Every joint is "
+                "DETACHED and the arm has probably sagged; nothing is driven "
+                "until you ENA each joint with a newly estimated adopt angle."
+            )
+            self._idle_parked = False
+
     def command(self, line: str, timeout_s: float = REPLY_TIMEOUT_S) -> Reply:
         """Send one line, read to its terminator. Raises CommandError on ERR."""
         with self._io:
-            self._last_activity = time.monotonic()
-            if self._idle_parked:
-                # Something is driving the loop again. The joints are detached and
-                # the arm has almost certainly sagged, so re-enabling is the
-                # caller's decision and needs a FRESH adopt angle -- we only clear
-                # the flag so the idle watcher does not re-fire immediately.
-                self._idle_parked = False
             reply = self._command_locked(line, timeout_s)
         if not reply.ok:
             raise CommandError(reply)
@@ -359,9 +380,16 @@ class SerialLink:
                 continue          # comment / banner noise
 
             if text.startswith("EVT") or text.startswith("RDY"):
-                # Asynchronous. NOT a terminator. EVT is the only way a host
-                # learns about a stop it did not initiate, so it is kept and
-                # surfaced rather than dropped on the floor.
+                # Asynchronous. NOT a terminator -- a host that treats EVT as one
+                # hangs. Captured and surfaced rather than dropped.
+                #
+                # BUT ONLY IF IT ARRIVES DURING A ROUND TRIP. The
+                # reset_input_buffer() above discards anything sitting in the
+                # buffer between commands, and with a 250 ms heartbeat that
+                # window is short. So EVT is NOT a reliable way to learn about a
+                # stop we did not initiate. The reliable way is the latch on
+                # STA's SYS row (ES=, WD=), which EmreArm.get_observation()
+                # checks on every single tick.
                 events.append(text)
                 self.events.append(text)
                 log.warning("board event: %s", text)
@@ -439,7 +467,7 @@ class SerialLink:
         while not self._stop.wait(0.25):
             if not self.is_open or self._idle_parked:
                 continue
-            if time.monotonic() - self._last_activity < self.idle_disable_s:
+            if time.monotonic() - self._last_loop_activity < self.idle_disable_s:
                 continue
             log.error(
                 "no get_observation()/send_action() call for %.1fs -- parking the "
