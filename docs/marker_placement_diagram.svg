@@ -298,151 +298,153 @@
 <line x1="6" y1="213.5" x2="208" y2="213.5" stroke="#111111" stroke-width="0.4"/>
 <text x="8.5" y="211.3" font-family="Helvetica, Arial, sans-serif" font-size="3.4" font-weight="bold" fill="#111111" text-anchor="start">MARKER SCHEDULE</text>
 <text x="205.5" y="211.3" font-family="Helvetica, Arial, sans-serif" font-size="2.3" font-weight="normal" fill="#6b6b6b" text-anchor="end">sizes derived in Software/vision/markers.csv from measured STL faces</text>
-<text x="12.5" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="middle">ID</text>
-<text x="16" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">LABEL</text>
-<text x="39" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">LINK</text>
-<text x="61" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">STL PART</text>
-<text x="104.5" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="end">BLACK</text>
-<text x="120.5" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="end">STICKER</text>
-<text x="122" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">CAM</text>
-<text x="150.5" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="end">STANDOFF</text>
-<text x="152" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">GRADE</text>
-<text x="173" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">PAIR BASELINE</text>
-<line x1="9" y1="219.3" x2="199" y2="219.3" stroke="#111111" stroke-width="0.35"/>
-<text x="12.5" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">0</text>
-<text x="16" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">BASE-1</text>
-<text x="39" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">GROUND</text>
-<text x="61" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Kasa.stl</text>
-<text x="104.5" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">36 mm</text>
-<text x="120.5" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">48 mm</text>
-<text x="122" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
-<text x="150.5" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
-<text x="152" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">POSE</text>
-<text x="173" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">83.2</text>
-<text x="12.5" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">1</text>
-<text x="16" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">BASE-2</text>
-<text x="39" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">GROUND</text>
-<text x="61" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Kasa.stl</text>
-<text x="104.5" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">36 mm</text>
-<text x="120.5" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">48 mm</text>
-<text x="122" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
-<text x="150.5" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
-<text x="152" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">POSE</text>
-<text x="173" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">83.2</text>
-<text x="12.5" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">2</text>
-<text x="16" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">TURRET-1</text>
-<text x="39" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">TURRET</text>
-<text x="61" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Govde.stl</text>
-<text x="104.5" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">20 mm</text>
-<text x="120.5" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">27 mm</text>
-<text x="122" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
-<text x="150.5" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
-<text x="152" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">DETECT</text>
-<text x="173" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">-</text>
-<text x="12.5" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">3</text>
-<text x="16" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">TURRET-2</text>
-<text x="39" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">TURRET</text>
-<text x="61" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Govde.stl</text>
-<text x="104.5" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">20 mm</text>
-<text x="120.5" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">27 mm</text>
-<text x="122" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
-<text x="150.5" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
-<text x="152" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">DETECT</text>
-<text x="173" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">-</text>
-<text x="12.5" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">4</text>
-<text x="16" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">SHOULDER-1</text>
-<text x="39" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">UPPER_ARM</text>
-<text x="61" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Kol.stl</text>
-<text x="104.5" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">17 mm</text>
-<text x="120.5" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">23 mm</text>
-<text x="122" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
-<text x="150.5" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
-<text x="152" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
-<text x="173" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">176.6</text>
-<text x="12.5" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">5</text>
-<text x="16" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">SHOULDER-2</text>
-<text x="39" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">UPPER_ARM</text>
-<text x="61" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Kol.stl</text>
-<text x="104.5" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
-<text x="120.5" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">11 mm</text>
-<text x="122" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
-<text x="150.5" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
-<text x="152" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
-<text x="173" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">176.6</text>
-<text x="12.5" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">6</text>
-<text x="16" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">ELBOW-1</text>
-<text x="39" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">FOREARM</text>
-<text x="61" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">On_Kol.stl</text>
-<text x="104.5" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">13 mm</text>
-<text x="120.5" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">17 mm</text>
-<text x="122" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
-<text x="150.5" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
-<text x="152" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
-<text x="173" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">22.2</text>
-<text x="12.5" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">7</text>
-<text x="16" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">ELBOW-2</text>
-<text x="39" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">FOREARM</text>
-<text x="61" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">On_Kol.stl</text>
-<text x="104.5" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">6 mm</text>
-<text x="120.5" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
-<text x="122" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
-<text x="150.5" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
-<text x="152" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
-<text x="173" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">22.2</text>
-<text x="12.5" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">8</text>
-<text x="16" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">WRIST-1</text>
-<text x="39" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">WRIST</text>
-<text x="61" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Bilek.stl</text>
-<text x="104.5" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">11 mm</text>
-<text x="120.5" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">15 mm</text>
-<text x="122" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
-<text x="150.5" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
-<text x="152" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">DETECT</text>
-<text x="173" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">-</text>
-<text x="12.5" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">9</text>
-<text x="16" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">HAND-1</text>
-<text x="39" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">HAND</text>
-<text x="61" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">El.stl</text>
-<text x="104.5" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">25 mm</text>
-<text x="120.5" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">33 mm</text>
-<text x="122" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
-<text x="150.5" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
-<text x="152" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">POSE</text>
-<text x="173" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">-</text>
-<text x="12.5" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">10</text>
-<text x="16" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">HAND-2</text>
-<text x="39" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">HAND</text>
-<text x="61" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">El_Ust.stl</text>
-<text x="104.5" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
-<text x="120.5" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">11 mm</text>
-<text x="122" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
-<text x="150.5" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
-<text x="152" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">DETECT</text>
-<text x="173" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6a3fb5" text-anchor="start">UNKNOWN cross-part</text>
-<text x="12.5" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">11</text>
-<text x="16" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">FINGER-A</text>
-<text x="39" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">FINGER_A</text>
-<text x="61" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Parmak_2 X 2.stl</text>
-<text x="104.5" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">6 mm</text>
-<text x="120.5" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
-<text x="122" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
-<text x="150.5" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
-<text x="152" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
-<text x="173" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6a3fb5" text-anchor="start">UNKNOWN cross-part</text>
-<text x="12.5" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">12</text>
-<text x="16" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">FINGER-B</text>
-<text x="39" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">FINGER_B</text>
-<text x="61" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Parmak_2 X 2.stl</text>
-<text x="104.5" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">6 mm</text>
-<text x="120.5" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
-<text x="122" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
-<text x="150.5" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
-<text x="152" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
-<text x="173" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6a3fb5" text-anchor="start">UNKNOWN cross-part</text>
-<line x1="9" y1="261.35" x2="199" y2="261.35" stroke="#c2c2c2" stroke-width="0.3"/>
+<text x="12" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="middle">ID</text>
+<text x="15" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">LABEL</text>
+<text x="36" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">STL PART</text>
+<text x="74.5" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="end">BLACK</text>
+<text x="87.5" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="end">STICKER</text>
+<text x="89" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">CAM</text>
+<text x="113.5" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="end">STANDOFF</text>
+<text x="115" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">GRADE</text>
+<text x="134" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">PAIR BASELINE</text>
+<text x="158" y="218" font-family="Helvetica, Arial, sans-serif" font-size="2.05" font-weight="bold" fill="#111111" text-anchor="start">ORIENTATION - which way is UP</text>
+<line x1="9" y1="219.3" x2="205" y2="219.3" stroke="#111111" stroke-width="0.35"/>
+<text x="12" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">0</text>
+<text x="15" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">BASE-1</text>
+<text x="36" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Kasa.stl</text>
+<text x="74.5" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">36 mm</text>
+<text x="87.5" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">48 mm</text>
+<text x="89" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
+<text x="113.5" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
+<text x="115" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">POSE</text>
+<text x="134" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">83.2</text>
+<text x="158" y="222.6" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">top edge -&gt; +z (up)</text>
+<text x="12" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">1</text>
+<text x="15" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">BASE-2</text>
+<text x="36" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Kasa.stl</text>
+<text x="74.5" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">36 mm</text>
+<text x="87.5" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">48 mm</text>
+<text x="89" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
+<text x="113.5" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
+<text x="115" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">POSE</text>
+<text x="134" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">83.2</text>
+<text x="158" y="225.75" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">same as BASE-1 - top edge -&gt; +z</text>
+<text x="12" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">2</text>
+<text x="15" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">TURRET-1</text>
+<text x="36" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Govde.stl</text>
+<text x="74.5" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">20 mm</text>
+<text x="87.5" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">27 mm</text>
+<text x="89" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
+<text x="113.5" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
+<text x="115" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">DETECT</text>
+<text x="134" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">-</text>
+<text x="158" y="228.9" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">top edge -&gt; +z</text>
+<text x="12" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">3</text>
+<text x="15" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">TURRET-2</text>
+<text x="36" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Govde.stl</text>
+<text x="74.5" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">20 mm</text>
+<text x="87.5" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">27 mm</text>
+<text x="89" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
+<text x="113.5" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
+<text x="115" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">DETECT</text>
+<text x="134" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">-</text>
+<text x="158" y="232.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">same as TURRET-1 - top edge -&gt; +z</text>
+<text x="12" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">4</text>
+<text x="15" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">SHOULDER-1</text>
+<text x="36" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Kol.stl</text>
+<text x="74.5" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">17 mm</text>
+<text x="87.5" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">23 mm</text>
+<text x="89" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
+<text x="113.5" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
+<text x="115" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
+<text x="134" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">176.6</text>
+<text x="158" y="235.2" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">top edge -&gt; the shoulder end (-z)</text>
+<text x="12" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">5</text>
+<text x="15" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">SHOULDER-2</text>
+<text x="36" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Alt_Kol.stl</text>
+<text x="74.5" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
+<text x="87.5" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">11 mm</text>
+<text x="89" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
+<text x="113.5" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
+<text x="115" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
+<text x="134" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">176.6</text>
+<text x="158" y="238.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">same as SHOULDER-1</text>
+<text x="12" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">6</text>
+<text x="15" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">ELBOW-1</text>
+<text x="36" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">On_Kol.stl</text>
+<text x="74.5" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">13 mm</text>
+<text x="87.5" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">17 mm</text>
+<text x="89" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
+<text x="113.5" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
+<text x="115" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
+<text x="134" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">22.2</text>
+<text x="158" y="241.5" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">top edge -&gt; the wrist end (+x)</text>
+<text x="12" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">7</text>
+<text x="15" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">ELBOW-2</text>
+<text x="36" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">On_Kol.stl</text>
+<text x="74.5" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">6 mm</text>
+<text x="87.5" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
+<text x="89" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-A</text>
+<text x="113.5" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">550 mm</text>
+<text x="115" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
+<text x="134" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">22.2</text>
+<text x="158" y="244.65" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">same as ELBOW-1</text>
+<text x="12" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">8</text>
+<text x="15" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">WRIST-1</text>
+<text x="36" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Bilek.stl</text>
+<text x="74.5" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">11 mm</text>
+<text x="87.5" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">15 mm</text>
+<text x="89" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
+<text x="113.5" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
+<text x="115" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">DETECT</text>
+<text x="134" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">-</text>
+<text x="158" y="247.8" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">top edge -&gt; +z</text>
+<text x="12" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">9</text>
+<text x="15" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">HAND-1</text>
+<text x="36" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">El.stl</text>
+<text x="74.5" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">25 mm</text>
+<text x="87.5" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">33 mm</text>
+<text x="89" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
+<text x="113.5" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
+<text x="115" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">POSE</text>
+<text x="134" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">-</text>
+<text x="158" y="250.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">top edge -&gt; the finger end of the plate</text>
+<text x="12" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="middle">10</text>
+<text x="15" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">HAND-2</text>
+<text x="36" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">El_Ust.stl</text>
+<text x="74.5" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
+<text x="87.5" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">11 mm</text>
+<text x="89" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
+<text x="113.5" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
+<text x="115" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#111111" text-anchor="start">DETECT</text>
+<text x="134" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6a3fb5" text-anchor="start">UNKNOWN cross-part</text>
+<text x="158" y="254.1" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">same as HAND-1</text>
+<text x="12" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">11</text>
+<text x="15" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">FINGER-A</text>
+<text x="36" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Parmak_2 X 2.stl</text>
+<text x="74.5" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">6 mm</text>
+<text x="87.5" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
+<text x="89" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
+<text x="113.5" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
+<text x="115" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
+<text x="134" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6a3fb5" text-anchor="start">UNKNOWN cross-part</text>
+<text x="158" y="257.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">top edge -&gt; the fingertip</text>
+<text x="12" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="middle">12</text>
+<text x="15" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#b3261e" text-anchor="start">FINGER-B</text>
+<text x="36" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Parmak_2 X 2.stl</text>
+<text x="74.5" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">6 mm</text>
+<text x="87.5" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">8 mm</text>
+<text x="89" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">CAM-B</text>
+<text x="113.5" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="end">250 mm</text>
+<text x="115" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">BELOW-FLOOR</text>
+<text x="134" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6a3fb5" text-anchor="start">UNKNOWN cross-part</text>
+<text x="158" y="260.4" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Mirror of FINGER-A</text>
+<line x1="9" y1="261.35" x2="205" y2="261.35" stroke="#c2c2c2" stroke-width="0.3"/>
 <text x="9" y="264.35" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">BLACK is the ArUco square edge - the value you pass to solvePnP. STICKER is the white square you cut out (BLACK x 8/6, one module of quiet zone).</text>
 <text x="9" y="267.25" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#b3261e" text-anchor="start">GRADE assumes f_px ~= 1108 (HFOV 60 deg at 1280 px) - UNVERIFIED. Every grade moves if that changes; run a ChArUco board to settle it.</text>
 <text x="9" y="270.15" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">PAIR BASELINE is only real within ONE part. Cross-part spacings have no assembly file behind them and must be observed in calibration Pass 1.</text>
+<text x="9" y="273.05" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="bold" fill="#111111" text-anchor="start">ORIENTATION is condensed from preferred_orientation in markers.csv (full text there). It defines which way is UP - it is what the arrow on every sheet-1 sticker label means.</text>
+<text x="9" y="275.95" font-family="Helvetica, Arial, sans-serif" font-size="1.95" font-weight="normal" fill="#6b6b6b" text-anchor="start">Apply each sticker that way up EVERY time. A re-applied sticker at a different rotation silently flips the sign of that joint's residual.</text>
 <rect x="212" y="206" width="202" height="85" fill="none" stroke="#111111" stroke-width="0.4"/>
 <line x1="212" y1="213.5" x2="414" y2="213.5" stroke="#111111" stroke-width="0.4"/>
 <text x="214.5" y="211.3" font-family="Helvetica, Arial, sans-serif" font-size="3.4" font-weight="bold" fill="#111111" text-anchor="start">NOTES</text>

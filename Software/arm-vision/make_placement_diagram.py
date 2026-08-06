@@ -250,8 +250,38 @@ class Marker:
     camera: str
     standoff: str
     baseline: str
+    orientation: str
     pos: dict = field(default_factory=dict)
     u: float = 0.0
+
+
+ORIENT_MAX = 42
+
+
+def short_orientation(s: str) -> str:
+    """Condense markers.csv preferred_orientation to one schedule cell.
+
+    Rule-based on purpose. A hand-written lookup would go stale the moment the
+    CSV changed, and DERIVING an arrow glyph in the drawn frame would be worse
+    still: mapping "toward the shoulder end (-z in part coords)" into this
+    drawing's frame is an inference the STLs cannot support, and a wrong arrow
+    looks authoritative in a way wrong text does not. So: keep the author's own
+    words, drop the rationale clause, and truncate visibly if it still will not
+    fit. The full sentence stays in markers.csv.
+    """
+    s = s.split(". ")[0].strip().rstrip(".")
+    for clause in (" so the", " so that", " because"):
+        i = s.find(clause)
+        if i > 0:
+            s = s[:i]
+    for a, b in (("Marker top edge toward", "top edge ->"),
+                 ("Same orientation as", "same as"), ("Same as", "same as"),
+                 ("top edge toward", "top edge ->"), (" in part coords", "")):
+        s = s.replace(a, b)
+    s = " ".join(s.split())
+    if len(s) > ORIENT_MAX:
+        s = s[:ORIENT_MAX - 4].rsplit(" ", 1)[0] + " ..."
+    return s
 
 
 def load_markers(path: str) -> list[Marker]:
@@ -263,7 +293,8 @@ def load_markers(path: str) -> list[Marker]:
     hdr = [c.strip() for c in rows[0]]
     need = ("marker_id", "human_label", "link_name", "black_square_mm",
             "approximate_size_mm", "grade_at_design_standoff", "camera",
-            "design_standoff_mm", "pair_baseline_mm", "target_part_file")
+            "design_standoff_mm", "pair_baseline_mm", "target_part_file",
+            "preferred_orientation")
     missing = [c for c in need if c not in hdr]
     if missing:
         raise SystemExit(f"ERROR: {path} missing column(s): {missing}")
@@ -289,7 +320,14 @@ def load_markers(path: str) -> list[Marker]:
             camera=r[ix["camera"]].strip(),
             standoff=r[ix["design_standoff_mm"]].strip(),
             baseline=r[ix["pair_baseline_mm"]].strip(),
+            orientation=short_orientation(r[ix["preferred_orientation"]]),
         )
+        if not m.orientation:
+            raise SystemExit(
+                f"ERROR: {path} row {lineno}: preferred_orientation is empty for "
+                f"{m.label}. Sheet 1 prints an UP arrow on every sticker label and "
+                "promises it means something; this column is the only thing that says "
+                "what. A blank one silently breaks the residual sign convention.")
         if m.label not in PLACEMENT:
             raise SystemExit(
                 f"ERROR: {path} row {lineno}: marker {m.label!r} has no PLACEMENT entry. "
@@ -789,10 +827,10 @@ def draw_legend(x, y, w, h, markers) -> Panel:
 # MARKER SCHEDULE
 # --------------------------------------------------------------------------
 
-COLS = [("ID", 7, "middle"), ("LABEL", 23, "start"), ("LINK", 22, "start"),
-        ("STL PART", 31, "start"), ("BLACK", 14, "end"), ("STICKER", 16, "end"),
-        ("CAM", 12, "start"), ("STANDOFF", 18, "end"), ("GRADE", 21, "start"),
-        ("PAIR BASELINE", 26, "start")]
+COLS = [("ID", 6, "middle"), ("LABEL", 21, "start"), ("STL PART", 28, "start"),
+        ("BLACK", 12, "end"), ("STICKER", 13, "end"), ("CAM", 11, "start"),
+        ("STANDOFF", 15, "end"), ("GRADE", 19, "start"),
+        ("PAIR BASELINE", 24, "start"), ("ORIENTATION - which way is UP", 47, "start")]
 
 
 def draw_schedule(x, y, w, h, markers) -> Panel:
@@ -815,9 +853,9 @@ def draw_schedule(x, y, w, h, markers) -> Panel:
         base = m.baseline if m.baseline not in ("", "n/a") else "-"
         if base == "unknown-cross-part":
             base = "UNKNOWN cross-part"
-        vals = [str(m.marker_id), m.label, m.link, m.part, f"{m.black_mm:.0f} mm",
+        vals = [str(m.marker_id), m.label, m.part, f"{m.black_mm:.0f} mm",
                 f"{m.sticker_mm:.0f} mm", m.camera, f"{m.standoff} mm",
-                m.grade.upper(), base]
+                m.grade.upper(), base, m.orientation]
         for (name, cw, al), cxp, val in zip(COLS, cxs, vals):
             ax = cxp if al == "start" else (cxp + cw - 1.5 if al == "end"
                                             else cxp + cw / 2)
@@ -842,6 +880,17 @@ def draw_schedule(x, y, w, h, markers) -> Panel:
     p.text(x + 3, cy,
            "PAIR BASELINE is only real within ONE part. Cross-part spacings have no "
            "assembly file behind them and must be observed in calibration Pass 1.",
+           1.95, fill=THIN)
+    cy += 2.9
+    p.text(x + 3, cy,
+           "ORIENTATION is condensed from preferred_orientation in markers.csv (full "
+           "text there). It defines which way is UP - it is what the arrow on every "
+           "sheet-1 sticker label means.",
+           1.95, weight="bold")
+    cy += 2.9
+    p.text(x + 3, cy,
+           "Apply each sticker that way up EVERY time. A re-applied sticker at a "
+           "different rotation silently flips the sign of that joint's residual.",
            1.95, fill=THIN)
     return p
 
