@@ -1,0 +1,139 @@
+{
+  "joint": 4,
+  "dps": 5.0,
+  "roi": [
+    315,
+    370,
+    530,
+    600
+  ],
+  "threshold": 25,
+  "pass_ratio": 4.0,
+  "waypoints": [
+    {
+      "label": "home",
+      "deg": 90,
+      "from": 90,
+      "reply": "NG UP=5549463\n\nOK MOV J4 REQ=90 SET=90 CL=0",
+      "sta": "STA J4 EN=1 SET=90 TGT=90 MIN=0 MAX=180 CAL=1 DPS=5 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "90",
+      "moving": "0",
+      "noise_floor_px": 4,
+      "signal_px": 0,
+      "in_travel_peak_px": 17,
+      "silhouette": {
+        "area": 3520,
+        "bbox_h": 85,
+        "bbox_w": 83,
+        "med_span": 66
+      },
+      "ratio": null,
+      "global_shift_px": 0.0,
+      "daemon_intervened": false,
+      "vs": null,
+      "verdict": "baseline"
+    },
+    {
+      "label": "tip_down",
+      "deg": 75,
+      "from": 90,
+      "reply": "OK MOV J4 REQ=75 SET=75 CL=0",
+      "sta": "STA J4 EN=1 SET=75 TGT=75 MIN=0 MAX=180 CAL=1 DPS=5 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "75",
+      "moving": "0",
+      "noise_floor_px": 23,
+      "signal_px": 2307,
+      "in_travel_peak_px": 2004,
+      "silhouette": {
+        "area": 3439,
+        "bbox_h": 82,
+        "bbox_w": 84,
+        "med_span": 65
+      },
+      "ratio": 100.3,
+      "global_shift_px": 0.26,
+      "daemon_intervened": false,
+      "vs": "home:90",
+      "verdict": "MOVED"
+    },
+    {
+      "label": "level",
+      "deg": 90,
+      "from": 75,
+      "reply": "OK MOV J4 REQ=90 SET=90 CL=0",
+      "sta": "STA J4 EN=1 SET=90 TGT=90 MIN=0 MAX=180 CAL=1 DPS=5 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "90",
+      "moving": "0",
+      "noise_floor_px": 2,
+      "signal_px": 2655,
+      "in_travel_peak_px": 2145,
+      "silhouette": {
+        "area": 3456,
+        "bbox_h": 86,
+        "bbox_w": 83,
+        "med_span": 66
+      },
+      "ratio": 1327.5,
+      "global_shift_px": 0.11,
+      "daemon_intervened": false,
+      "vs": "tip_down:75",
+      "verdict": "MOVED"
+    },
+    {
+      "label": "tip_up",
+      "deg": 105,
+      "from": 90,
+      "reply": "OK MOV J4 REQ=105 SET=105 CL=0",
+      "sta": "STA J4 EN=1 SET=105 TGT=105 MIN=0 MAX=180 CAL=1 DPS=5 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "105",
+      "moving": "0",
+      "noise_floor_px": 0,
+      "signal_px": 2155,
+      "in_travel_peak_px": 1890,
+      "silhouette": {
+        "area": 3444,
+        "bbox_h": 91,
+        "bbox_w": 82,
+        "med_span": 70
+      },
+      "ratio": Infinity,
+      "global_shift_px": 0.8,
+      "daemon_intervened": false,
+      "vs": "level:90",
+      "verdict": "MOVED"
+    },
+    {
+      "label": "home",
+      "deg": 90,
+      "from": 105,
+      "reply": "OK PNG UP=5568478\n\nOK MOV J4 REQ=90 SET=90 CL=0",
+      "sta": "STA J4 EN=1 SET=90 TGT=90 MIN=0 MAX=180 CAL=1 DPS=5 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "90",
+      "moving": "0",
+      "noise_floor_px": 5,
+      "signal_px": 2581,
+      "in_travel_peak_px": 2138,
+      "silhouette": {
+        "area": 3501,
+        "bbox_h": 86,
+        "bbox_w": 83,
+        "med_span": 66
+      },
+      "ratio": 516.2,
+      "global_shift_px": 5.94,
+      "daemon_intervened": false,
+      "vs": "tip_up:105",
+      "verdict": "MOVED"
+    }
+  ]
+}

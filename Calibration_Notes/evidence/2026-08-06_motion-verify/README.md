@@ -49,6 +49,37 @@ fingers, a disconnected linkage, or a dead/de-powered servo would all produce
 exactly this. Nothing in this system observes the shaft, so the camera cannot
 separate them — the operator's eyes can. **Ask what he sees while it runs.**
 
+## Root cause: the operator's call — the gear is slipping on the motor shaft
+
+After the first null result the operator intervened, checked by hand that the
+gripper was **not bound up and not off the gear**, moved it manually, and asked for
+a retry. The retry at half speed (6 °/s, two full cycles) was unchanged: geometry
+identical at both commands, and `J6_retry_overlay_rigid-sag.png` shows the 519 px
+of change is a uniform ~1 px sag of the whole assembly.
+
+Asked which part resists by hand with power on, the operator's verdict:
+**"I think the gear is slipping around the motor shaft."** That is a mechanical
+fault inside the gripper servo's output stage and it is consistent with every
+observation here — the firmware ramps correctly, the linkage is attached, the
+assembly is free, and the fingers still do not move.
+
+**Do not record J6 as controllable.** The `confirmed` status in `calibration-log.csv`
+from 14:53 was true when the operator observed it; it has regressed since.
+
+## Demonstration run, both mapped wrist motions, once each
+
+Run at reduced speed at the operator's request so he could watch it live.
+
+| Joint | Sequence | Result | Signal px | Floor px |
+|---|---|---|---|---|
+| J4 wrist pitch @ 5 °/s | 90 → 75 → 90 → 105 → 90 | 4/4 MOVED | 2155–2655 | 0–23 |
+| J5 wrist roll @ 10 °/s | 104 → 60 → 150 → 104 | 3/3 MOVED | 11636–14362 | 1–20 |
+
+Both returned to their home angle. `JTO=0` on every waypoint. Speeds were restored
+afterwards to the daemon's values (J4 20, J5 20, J6 12) so the bench is left as
+found. **Zero `LATCHED`/`re-ENA` events across the entire session** — the holder
+never dropped the arm.
+
 ## Harness defects found and fixed during these runs
 
 - Two waypoints sharing a label overwrote each other's PNGs, leaving 3 evidence
