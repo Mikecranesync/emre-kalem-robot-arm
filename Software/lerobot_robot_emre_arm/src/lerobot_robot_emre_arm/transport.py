@@ -232,6 +232,11 @@ class SerialLink:
         # completely uncovered.
         self._last_loop_activity = time.monotonic()
         self._idle_parked = False
+        #: The idle watcher stays DISARMED until a joint is actually enabled.
+        #: set_idle_watch(True) after ENA, (False) after DIS, so the watcher can
+        #: never park an arm that is not being driven -- including during
+        #: connect() and configure(), where it previously fired and sagged the arm.
+        self._idle_watch_armed = False
         self.firmware_version: str | None = None
         self.events: list[str] = []
 
@@ -323,6 +328,18 @@ class SerialLink:
                 self._ser = None
 
     # -- commands ----------------------------------------------------------
+
+    def set_idle_watch(self, armed: bool) -> None:
+        """Arm or disarm the idle watcher.
+
+        Armed only while at least one joint is enabled. The watcher exists for
+        a wedged control loop that is still HOLDING joints; with nothing driven
+        there is nothing to park, and firing anyway sags the arm during
+        ordinary startup.
+        """
+        self._idle_watch_armed = armed
+        if armed:
+            self._last_loop_activity = time.monotonic()
 
     def note_loop_activity(self) -> None:
         """Called by the CONTROL LOOP -- get_observation() and send_action() only.
@@ -466,6 +483,14 @@ class SerialLink:
     def _idle_loop(self) -> None:
         while not self._stop.wait(0.25):
             if not self.is_open or self._idle_parked:
+                continue
+            # Refuse to act unless a joint is actually driven. `DIS A` on an arm
+            # with nothing enabled achieves nothing and costs a serial round-trip;
+            # worse, firing it during connect()/configure() -- before the record
+            # loop has started calling anything -- de-energises a gravity-loaded
+            # arm for no reason. The watcher exists for a WEDGED loop that is
+            # still holding joints, so that is the only state it may fire in.
+            if not self._idle_watch_armed:
                 continue
             if time.monotonic() - self._last_loop_activity < self.idle_disable_s:
                 continue

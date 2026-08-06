@@ -72,13 +72,24 @@ class EmreArm(Robot):
     name = "emre_arm"
 
     def __init__(self, config: EmreArmConfig) -> None:
+        # Robot.__init__ is CONCRETE, not an empty ABC stub: it sets robot_type,
+        # id, calibration_dir and calibration_fpath. Skipping it leaves those
+        # unset, and lerobot-record touches them when it names the dataset and
+        # resolves the calibration path -- so the omission surfaces as an
+        # AttributeError deep inside LeRobot rather than here.
+        super().__init__(config)
         self.config = config
 
         # Pure file work, so it can run in __init__ -- which it MUST, because
         # LeRobot requires observation_features/action_features to be callable
         # while disconnected. This is only possible because calibrate() does not
         # drive; a driving calibrate() could not be resolved here.
-        self.calibration: ArmCalibration = load_calibration(
+        #
+        # NOT self.calibration: the base class owns that name for its own
+        # MotorCalibration-shaped dict. This arm's calibration is a different
+        # shape (soft limits + lock provenance + the J1 mirror rule), so it takes
+        # its own attribute instead of silently overwriting the base contract.
+        self.arm_calibration: ArmCalibration = load_calibration(
             config.limits_csv, config.lock_artifacts_dir, config.wiring_map_csv,
         )
 
@@ -128,12 +139,12 @@ class EmreArm(Robot):
         locks at exactly that has most likely never met a mechanical stop.
         """
         for jid in JOINT_IDS:
-            jc = self.calibration.joint(jid)
+            jc = self.arm_calibration.joint(jid)
             if not jc.calibrated:
                 return False
             if "full_electrical_range" in jc.flags:
                 return False
-        if self.calibration.mirror_mode == "unknown":
+        if self.arm_calibration.mirror_mode == "unknown":
             return False
         return True
 
@@ -153,7 +164,7 @@ class EmreArm(Robot):
             "AXIS, then copy the downloaded calibration-row-J<id>_*.csv into "
             "Calibration_Notes/lock-artifacts/ and update "
             "Software/arm-console/joint-limits.csv.\n\n"
-            f"Currently uncalibrated: {list(self.calibration.uncalibrated_ids())}"
+            f"Currently uncalibrated: {list(self.arm_calibration.uncalibrated_ids())}"
         )
 
     def _save_calibration(self, *args, **kwargs) -> None:
@@ -191,9 +202,9 @@ class EmreArm(Robot):
             log.warning(
                 "arm reports is_calibrated=False. Uncalibrated joints: %s. Their "
                 "limits are the servo's electrical range, not measured travel.",
-                [f"j{j} ({JOINT_LABELS[j]})" for j in self.calibration.uncalibrated_ids()],
+                [f"j{j} ({JOINT_LABELS[j]})" for j in self.arm_calibration.uncalibrated_ids()],
             )
-        for line in self.calibration.warnings:
+        for line in self.arm_calibration.warnings:
             log.warning("calibration: %s", line)
 
         self._link = SerialLink(
@@ -233,7 +244,7 @@ class EmreArm(Robot):
           order already does this -- do not "optimise" it.
         """
         assert self._link is not None
-        cal = self.calibration
+        cal = self.arm_calibration
 
         # Stricter than the firmware, on purpose. `LIM` on an ENABLED joint is
         # only refused when the new range would exclude that joint's own
@@ -277,7 +288,7 @@ class EmreArm(Robot):
         snap = parse_sta(self._link.command("STA"))
 
         for jid in JOINT_IDS:
-            jc = self.calibration.joint(jid)
+            jc = self.arm_calibration.joint(jid)
             got = snap.get(jid)
             if got is None:
                 raise RuntimeError(f"STA returned no line for joint {jid} after the state push")
@@ -295,7 +306,7 @@ class EmreArm(Robot):
                 )
 
         sys_row = snap.get("SYS", {})
-        mir_word = {"same": "SAME", "inverted": "INV"}.get(self.calibration.mirror_mode, "UNKNOWN")
+        mir_word = {"same": "SAME", "inverted": "INV"}.get(self.arm_calibration.mirror_mode, "UNKNOWN")
         if sys_row.get("MIR") != mir_word:
             raise RuntimeError(f"SYS MIR={sys_row.get('MIR')}, wanted {mir_word}")
         if sys_row.get("WDMS") in (None, "0"):
@@ -325,7 +336,7 @@ class EmreArm(Robot):
                 raise ValueError(f"adopt_deg names joint {jid}, which is not addressable")
 
             blockers = enable_blockers(
-                self.calibration, jid,
+                self.arm_calibration, jid,
                 allow_unmeasured_mirror=self.config.allow_unmeasured_mirror,
                 allow_uncalibrated_joints=self.config.allow_uncalibrated_joints,
             )
@@ -341,6 +352,9 @@ class EmreArm(Robot):
                 log.error("j%d ENA %d refused: %s", jid, adopt, exc.reply.terminator)
                 continue
             self._enabled.add(jid)
+            # A joint is now driven, so the wedged-loop watcher becomes
+            # meaningful. It stays disarmed until this point.
+            self._link.set_idle_watch(True)
             self._adopted[jid] = float(adopt)
 
         # These are the only record of what a human believed at episode start.
@@ -354,6 +368,10 @@ class EmreArm(Robot):
             self._link.park_and_close()   # STP, DIS A, close -- THE ARM SAGS
             self._link = None
         self._enabled.clear()
+        # Nothing is driven any more; disarm so the watcher cannot park
+        # an arm that is already detached.
+        if self._link is not None:
+            self._link.set_idle_watch(False)
 
     # ------------------------------------------------------------------
     # The loop
@@ -376,6 +394,10 @@ class EmreArm(Robot):
         if sys_row.get("ES") != "1":
             return
         self._enabled.clear()
+        # Nothing is driven any more; disarm so the watcher cannot park
+        # an arm that is already detached.
+        if self._link is not None:
+            self._link.set_idle_watch(False)
         raise RuntimeError(
             "the board is E-STOP LATCHED"
             + (" and the latch came from the WATCHDOG -- the host went quiet long "

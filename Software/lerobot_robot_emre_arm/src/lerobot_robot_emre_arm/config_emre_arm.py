@@ -84,7 +84,16 @@ class EmreArmConfig(RobotConfig):
     #: No get_observation()/send_action() for this long -> `DIS A`. This catches
     #: a WEDGED control loop in a still-live process, which the firmware watchdog
     #: cannot see because the heartbeat thread would keep feeding it.
-    idle_disable_s: float = 2.0
+    #:
+    #: 2.0 was WRONG and shipped briefly. lerobot-record's flow is connect() ->
+    #: configure() -> a startup/reset phase -> only then the record loop, and the
+    #: gaps between those routinely exceed two seconds. The watcher fired during
+    #: ordinary startup and sent `DIS A`, which de-energises a gravity-loaded arm
+    #: -- a self-inflicted sag dressed up as a safety feature. 15 s is longer than
+    #: every known non-loop gap and still catches a genuinely wedged loop. The
+    #: watcher also refuses to act unless a joint is actually enabled; see
+    #: SerialLink._idle_loop.
+    idle_disable_s: float = 15.0
 
     #: Fixes older than this keep their value and age but lose their residual and
     #: are demoted to OBS_SOURCE_STALE.

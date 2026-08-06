@@ -3,7 +3,14 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lerobot-robot-emre-arm"
+# UNDERSCORES, NOT HYPHENS -- load-bearing, not style.
+# LeRobot's register_third_party_plugins() (lerobot/utils/import_utils.py) tests
+#   dist.metadata.get("Name").startswith(("lerobot_robot_", ...))
+# against the DISTRIBUTION name. "lerobot-robot-emre-arm" fails that prefix test,
+# so the plugin installs cleanly, imports cleanly, and is then never discovered --
+# `lerobot-record --robot.type=emre_arm` reports an unknown robot type, and the
+# failure reads like a LeRobot bug rather than a naming one.
+name = "lerobot_robot_emre_arm"
 version = "0.1.0"
 description = "LeRobot plugin for the Emre Kalem 6-axis arm (no position feedback; Option A observation contract)"
 requires-python = ">=3.11"
