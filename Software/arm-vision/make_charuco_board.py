@@ -41,6 +41,17 @@ WHAT IT EMITS AND WHY IT IS VECTOR, NOT A BITMAP
               encodes the identical board OpenCV will later detect, including
               the chessboard parity, the white-square scan order, the marker
               inset, and the absence of any flip or transpose.
+
+              ONE HONEST CAVEAT, because "pixel for pixel" overstates by a hair.
+              The gate rasterises the RAW rect list; build_svg() then writes each
+              rect grown by EPS_MM on all four sides, to stop hairline seams
+              appearing between abutting squares in some renderers. So the board
+              ink on disk measures 125.02 mm, not the 125.00 mm the gate proved.
+              0.01 mm per side is far below one pixel at 600 dpi and rounds away
+              at the gate's own raster, so nothing is physically wrong with the
+              board -- but the gate validates the geometry BEFORE that expansion,
+              and saying otherwise would be the kind of claim this file exists to
+              avoid.
       GATE 3  that same raster, padded with a white quiet margin, is fed back to
               cv2.aruco.CharucoDetector. Every ChArUco corner and every ArUco
               marker must be found, and each recovered corner must land on its

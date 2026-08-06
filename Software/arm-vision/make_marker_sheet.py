@@ -105,8 +105,8 @@ MARGIN_MM = 10.0
 #                    of, and so the hairline is never ink at the quiet-zone
 #                    boundary - MARKER-SYSTEM.md section 5 forbids that.
 #
-#   INNER TRIM LIMIT the line you must NOT cut inside. Five of the thirteen
-#                    stickers are printed on cards far larger than the surveyed
+#   INNER TRIM LIMIT the line you must NOT cut inside. NINE of the thirteen
+#                    stickers are printed on cards larger than the surveyed
 #                    island they have to be applied to (a 28 mm card for a
 #                    10.4 mm finger island), so those MUST be trimmed down after
 #                    the first cut. Before this line existed there was nothing
@@ -114,9 +114,24 @@ MARGIN_MM = 10.0
 #                    the one-module quiet zone that ArUco detection requires.
 #                    It is drawn TRIM_LINE_MM OUTSIDE the sticker square, never
 #                    on it, so the line itself is not ink in the quiet zone.
+#
+#                    NINE, not five. An earlier revision of this comment said
+#                    five; the generator's own gate flags nine, and the footer it
+#                    writes onto the sheet says nine. The gate is the authority
+#                    here -- it counts, this comment does not. Do not re-hardcode
+#                    a number without running it.
 CUT_RING_MM = 3.2
+# 0.8 mm, and the ceiling is 1.2. The binding case is the 6 mm marker on the
+# 10.4 mm finger island: the trim square is sticker + 2*TRIM_LINE_MM, so
+# 8.0 + 2T <= 10.4 gives T <= 1.2. 0.8 leaves 0.4 mm of white per side.
+# A previous note justified 0.8 as "the largest value that still fits every
+# surveyed island", citing the gate's 0.80 mm -- but that figure was a difference
+# of two EDGE LENGTHS, i.e. twice the per-side room. The value 0.8 is fine and is
+# unchanged; the REASONING was wrong, and the gate below now reports per-side.
 TRIM_LINE_MM = 0.8
-SCISSOR_MARGIN_MM = CUT_RING_MM - TRIM_LINE_MM      # 2.4 mm of cuttable white
+SCISSOR_MARGIN_MM = CUT_RING_MM - TRIM_LINE_MM      # 2.4 mm of cuttable white,
+                                                    # per side -- both terms are
+                                                    # per-side offsets already
 LABEL_STRIP_MM = 5.0        # inside the cut line, so the label travels with the
                             # sticker and it can be re-applied the same way up.
                             # NOTE: a sticker trimmed to its island loses this -
@@ -726,7 +741,12 @@ def check_page(placed: list[tuple], last_y: float) -> list[str]:
     for s, *_ in placed:
         if s.island_mm is None:
             continue
-        c = s.island_mm - s.trim_mm
+        # PER SIDE. `island_mm` and `trim_mm` are both EDGE LENGTHS, so their
+        # difference is twice the room you actually get when the trim square is
+        # centred on the island. Reported straight, it sat directly beneath
+        # SCISSOR_MARGIN_MM -- which IS a per-side offset -- and the two read as
+        # the same kind of number while differing by a factor of two.
+        c = (s.island_mm - s.trim_mm) / 2.0
         if c < 0:
             problems.append(f"id{s.marker_id} trim limit {s.trim_mm:.2f} mm exceeds its "
                             f"{s.island_mm:.1f} mm island - cannot be applied without "
@@ -755,8 +775,8 @@ def check_page(placed: list[tuple], last_y: float) -> list[str]:
                          "write a sheet that cannot be printed or cut as drawn.")
 
     report = [f"min gap between adjacent cut outlines : {gap:.2f} mm",
-              f"scissors margin, cut line -> trim limit: {SCISSOR_MARGIN_MM:.2f} mm",
-              f"min clearance, trim limit -> island    : {clear:.2f} mm",
+              f"scissors margin, cut line -> trim limit: {SCISSOR_MARGIN_MM:.2f} mm per side",
+              f"min clearance, trim limit -> island    : {clear:.2f} mm per side",
               f"lowest ink on the page                : y {last_y:.1f} mm "
               f"(A4 usable to {bottom:.1f} mm)"]
     return report

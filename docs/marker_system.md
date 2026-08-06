@@ -244,6 +244,33 @@ they differ, the observed number wins, always. This is the same rule that govern
 the arm itself: `.pos` is commanded, and anything a camera or a human actually
 saw is observed and lives in its own field.
 
+### Cutting — there are TWO lines per card, and they mean different things
+
+The print sheet draws two dashed boundaries around every marker. They are not
+alternatives and they are not decoration.
+
+| Line | Stroke | What it is |
+|---|---|---|
+| **OUTER — the cut line** | mid grey, longer dashes | What the scissors follow. It sits `CUT_RING_MM` = 3.2 mm off the sticker square, so there is real white to cut inside of and the hairline is never ink at the quiet-zone boundary. Adjacent cards are never closer than **5.00 mm**, which is what makes them separable by hand. |
+| **INNER — the trim limit** | light grey, fine dashes | The line you must **NOT** cut inside. Drawn `TRIM_LINE_MM` = 0.8 mm outside the sticker square — outside, never on it, so the line itself is not ink in the quiet zone. |
+
+Between the two there is **2.40 mm per side** of cuttable white.
+
+**Nine of the thirteen cards are larger than the surveyed island they go on**, so
+those must be trimmed down after the first cut — ELBOW-2, FINGER-A and FINGER-B
+most severely, where a 9.60 mm trim square goes onto a 10.4 mm island, leaving
+**0.40 mm of white per side**. Before the trim limit existed there was nothing
+printed to trim *to*: you cut by eye, and by eye you cut into the one-module
+quiet zone that ArUco detection requires (§3).
+
+> The generator refuses to write a sheet whose geometry does not work — it fails
+> on overlapping cut outlines, on any pair closer than 2 mm, and on any trim
+> square larger than its island. The per-card table it prints is the authority on
+> which cards need trimming; do not work from a remembered count.
+
+A trimmed sticker loses its printed label strip, which lives inside the cut line
+so it normally travels with the sticker. Note the id somewhere before you trim.
+
 ### Applying the sticker
 
 1. Clean the printed plastic surface — 3D-printed PLA carries release agent and
@@ -320,6 +347,40 @@ unobservable on CAM-A, not as a pass.
 ---
 
 ## 6. Placement rationale
+
+### Where the positions on the diagram come from — and which ones are not real
+
+`docs/marker_placement_diagram.svg` is the one artifact you would hand to another
+person, so what it asserts matters more than what it looks like.
+
+Its sticker positions are **addresses into `Software/vision/stl-face-survey.csv`**
+— part file, face normal, plane offset, and which inscribed square — resolved when
+the diagram is generated. They are not typed-in millimetres that happen to look
+derived, which is what an earlier revision shipped. Three gates run on every
+generation and the generator refuses to write a sheet that fails any of them:
+
+| Gate | What it enforces |
+|---|---|
+| row | exactly one survey row matches each address — an ambiguous or missing address is an error, not a fallback |
+| cell | `fill_ratio` and inscribed-square size must agree with `markers.csv`, so the diagram and the size table cannot drift apart |
+| pair | the derived two-marker baselines reproduce the surveyed ones: BASE 83.201 vs 83.20, SHOULDER 176.640 vs 176.60, ELBOW 22.181 vs 22.20 |
+
+**Two markers are NOT surveyed, and the drawing says so on its face.** TURRET-1
+and TURRET-2 are drawn violet and dashed and labelled `NOT SURVEYED`, because
+`Alt_Govde.stl` has no flat outward face at all — its top is open, its z=0 face is
+a recessed ledge with 50 mm of structure above it, and only the faceted cylinder
+faces outward (§6 "Where NOT to place", and the flat-tab fix in §8). Their
+positions are schematic. An honestly schematic drawing beats a
+differently-wrong one that claims derivation.
+
+> **Known soft spot.** FINGER-A and FINGER-B both address `Parmak_2 X 2.stl`
+> square 1, and on that row `largest_inscribed_square_mm` and `second_square_mm`
+> are both 10.40. The cell gate compares square *size*, so square 1 and square 2
+> satisfy it identically — which of the two was chosen is an authoring decision no
+> gate can catch, and the schedule presents all eleven as equally derived. Treat
+> those two as weaker than the rest until the fingers are surveyed as an assembly.
+> VIEW B on the same sheet also still draws BASE-1/BASE-2 from hand-typed
+> literals.
 
 ### The rule that decides every face
 
@@ -596,7 +657,7 @@ pass:
 | Gate | Checks |
 |---|---|
 | **1 — module alignment** | every ArUco bitmap decomposes cleanly into its 6×6 module grid; no block is half black |
-| **2 — pixel identity** | the rects about to be written as SVG, rasterised, are compared **pixel for pixel** against `cv2.aruco.CharucoBoard.generateImage()`. This proves the chessboard parity, the white-square scan order, the id assignment, the marker inset and the absence of any flip or transpose — all of which otherwise produce a plausible-looking board that detects as a *different* one |
+| **2 — pixel identity** | the rects about to be written as SVG, rasterised, are compared **pixel for pixel** against `cv2.aruco.CharucoBoard.generateImage()`. This proves the chessboard parity, the white-square scan order, the id assignment, the marker inset and the absence of any flip or transpose — all of which otherwise produce a plausible-looking board that detects as a *different* one. **Caveat, stated because the phrase overstates by a hair:** the gate rasterises the RAW rects, while `build_svg()` writes each grown by `EPS_MM` per side to stop hairline seams between abutting squares. Board ink on disk is 125.02 mm, not the 125.00 mm the gate proved. That is well under one pixel at 600 dpi and rounds away at the gate's own raster, so the board is fine — but the gate validates the geometry *before* the expansion |
 | **3 — re-detection** | that raster, padded with white, is fed back to `cv2.aruco.CharucoDetector`; all 24 corners and all 17 markers must be found and each corner must land on its ideal grid location |
 
 ### 9.2 Printing and mounting
