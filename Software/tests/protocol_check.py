@@ -1,6 +1,10 @@
 """Protocol tests for factorylm_arm_controller, run against the real board.
 
-    python Software/tests/protocol_check.py [--port COM5] [--motion-ok]
+    python3 Software/tests/protocol_check.py [--port PORT] [--motion-ok]
+
+    PORT is usually COM5 on Windows or /dev/cu.usbmodem* /dev/cu.wchusbserial*
+    on macOS. If it is omitted, the harness chooses the best-looking Arduino
+    port and refuses to guess when the choice is ambiguous.
 
 WHY THIS EXISTS
     A 32 KB AVR cannot host a test framework, so the only honest way to test
@@ -43,7 +47,7 @@ try:
 except ImportError:  # pragma: no cover - environment problem, not a test result
     sys.stderr.write(
         "pyserial is not installed for this interpreter.\n"
-        "On this bench machine use:  \"C:\\Program Files\\Python311\\python.exe\"\n"
+        "Install it with:  python3 -m pip install --user pyserial\n"
     )
     sys.exit(2)
 
@@ -155,11 +159,28 @@ def expect_field(name, snap, jid, key, want, pending=None):
 
 
 def find_port():
-    for p in list_ports.comports():
-        if "2341" in (p.hwid or ""):
-            return p.device
-    ports = list_ports.comports()
-    return ports[0].device if ports else None
+    ports = list(list_ports.comports())
+    if not ports:
+        return None
+
+    def rank(p):
+        text = ((p.hwid or "") + " " + (p.description or "")).upper()
+        if "VID:PID=2341" in text or "VID:PID=2A03" in text:
+            return 3
+        if ("VID:PID=1A86" in text or "VID:PID=0403" in text or
+                "VID:PID=10C4" in text):
+            return 2
+        if any(word in text for word in ("ARDUINO", "CH340", "USB SERIAL", "USB-SERIAL")):
+            return 1
+        return 0
+
+    best = max(rank(p) for p in ports)
+    candidates = [p for p in ports if rank(p) == best]
+    if len(candidates) == 1:
+        return candidates[0].device
+    if best == 0 and len(ports) == 1:
+        return ports[0].device
+    return None
 
 
 # ---------------------------------------------------------------------------

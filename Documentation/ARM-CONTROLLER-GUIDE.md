@@ -1,6 +1,7 @@
 # FactoryLM Arm Console — User Guide
 
-Plain-English guide to the arm controller program and the on-screen console.
+Plain-English guide to the arm controller program and the on-screen console on
+Windows and macOS.
 Companion to `SERIAL-PROTOCOL.md` (the technical version).
 
 ---
@@ -95,18 +96,21 @@ Arduino calls a program a **sketch**. Same thing.
 ### Before you start
 
 1. **Servo power OFF.** Rocker switch off, or unplug the supply.
-2. **Close the arm console.** If the black `FactoryLM Arm GUI` window is open, click
+2. **Close the arm console.** If the `FactoryLM Arm GUI` terminal window is open, click
    it and press `Ctrl-C`, then close it. Only one program at a time can use the USB
    port, and the console holds it.
 
 ### Upload it
 
-1. Open **Arduino IDE**.
+1. Open **Arduino IDE**. Arduino IDE and Arduino CLI run on macOS as well as Windows;
+   the board, sketch, baud rate, and protocol are the same on both hosts.
 2. **File → Open**, and open this file:
-   `C:\RobotArm\Software\factorylm_arm_controller\factorylm_arm_controller.ino`
+   `Software/factorylm_arm_controller/factorylm_arm_controller.ino` inside your
+   local checkout.
 3. Look at the bar across the top. It should say **Arduino Uno** and a port.
-   Pick the port whose name mentions **Arduino Uno**. Do not just pick COM5 out of
-   habit — the port number changes when you unplug and replug the board.
+   Pick the port that identifies the Arduino. On Windows it looks like `COM5`; on
+   macOS it normally looks like `/dev/cu.usbmodem...` or `/dev/cu.wchusbserial...`.
+   Do not hard-code the name — it can change when you unplug and replug the board.
 4. Click the **right-arrow button** (Upload).
 5. Wait for **"Done uploading."**
 
@@ -126,13 +130,19 @@ program is on the board.
 
 ### If you would rather type commands
 
-```
+```text
+# Windows
 "C:\Program Files\Arduino CLI\arduino-cli.exe" board list
 "C:\Program Files\Arduino CLI\arduino-cli.exe" compile --fqbn arduino:avr:uno "C:\RobotArm\Software\factorylm_arm_controller"
 "C:\Program Files\Arduino CLI\arduino-cli.exe" upload -p COM4 --fqbn arduino:avr:uno "C:\RobotArm\Software\factorylm_arm_controller"
+
+# macOS/Linux — run from the repository root
+arduino-cli board list
+arduino-cli compile --fqbn arduino:avr:uno Software/factorylm_arm_controller
+arduino-cli upload -p /dev/cu.usbmodemXXXX --fqbn arduino:avr:uno Software/factorylm_arm_controller
 ```
 
-Replace `COM4` with whatever `board list` shows for the Uno.
+Replace the example port with the one reported by `board list`.
 
 ### What the board does when it starts
 
@@ -148,19 +158,22 @@ step, and there never will be — see section 8 for why that would be dangerous.
 
 ### The normal way
 
-Double-click:
+On Windows, double-click:
 
 ```
 C:\RobotArm\START ARM GUI.bat
 ```
 
+On macOS, double-click `START ARM GUI.command` in the repository folder, or run
+`./START ARM GUI.command` from Terminal.
+
 Two things happen.
 
-1. A **black window** opens. This is the *bridge* — a small helper program that passes
+1. A **terminal window** opens. This is the *bridge* — a small helper program that passes
    messages between your web browser and the USB cable. **Leave it open.** Closing it
    kills the connection.
 2. Your **browser opens** at `http://127.0.0.1:8770/`. That address means "this
-   computer, nobody else". Nothing is on the internet. Nothing leaves the laptop.
+   computer, nobody else". Nothing is on the internet. Nothing leaves the computer.
 
 If the browser does not open by itself, type that address in yourself.
 
@@ -172,7 +185,7 @@ Once the page loads, the address will have grown a long jumble on the end, like:
 http://127.0.0.1:8770/?t=hcUsJz701BF2oB4v_USFRO1I
 ```
 
-That is normal. It is a one-time access code, and the black window prints it too.
+That is normal. It is a one-time access code, and the terminal window prints it too.
 
 **Why it exists:** "this computer only" turns out not to be as private as it sounds. Any
 web page you have open in any tab can quietly send messages to a program running on your own
@@ -185,7 +198,7 @@ Three things follow from it, and all three are normal:
 
 - **The code is different every time the bridge starts.** It is never saved anywhere.
 - **An old tab stops working after you restart the bridge.** Press F5 on it, or open the
-  link from the black window again.
+  link from the terminal window again.
 - **Plain `http://127.0.0.1:8770/` still works.** The bridge just sends you along to the
   proper address with the code attached.
 
@@ -198,8 +211,8 @@ from the folder does not use the bridge at all.
 ### Connect to the board
 
 1. In the box at the top, open the port list.
-2. Choose the entry that says **Arduino Uno**.
-   Do not assume COM5. Windows sometimes lists old ports that no longer exist.
+2. Choose the entry that identifies **Arduino Uno**. On macOS the entry normally
+   has a `/dev/cu.*` name rather than a COM number; do not hard-code it.
 3. Press **CONNECT**.
 
 Opening the port restarts the Arduino. That is normal and takes about two seconds.
@@ -240,7 +253,7 @@ each other in seconds.
 
 There is a second way in that installs nothing:
 
-1. Open `C:\RobotArm\Software\arm-console\`
+1. Open `Software/arm-console/` in the checkout.
 2. Double-click **`arm-console.html`**
 3. Press **CHOOSE PORT** and pick the Arduino Uno
 
@@ -436,9 +449,10 @@ at it before pressing anything else.
 - **SAVE CSV** writes the table to a file, normally into your Downloads folder, named
   with today's date. CSV is a plain-text spreadsheet file — Excel opens it, so does
   Notepad.
-- **LOAD CSV** reads one back in. It is an ordinary Windows file-picker.
+- **LOAD CSV** reads one back in. It is the browser's ordinary file-picker.
 
-Keep your saved sequences somewhere sensible, like `C:\RobotArm\Software\arm-console\`.
+Keep your saved sequences somewhere sensible inside the repository, such as
+`Software/arm-console/`.
 
 ### A safety note about playback
 
@@ -679,7 +693,7 @@ Check and close, in this order:
 
 1. **Arduino IDE's Serial Monitor.** This is the usual one. Close the Serial Monitor
    panel, not just the IDE window.
-2. **A second bridge window.** If you double-clicked `START ARM GUI.bat` twice, there
+2. **A second bridge window.** If you started the platform launcher twice, there
    are two. Close the extra one.
 3. **A second browser tab** with the console open and connected.
 
@@ -694,15 +708,16 @@ Then press **CONNECT** again.
 
 - **Check the USB cable is in both ends.** Some cheap cables are charge-only and carry
   no data at all. If a cable has never worked, try another one.
-- **Press REFRESH** next to the port list. Windows updates its list lazily.
+- **Press REFRESH** next to the port list. The operating system may update its list
+  lazily after you plug the board in.
   (If you opened `arm-console.html` directly in Chrome instead of using the launcher,
   that button says **CHOOSE PORT** and opens Chrome's own picker.)
 - **Use the genuine Arduino Uno.** The clone board cannot be programmed on this laptop
   — Windows installed a broken driver for it. The write-up is in
   `USB-SERIAL-DIAGNOSIS.md`. It is not your fault and neither board is damaged.
-- **Do not go looking for COM5.** Windows keeps stale entries for ports that no longer
-  exist, and COM5 is one of them on this machine. Pick the entry whose text says
-  **Arduino Uno**. The number changes when you replug.
+- **Do not go looking for a hard-coded port name.** Windows may show COM4/COM5 while
+  macOS shows `/dev/cu.*`, and either system can change the name after a replug. Pick
+  the entry whose text identifies the Arduino instead.
 
 ### It connects but refuses, saying the wrong program is on the board
 
@@ -760,8 +775,8 @@ The full power wiring, with sources, is in `V2-SERVO-POWER-AND-WIRING.md`.
 bridge cannot open the Arduino.
 
 The launcher prints the exact one-line command to fix it. **Copy that line exactly** —
-type it into the same black window and press Enter, then close the window and
-double-click `START ARM GUI.bat` again.
+type it into the same terminal window and press Enter, then close the window and run
+the platform launcher again.
 
 Why "exactly" matters: this laptop has **four different Pythons installed**, and only
 one of them has pyserial. The launcher checks each one and uses whichever can actually
@@ -774,14 +789,14 @@ If you would rather not deal with Python at all, skip it entirely: double-click
 
 ### The browser page is blank or says it cannot connect
 
-The bridge is not running. Look for the black `FactoryLM Arm GUI` window. If it is not
-there, double-click `START ARM GUI.bat` again and read what it prints — it explains its
+The bridge is not running. Look for the `FactoryLM Arm GUI` terminal window. If it is not
+there, run the platform launcher again and read what it prints — it explains its
 own failures in plain English and never closes without telling you why.
 
 ### The port list is empty right after restarting the bridge — and the Arduino is definitely plugged in
 
 Symptoms: the page says **"No serial ports found"** or nothing appears in the port list,
-pressing REFRESH changes nothing, and the black window is open and looks healthy. Some
+pressing REFRESH changes nothing, and the terminal window is open and looks healthy. Some
 buttons may also complain about an "access code".
 
 **You are looking at a tab left over from a previous run of the bridge.** Each time the
@@ -790,7 +805,7 @@ old one, so the bridge refuses it. The refusal reaches the page as an empty port
 looks exactly like an unplugged Arduino — so check this *before* going hunting for a cable.
 
 **Press F5 on that tab.** It will pick up the new code by itself. If that does not do it,
-close the tab and click the link printed in the black window.
+close the tab and click the link printed in the terminal window.
 
 This is worth recognising because it looks alarming and is completely harmless — the same
 thing happens any time you restart the bridge without closing the browser. Nothing is
@@ -809,7 +824,7 @@ time with fresh angles, exactly as you did the first time.
 ## The short version
 
 **Today, with no motor power at all:** upload `factorylm_arm_controller`, run
-`START ARM GUI.bat`, connect, enable a joint, drag the slider, record a couple of
+the platform launcher, connect, enable a joint, drag the slider, record a couple of
 waypoints, play them back. That proves the whole chain end to end.
 
 **Next:** buy the regulated 5 V, 3–5 A supply. Fit the capacitor. Get servo current off
@@ -835,7 +850,8 @@ first, hand on the rocker switch.
 | `Calibration_Notes/calibration-log.csv` | The running record of what you measured |
 
 Any time you want to confirm nothing has broken on the laptop side, double-click
-`C:\RobotArm\CHECK SETUP.bat`. Green all the way down means the tools are fine.
+`CHECK SETUP.bat` on Windows or `CHECK SETUP.command` on macOS. Green all the way down
+means the tools are fine.
 
 ---
 

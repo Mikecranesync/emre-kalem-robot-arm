@@ -12,8 +12,9 @@ Part of the Emre Kalem 6-axis arm project. Companion files:
 WHAT THIS IS
     A dumb pipe. It serves arm-console.html on http://127.0.0.1:8770 and forwards
     bytes to and from the Arduino over USB serial at 115200 8N1. That is the whole
-    job. Double-click "START ARM GUI.bat" in C:\\RobotArm and leave the window open
-    while you use the arm.
+    job. Start the platform launcher ("START ARM GUI.bat" on Windows or
+    "START ARM GUI.command" on macOS) and leave its terminal window open while
+    you use the arm.
 
 WHAT THIS IS NOT
     It is NOT a safety device. Neither is the Arduino, the firmware, the browser
@@ -127,14 +128,15 @@ except ImportError:
         "\n"
         "  This bridge needs the 'pyserial' package and it is not installed.\n"
         "\n"
-        "  Install it by running this one line in a Command Prompt:\n"
+        "  Install it by running the matching line in a terminal:\n"
         "\n"
-        "      python -m pip install --user pyserial\n"
+        "      macOS/Linux: python3 -m pip install --user pyserial\n"
+        "      Windows:     py -3 -m pip install --user pyserial\n"
         "\n"
-        "  Then double-click START ARM GUI.bat again.\n"
+        "  Then run the platform launcher again.\n"
         "\n"
         "  No Python at all? You can skip this bridge entirely: open\n"
-        "  Software\\arm-console\\arm-console.html directly in Google Chrome\n"
+        "  Software/arm-console/arm-console.html directly in Google Chrome\n"
         "  or Microsoft Edge and use the built-in Web Serial path instead.\n"
         "\n"
     )
@@ -255,17 +257,19 @@ def auto_pick(ports):
 def friendly_open_error(port, exc):
     text = str(exc)
     low = text.lower()
-    if isinstance(exc, PermissionError) or "access is denied" in low or "permissionerror" in low:
+    if (isinstance(exc, PermissionError) or "access is denied" in low
+            or "permission denied" in low or "permissionerror" in low):
         return ("Could not open %s. Almost always this means the Arduino IDE Serial "
                 "Monitor is still open and is holding the port. Close it (or close the "
                 "whole IDE) and try again. Only one program can hold the port at a time."
                 % port)
     if (isinstance(exc, FileNotFoundError) or "filenotfounderror" in low
-            or "cannot find the file" in low or "does not exist" in low):
-        return ("Could not open %s. Windows says there is no such port right now. "
+            or "cannot find the file" in low or "does not exist" in low
+            or "no such file" in low):
+        return ("Could not open %s. The operating system says there is no such port right now. "
                 "Unplug and replug the USB cable, then press Refresh - the port number "
                 "changes when the board is replugged." % port)
-    return "Could not open %s. Windows said: %s" % (port, text)
+    return "Could not open %s. The operating system said: %s" % (port, text)
 
 
 LOST_PORT_MSG = ("The board stopped responding and the port was closed. Usually the USB "
