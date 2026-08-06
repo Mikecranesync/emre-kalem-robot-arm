@@ -193,11 +193,11 @@ Three properties of that picture are the architecture:
 | `is_connected` | the link is open |
 | `connect(calibrate=True)` | open → 2000 ms → flush → `VER` gate → `calibrate()` → `configure()`. **Leaves every joint disabled.** |
 | `disconnect()` | `STP` → `DIS A` → close cameras → close port |
-| `is_calibrated` | computed and connection-aware. **False today.** §5.4 |
-| `calibrate()` | **loads and validates files. Never drives.** §5.1 |
+| `is_calibrated` | computed from the calibration files, over a fixed six-joint sweep that nothing narrows. **False today.** The connection-aware tail in §5.4 is proposed, not shipped — see the divergence note there. |
+| `calibrate()` | **raises `NotImplementedError`, on purpose.** Producing a calibration means driving a joint to its stop, which needs `ENA <j> <adopt_deg>` — a human's assertion of where the shaft is. `connect(calibrate=True)` is LeRobot's default, so the raise is the thing that stops that default from driving. Loading and validating the files is `load_calibration()`, called from `__init__`. §5.1, and §7.3 for the retraction. |
 | `configure()` | pushes `WDG`, `LIM`, `SPD`, `MIR`, reads back `STA`, and performs the `ENA` for any joint that has an adopt angle. §5.6 |
 | `get_observation()` | one `STA` round trip + camera frames + optional marker fixes → `build_observation()` |
-| `send_action(action)` | one `MOV` per **changed** target; returns the **clamped** value |
+| `send_action(action)` | one `MOV` per **changed** target — none at all for a joint whose target is unchanged. Returns the **accepted** (post-clamp) value in every case, including the ticks that sent nothing. §2.4 |
 
 ### 2.4 The rate budget — and why 30 fps is not available
 
@@ -235,6 +235,106 @@ Two mitigations, both available because of Option A:
   sequential round trips per tick, hit the wall at 10–30 Hz, and wrongly conclude the arm
   cannot go faster.
 
+  **`send_action()` implements exactly that, and the return contract is what makes it safe.**
+  Sending fewer commands must not change what LeRobot writes down, so a tick that emits no
+  `MOV` still returns a number for every joint. Per enabled joint:
+
+  | This tick | Wire | Returned for `j<N>.pos` | `clamped` |
+  |---|---|---|---|
+  | target **changed** | one `MOV <j> <deg>` | the ack's `SET=` — the accepted, post-clamp target | the ack's `CL=` |
+  | target **unchanged** | nothing | the accepted value from the ack that last set this target | the flag from that same ack, kept |
+  | nothing asked (key absent or NaN) | nothing | NaN | untouched |
+  | joint not enabled | nothing | NaN | untouched |
+
+  Six points that are easy to get wrong, and that the code comments on directly:
+
+  - **The comparison is on the integer that goes on the wire**, `int(round(float(requested)))`,
+    not on the incoming float. The wire is integer degrees; centidegrees exist only inside the
+    firmware. Comparing floats would emit a second, redundant `MOV` for 64.4 after 64.0.
+    Note that `round()` is **banker's rounding**, so `round(64.5) == 64` — 64.5 does *not*
+    fire a `MOV` against a held 64. That is inherited from the original expression rather than
+    chosen, but it decides when a command goes out, so do not "correct" it casually.
+  - **A NaN or absent request beats a held entry.** The decision is taken on the request
+    first: a joint with a cached target that is asked for nothing this tick records NaN, not
+    the held value. Only a request that is present *and* rounds to the held integer takes the
+    unchanged-target row.
+  - **An unchanged target returns the *accepted* value, never the request.** The firmware
+    clamps rather than rejecting, so returning the request would teach a policy that an
+    unreachable angle is reachable — the same reason the changed-target row returns `SET=`
+    rather than what was asked.
+  - **An unchanged target is not NaN.** NaN means "not driven this tick", and a joint holding
+    a target is very much still being driven. The two NaN rows above are the only NaN cases.
+  - **`clamped` is not recomputed on a no-`MOV` tick.** The `MOV` ack is its only writer; no
+    reply arrived, so there is nothing to derive it from and it keeps the flag from the ack
+    that set the target.
+  - **Returning the accepted target while the interpolator is still walking toward it is
+    correct by contract, not stale.** This channel is the accepted target; the interpolator's
+    present commanded output is a *different quantity*, reported by `get_observation()` from
+    `STA`'s `SET=`. That is the §2.5 collision — the two `SET=` share a key name and are not
+    the same number.
+
+  One degenerate case is handled explicitly: a `MOV` ack carrying no readable `SET=` records
+  NaN for that tick and is **not** cached, so the next tick re-sends. Caching NaN would make
+  every subsequent unchanged-target tick replay it and latch a held joint at NaN.
+
+  **The held values describe firmware state, so they are void the moment the firmware's state
+  is.** They are cleared in `configure()` (which covers `connect()`, since that is the only
+  `ENA` site and `connect()` always reaches it — so a DTR reset cannot leave a stale target
+  behind), in `disconnect()`, and on the E-STOP latch path. A **re-adopt** therefore voids
+  every held value, which is the right coupling with §5.7: after any detach the arm has sagged
+  and the next adopt angle is a fresh human estimate, so nothing the board previously accepted
+  is still true. The practical effect is that the first tick after a connect, a re-adopt or a
+  latch clear re-sends a `MOV` for every joint, which is idempotent and cheap.
+
+  **The hazard this created, and how it is closed.** Emitting fewer commands also emits fewer
+  *errors*. Before dedup, a joint the adapter still believed was enabled but the board had
+  detached got a `MOV` every tick and answered `ERR E6` — a loud, immediate failure. With
+  dedup, an unchanged target puts nothing on the wire and `send_action()` quietly replays the
+  cached accepted value: a finite, confident number for a joint hanging loose. **Deduplicating
+  is what turned a loud failure into a silent one**, and that is the strongest argument for
+  what follows.
+
+  There is a concrete in-repo path that triggers it, and it is not hypothetical:
+  `transport.SerialLink._idle_loop` (`transport.py:506`) sends `DIS A` from its own thread
+  after `idle_disable_s` of loop silence, detaching **every** joint. `try_command` swallows
+  the reply so nothing raises, and `note_loop_activity()` clears only its own parked flag.
+
+  `get_observation()` therefore reconciles `_enabled` against the board's `EN=` — which it
+  already parses, and already uses to `NaN` the commanded column. Any joint the board reports
+  detached is dropped from `_enabled`, from `_targets`, and its `_clamped` flag is reset,
+  with a log line naming the mechanical recovery. The joint then takes the existing
+  "not enabled" branch and records `NaN`, which is exactly true: it was not driven this tick.
+
+  `_targets` is dropped *alongside* `_enabled` deliberately. Re-enabling happens at a freshly
+  estimated adopt angle — the shaft is somewhere new — and a stale cached target that happened
+  to equal the next request would make `_plan_joint` skip that joint's first `MOV` while the
+  action column reported a confident angle. `_clamped` resets because a detached joint's clamp
+  flag asserts something nobody observed.
+
+  The idle watcher's own arming state is **not** touched from this path. It already stops
+  repeating via its parked flag, and a third writer to that state is how the 2.0 s watcher
+  went wrong (§3.5).
+
+  As with everything else in this document, none of this has been executed against a board —
+  see §0. It is worse than that here, and the limitation is worth stating plainly:
+  `lerobot` is not installed on the development host (`importlib.util.find_spec("lerobot")`
+  returns `None`), so `emre_arm.py` cannot be **imported** there at all — not by a test, not
+  by a REPL. `send_action()` itself has therefore never run in any form. The change that
+  introduced this contract kept the per-joint decision as a pure module-level helper
+  specifically so that *it* could be lifted out of the module's AST and executed on its own —
+  the only executable slice available. **That slice is now exercised** —
+  `tests/test_send_action_dedup.py` lifts `_plan_joint` and `_AcceptedTarget` out of the real
+  file by AST and runs them, so the tests bind to the shipped source rather than a copy.
+
+  It covers **three** of the four table rows, not four. The fourth — "joint not enabled" — is
+  decided in `send_action()` itself, by the `jid not in self._enabled` guard, *before*
+  `_plan_joint` is ever called; it is not reachable through the helper. Everything else the
+  helper cannot see is asserted structurally on the module's AST instead: that every site
+  dropping a joint from `_enabled` also drops its cached `_targets` entry, that
+  `get_observation()` reconciles `_enabled` against the board's `EN=`, and that the clamp flag
+  is written only inside the readable-ack guard. Still not covered by anything: the assembled
+  method, the wire, and what the firmware actually puts in `SET=`.
+
 ### 2.5 The `SET=` collision — read this before writing a parser
 
 The same wire key carries two different quantities depending on which reply it is in.
@@ -259,10 +359,9 @@ adapter.
 @dataclass
 class EmreArmConfig(RobotConfig):
     port: str | None = None            # None => auto-pick; REFUSE when ambiguous
-    limits_csv: Path = Path("Software/arm-console/joint-limits.csv")
-    lock_artifacts_dir: Path = Path("Calibration_Notes/lock-artifacts")
-
-    joints: tuple[int, ...] = (0, 1, 3, 4, 5, 6)
+    limits_csv: Path = DEFAULT_LIMITS_CSV      # <repo>/Software/arm-console/joint-limits.csv
+    lock_artifacts_dir: Path = DEFAULT_LOCK_DIR  # <repo>/Calibration_Notes/lock-artifacts
+    wiring_map_csv: Path = DEFAULT_WIRING_MAP    # <repo>/Software/wiring-map.csv
 
     # ADOPT ANGLES -- the human step, made expressible and recorded.
     # ENA <j> <adopt_deg> takes a by-eye estimate of where the shaft is sitting
@@ -274,14 +373,34 @@ class EmreArmConfig(RobotConfig):
     allow_unmeasured_mirror: bool = False     # refuse ENA 1 while the offset is a placeholder
     allow_uncalibrated_joints: bool = False   # refuse ENA 6 while calibrated=no
 
-    watchdog_ms: int = 4000            # WDG. 0 would disable it -- never do that.
+    watchdog_ms: int = 1000            # WDG. 0 would disable it -- never do that.
     heartbeat_s: float = 0.25          # PNG cadence
-    idle_disable_s: float = 2.0        # no loop call for this long => DIS A
+    idle_disable_s: float = 15.0       # no loop call for this long => DIS A
     max_fix_age_s: float = 0.25        # older => STALE, residual withheld
 
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
     marker_observer: MarkerObserver | None = None
 ```
+
+> **`config_emre_arm.py` is the truth here, not this block.** Field names and defaults above
+> were read back from that file; where the two ever disagree, the file wins and this block is
+> a defect. Two defaults in particular are load-bearing and must not be "tidied" back to the
+> values an earlier draft of this section carried:
+>
+> - **`idle_disable_s` is 15.0, not 2.0.** 2.0 shipped briefly and was wrong.
+>   `lerobot-record` runs `connect()` → `configure()` → a startup/reset phase before the
+>   record loop, and those gaps routinely exceed two seconds. The watcher fired during
+>   ordinary startup and sent `DIS A`, de-energising a gravity-loaded arm — a self-inflicted
+>   sag dressed up as a safety feature.
+> - **`watchdog_ms` is 1000, not 4000.** 4000 is the *console's* value and its reason is
+>   browser timer throttling in a background tab, which does not apply to a Python heartbeat
+>   on its own thread. See conflict 4 in §7.1.
+>
+> **There is no `joints` field, and there never was one in the code.** Earlier revisions of
+> this document referenced `config.joints` in four places; the addressable set is the
+> module-level `JOINT_IDS` constant in `observation.py` (§3.2), and the set that gets
+> *enabled* is `adopt_deg`'s keys. Neither is configurable as a tuple. §7.4 item 13 records
+> what is actually missing as a result.
 
 Two of those knobs deserve their justification stated, because "config flag with no caller"
 is normally a smell:
@@ -682,10 +801,22 @@ real limitation of the shipped schema, not an omission from this document.
 Three things partly cover it and none of them closes it:
 
 - `send_action()` returns NaN for a joint that is not enabled (§2.3), so the **action** side
-  is honest.
+  is honest — but only about joints the *adapter* knows are disabled. Since `MOV` is emitted
+  only on a change (§2.4), a joint the board has dropped without latching `ES` stays in the
+  enable set, is never commanded, and has its last accepted value replayed every tick. That
+  used to surface as `ERR E6` on the next tick. The observation side still tells the truth
+  there — `get_observation()` writes NaN into `.pos` for any joint reporting `EN != "1"` — so
+  today the two channels can disagree, and the observation one is the one to believe. §7.4
+  item 14.
 - `configure()` refuses to enable a joint that fails a gate and logs which ones (§5.6).
-- The adapter knows its own enable set and can refuse to record at all until every joint in
-  `config.joints` is enabled.
+- The adapter knows its own enable set and can refuse to record at all until **all six of
+  `JOINT_IDS`** are enabled. Note what that costs: the enable set is exactly the keys of
+  `adopt_deg` that clear their gates, so "all six enabled" means a human has supplied a
+  by-eye adopt angle for all six, J4 and J6 included — and those two are the joints §5.9
+  says should not be driven today. `send_action()`'s own comment states the same
+  requirement from the other end: a dataset with NaN actions is not trainable, so enable all
+  six before recording. Refusing on a subset would be vacuous — a one-joint `adopt_deg` would
+  satisfy it while five joints' `.pos` stayed pure bookkeeping.
 
 If it is ever closed, the place is a seventh per-joint field — `j<N>.driven`, sourced from
 `STA`'s `EN=` — appended after `clamped` and before the tail singleton. **Do not add it to
@@ -976,26 +1107,42 @@ validator that raised on home divergence would be dead on arrival against today'
 
 ### 5.4 `is_calibrated` — and why it is False today
 
+This is the SHIPPED property, transcribed from `emre_arm.py:213`:
+
 ```python
 @property
 def is_calibrated(self) -> bool:
-    c = self.calibration
-    if c is None:
-        return False
-    for jid in self.config.joints:
-        j = c.joints[f"j{jid}"]
-        if not j.calibrated:
+    for jid in JOINT_IDS:                # NOT configurable -- see the note below
+        jc = self.arm_calibration.joint(jid)
+        if not jc.calibrated:
             return False
-        if "full_electrical_range" in j.flags:
+        if "full_electrical_range" in jc.flags:
             return False                 # locked at exactly the placeholder width
-        if jid == 1 and c.mirror_mode == "unknown":
-            return False                 # ENA 1 would return E13
-    if self.is_connected and not self._board_matches_file:
-        return False                     # a DTR reset silently restores 70-110 / CAL=0
+    if self.arm_calibration.mirror_mode == "unknown":
+        return False                     # ENA 1 would return E13
     return True
 ```
 
-**Over the default six joints: False.** Two causes, both real:
+> **Three transcription errors were corrected here, and they are worth naming because each
+> would have been copied into code by anyone working from this block.** It read
+> `c = self.calibration` — a name `emre_arm.py:162-165` explicitly reserves for the LeRobot
+> base class's own `MotorCalibration`-shaped dict; this arm's is `self.arm_calibration`, and
+> overwriting the base name is a bug one layer down. It read `c.joints[f"j{jid}"]` where the
+> accessor is `.joint(jid)`. And it gated the mirror check on `jid == 1` *inside* the loop,
+> where the shipped code tests `mirror_mode` once, unconditionally, outside it. It also opened
+> with `if c is None: return False`, which is dead — `arm_calibration` is assigned
+> unconditionally in `__init__` and is never None.
+
+The connection-aware tail below is **proposed, not shipped** — see the divergence note:
+
+```python
+    # PROPOSED, NOT IN THE PACKAGE:
+    if self.is_connected and not self._board_matches_file:
+        return False                     # a DTR reset silently restores 70-110 / CAL=0
+```
+
+**Over all six addressable joints — which is the only sweep available: False.** Two causes,
+both real:
 
 - **J6 is `calibrated=no`.** The gripper has never been bench-tested and its 0–180 is the
   servo's full electrical range.
@@ -1003,24 +1150,42 @@ def is_calibrated(self) -> bool:
   precisely the servo's whole electrical range has most likely not been driven to a real
   mechanical stop at either end — `joint-limits.csv` says so in its own notes column.
 
-Over `joints=(0,1,3,5)` it is **True**, with warnings. That J4 has to be excluded to reach
-True is the correct outcome, not a bug in the rule.
+**The sweep is over all six addressable joints and cannot be narrowed.** An earlier revision
+of this section wrote the loop as `for jid in self.config.joints` and then observed that
+"over `joints=(0,1,3,5)` it is **True**, with warnings". **There is no `joints` field**, and
+excluding J4 and J6 is not expressible: `JOINT_IDS` is a module-level constant in
+`observation.py` and it is simultaneously the dataset's joint set, so narrowing it would
+change the recorded feature schema rather than just relax a flag. `adopt_deg` cannot stand in
+for it either — `adopt_deg` selects which joints get *enabled*, while `is_calibrated` reads
+only calibration files and must stay callable while disconnected and before any `ENA`. So
+today the property is False, full stop, and there is no honest configuration that makes it
+True. §7.4 item 13 records the capability that is actually missing.
 
-> **Divergence from the concurrent implementation.** `emre_arm.py:118` counts **J6 only** —
-> "exactly one joint is outstanding". This section's rule is the superset and additionally
-> fails J4 on `full_electrical_range`. Both return False today, so nothing observable
-> differs yet; they diverge the moment somebody bench-tests the gripper and sets
-> `calibrated=yes` without re-locking J4. Reconcile before that happens.
+That J4 has to be excluded to reach True is the correct outcome, not a bug in the rule — it
+is simply an exclusion nothing can currently express.
+
+> **Divergence from the concurrent implementation.** The rule above is *ahead of* the code in
+> one respect and *behind* it in another, and both matter. `emre_arm.py`'s `is_calibrated`
+> (`:210`) already fails on `calibrated`, on `full_electrical_range`, and on
+> `mirror_mode == "unknown"` — so the block's first three checks are implemented, and the
+> older note here claiming that file "counts **J6 only**" was stale. What the code does
+> **not** have is the connection-aware tail: `self.is_connected and not
+> self._board_matches_file` has no counterpart in the package, so the shipped property is a
+> pure function of the calibration files and a DTR reset does not make it go False. That
+> remains this section's proposal, not shipped behaviour. Reconcile before relying on it.
 
 False is **not a blocker**. A caller should read it as *"recording is fine; J4 and J6 must
 not be enabled."* It is also not permanently red: two joints are outstanding, each with a
 documented procedure to clear it, so the flag stays meaningful rather than becoming noise an
 operator learns to ignore — which is the failure `joint-limits.csv` explicitly warns about.
 
-The feature dicts are **not** connection-aware; they are built in `__init__` from
-`config.joints` and the CSV, because LeRobot requires them callable while disconnected.
-`is_calibrated` **is** connection-aware, because a DTR reset silently restores 70–110 and
-`CAL=0` and a stale `True` would be a lie.
+The feature dicts are **not** connection-aware. They are properties over the module-level
+`JOINT_IDS` constant plus the camera config — no CSV, no `config.joints`, and nothing that
+needs an open port — because LeRobot requires them callable while disconnected. That
+independence is the reason a joint set narrowed per-config would be the wrong shape: the
+feature keys would move with it. `is_calibrated` **should** be connection-aware, because a
+DTR reset silently restores 70–110 and `CAL=0` and a stale `True` would be a lie; as noted
+above, the shipped property is not.
 
 ### 5.5 The validators
 
@@ -1076,7 +1241,7 @@ connect(calibrate=True):
 
 configure():
   H9. refuse if ANY joint is enabled
-  a. WDG 4000
+  a. WDG <watchdog_ms>            # 1000, NOT the console's 4000 -- see §2.6, §7.1 conflict 4
   b. for each joint in file order:  LIM <j> <min> <max> <cal>  then  SPD <j> <dps>
   c. MIR <SAME|INV|UNKNOWN> [off]
   d. STA -> H8 readback
@@ -1132,7 +1297,11 @@ document:
 
 1. **`connect()` cannot enable anything on its own.** With `adopt_deg = None` the handshake
    completes, the state is pushed, and every joint stays detached. `send_action()` then
-   raises, naming exactly which joints lack an adopt angle.
+   raises — but note the shape of that raise: it fires only when **nothing at all** is
+   enabled, and its message points at `EmreArmConfig.adopt_deg` generically rather than
+   naming the joints. A **partially** enabled arm does not raise; the joints without an adopt
+   angle simply return NaN (§2.4). So the loud failure exists only for the all-or-nothing
+   case, and a half-adopted arm records a half-NaN dataset quietly.
 2. **After any detach — watchdog trip, e-stop, or the adapter's own idle park — the arm
    sags, and the next adopt angle must be freshly estimated by a human.**
 
@@ -1162,7 +1331,7 @@ load-bearing in the shipped GUI.
 
 | Hazard | Resolution |
 |---|---|
-| **Uncalibrated gripper (J6)** | Loaded, observable, `calibrated=False`, **excluded from the enable set** — so it physically cannot move (`MOV` on a disabled joint is `E6`). `send_action` for j6 is refused unless `allow_uncalibrated_joints=True`. Not hidden: hiding it would erase the only warning that exists. |
+| **Uncalibrated gripper (J6)** | Loaded, observable, `calibrated=False`, **excluded from the enable set** — so it physically cannot move (`MOV` on a disabled joint is `E6`). The gate is at `ENA` time, not at `send_action` time: unless `allow_uncalibrated_joints=True`, j6 never enters the enable set, and `send_action` then returns NaN for it rather than raising or sending anything. Not hidden: hiding it would erase the only warning that exists. |
 | **J4's suspect 0–180** | `calibrated=True` is kept because it is *honest about what happened* — a lock really did occur and the board really did reply `CAL=1`. The derived `full_electrical_range` flag carries the suspicion, and it is what makes `is_calibrated` False. |
 | **Unmeasured mirror offset (J1)** | `mirror_offset_source = "placeholder"`. Never inferred from `offset == 0`. J1 stays drivable at offset 0 only when `allow_unmeasured_mirror=True`, and the warning prints the legal window `[−44, 0]` so nobody measures +6 and is surprised by an `E11`. |
 | **Disputed D3 identity** | Everything keys on **pin and id**, never on name — which the firmware already does — so the limits hold either way. `identity_disputed` is flagged on **J0 and J6**, and because the dispute leaves `servo_type` unresolved it also leaves voltage headroom unresolved: J0 gets `over_spec_supply_unresolved` rather than a confident absence. If D3 really carries the gripper's MG90S, J0 is being run over spec on 6.62 V. |
@@ -1342,10 +1511,30 @@ a change to `SERIAL-PROTOCOL.md` and the firmware comments, not to this spec.
 
 ### 7.3 Where two design passes disagreed, and which one this document adopts
 
-- **`calibrate()`** — one pass proposed raising `NotImplementedError` and pointing at the
-  bench procedure; another proposed the pure load-resolve-validate in §5.1. **§5.1 wins:**
-  it never drives *and* it is the only version that catches the 2026-08-05 J0 widening. The
-  raise moved to `_save_calibration()`, where it belongs.
+- **`calibrate()` — RETRACTED. This document decided this one backwards, and the retraction
+  is left visible on purpose.** The adjudication used to read: "one pass proposed raising
+  `NotImplementedError` and pointing at the bench procedure; another proposed the pure
+  load-resolve-validate in §5.1. **§5.1 wins:** it never drives *and* it is the only version
+  that catches the 2026-08-05 J0 widening. The raise moved to `_save_calibration()`, where it
+  belongs."
+
+  **That was false against the code when it was written, and acting on it would delete a
+  load-bearing decision.** `emre_arm.py:235` `calibrate()` raises, and `:254`
+  `_save_calibration()` raises **as well** — the raise did not *move*, both exist, and they
+  guard different things. `calibrate()` raises because `connect(calibrate=True)` is LeRobot's
+  default and producing a calibration means DRIVING: it needs `ENA <j> <adopt_deg>`, a human's
+  by-eye assertion of where a shaft with no feedback physically is. `_save_calibration()`
+  raises because there must be no second writable copy of the envelope —
+  `Software/arm-console/joint-limits.csv` plus `Calibration_Notes/lock-artifacts/` are the
+  sole source of truth, and a second copy is exactly how J0's measured 29–110 was silently
+  widened back to 0–180 on 2026-08-05.
+
+  The two are not alternatives, and the false dichotomy was the error. Loading and validating
+  the files — the §5.1 behaviour — is `load_calibration()`, called from `__init__`; it was
+  never in tension with the raise. **`calibrate()` raising is an invariant. Do not "reconcile"
+  it away.** Recorded as a retraction rather than edited into agreement, because a silently
+  corrected adjudication reads as though it was right all along, and the next pass needs to
+  know this section got one backwards.
 - **`is_calibrated`** — one pass said False because of J6 alone; §5.4 says J6 **and** J4's
   `full_electrical_range`. §5.4 is the superset and is adopted.
 - **`.pos` source** — one pass sourced it from `STA … SET=`, another from the adapter's own
@@ -1370,8 +1559,11 @@ a change to `SERIAL-PROTOCOL.md` and the firmware comments, not to this spec.
    the real base class and move the `ENA` into `connect()` if needed.
 4. **What does `connect(calibrate=True)` do when `is_calibrated` is False?** Call
    `calibrate()` once, loop, or raise? This document assumes: call once, then `configure()`,
-   then warn — not raise. If the installed base class raises, the fallback is to default
-   `config.joints` to `(0, 1, 3, 5)`, which makes `is_calibrated` True honestly.
+   then warn — not raise. **The fallback an earlier revision named here does not exist.** It
+   said to "default `config.joints` to `(0, 1, 3, 5)`, which makes `is_calibrated` True
+   honestly"; there is no `joints` field and `is_calibrated` sweeps the fixed `JOINT_IDS`
+   constant (§5.4), so no configuration reaches True. If the installed base class raises,
+   something else has to give — see item 13.
 5. **Does the dataset packer really filter on `v is float`?** Check with
    `inspect.getsource` on `lerobot.datasets.utils.hw_to_dataset_features`. A different
    predicate would silently drop non-float features — which is precisely why every Option A
@@ -1402,6 +1594,61 @@ a change to `SERIAL-PROTOCOL.md` and the firmware comments, not to this spec.
     should be confirmed on the bench.
 12. **Centroid noise is assumed at 0.2 px** in every marker angle-resolution figure. Not
     measured on this camera. A static N-frame capture would settle it.
+13. **Nothing can narrow the set `is_calibrated` inspects, and `adopt_deg` cannot substitute.**
+    Raised by §5.4 and by item 4 above; recorded here once so the two do not drift apart.
+
+    **What is missing.** `is_calibrated` sweeps `JOINT_IDS` — a module-level constant in
+    `observation.py` — so a deployment that wants to record with J4 and J6 parked and
+    detached has no way to say "judge me on the joints I am actually using". The property is
+    False and stays False.
+
+    **Why `adopt_deg` does not serve it.** `adopt_deg` selects the **enable** set, which is a
+    different question asked at a different time. `is_calibrated` reads only the calibration
+    files, must be callable while disconnected and before any `ENA`, and is consulted by
+    `connect(calibrate=True)` *before* `configure()` has enabled anything — at which point
+    `adopt_deg` is a request, not a fact. Reading the enable set out of it would also make a
+    file-provenance flag depend on an operator's by-eye estimate, which is the one input in
+    this system with no evidence behind it.
+
+    **Why this document does not resolve it.** The obvious fix is a new config field, and a
+    new config field is a feature, not a spec correction — it is the operator's call. It also
+    is not free: `JOINT_IDS` is simultaneously the dataset's joint set (§3.2), so a narrowing
+    knob has to be scoped to the *flag* without touching the feature keys, or `--resume`
+    breaks across runs with different settings. State the intent before adding the field.
+
+    **Until then**, read False the way §5.4 says: *"recording is fine; J4 and J6 must not be
+    enabled."* Leaving those two out of `adopt_deg` already achieves the physical outcome —
+    a joint with no adopt angle is never enabled, and `MOV` on a disabled joint is `E6`. What
+    is missing is only the ability to say so in the flag.
+14. **Who reconciles the enable set against what `STA` reports? — SETTLED. `get_observation()`
+    does.** The adapter maintains its own enable set; the board maintains the truth and
+    publishes it as `EN=` on every `STA` line. They part company whenever a joint detaches
+    without latching `ES`, and once `MOV` became change-only (§2.4) that cost went up sharply:
+    the adapter replayed that joint's last accepted target into the action channel
+    indefinitely, because an unchanged target sends no `MOV` and so never earned the `ERR E6`
+    that used to expose it.
+
+    This was deliberately left open once, on the reasoning that reconciling in
+    `get_observation()` "moves ownership of the enable set from `configure()` to
+    `get_observation()`, a design decision rather than a bug fix — an observation call would
+    acquire a side effect on command state."
+
+    **That reasoning was wrong, and the entry is kept so the reversal is visible.** The
+    argument weighs a structural tidiness cost against a channel that fabricates data, and
+    those are not comparable. `transport.py:506` makes the trigger reachable on purpose —
+    a 15 s idle park detaches every joint — so this was never a theoretical divergence.
+    `get_observation()` already parses `EN=` and already writes NaN into `.pos` for any joint
+    reporting `EN != "1"`; it held the evidence and declined to act on it, which is a worse
+    place to be than either alternative. It now drops the joint from `_enabled`, drops its
+    `_targets` entry, and resets `_clamped`.
+
+    The side effect is real and is accepted knowingly: an observation call now mutates command
+    state. That is the correct trade when the alternative is an action column asserting a
+    finite angle for a detached joint on a sagged arm.
+
+    The two channels can therefore no longer disagree in that direction. **If they ever do
+    again, the observation channel is still the one to believe** — a joint whose `.pos` is NaN
+    while its action is a plausible number has detached.
 
 ---
 
