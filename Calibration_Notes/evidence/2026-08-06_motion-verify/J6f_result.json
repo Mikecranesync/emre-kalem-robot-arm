@@ -1,0 +1,71 @@
+{
+  "joint": 6,
+  "dps": 12.0,
+  "roi": [
+    330,
+    425,
+    485,
+    565
+  ],
+  "threshold": 25,
+  "pass_ratio": 4.0,
+  "waypoints": [
+    {
+      "label": "open",
+      "deg": 70,
+      "from": 40,
+      "reply": "OK MOV J6 REQ=70 SET=70 CL=0",
+      "sta": "STA J6 EN=1 SET=70 TGT=70 MIN=10 MAX=70 CAL=1 DPS=12 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "70",
+      "moving": "0",
+      "noise_floor_px": 4,
+      "signal_px": 0,
+      "in_travel_peak_px": 1529,
+      "ratio": null,
+      "global_shift_px": 0.0,
+      "daemon_intervened": false,
+      "vs": null,
+      "verdict": "baseline"
+    },
+    {
+      "label": "closed",
+      "deg": 10,
+      "from": 70,
+      "reply": "OK MOV J6 REQ=10 SET=10 CL=0",
+      "sta": "STA J6 EN=1 SET=10 TGT=10 MIN=10 MAX=70 CAL=1 DPS=12 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "10",
+      "moving": "0",
+      "noise_floor_px": 2,
+      "signal_px": 27,
+      "in_travel_peak_px": 577,
+      "ratio": 13.5,
+      "global_shift_px": 0.05,
+      "daemon_intervened": false,
+      "vs": "open:70",
+      "verdict": "NOT RESOLVED"
+    },
+    {
+      "label": "open",
+      "deg": 70,
+      "from": 10,
+      "reply": "OK PNG UP=3884412\n\nOK MOV J6 REQ=70 SET=70 CL=0",
+      "sta": "STA J6 EN=1 SET=70 TGT=70 MIN=10 MAX=70 CAL=1 DPS=12 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "70",
+      "moving": "0",
+      "noise_floor_px": 2,
+      "signal_px": 60,
+      "in_travel_peak_px": 648,
+      "ratio": 30.0,
+      "global_shift_px": 0.27,
+      "daemon_intervened": false,
+      "vs": "closed:10",
+      "verdict": "NOT RESOLVED"
+    }
+  ]
+}
