@@ -50,5 +50,26 @@ dependencies = [
 # teleoperates without a camera -- every observed_* column is simply NaN.
 cameras = ["opencv-python>=4.9"]   # Apache-2.0, on the allow-list
 
+# `pip install -e .[dev]` is NOT how you get a working test run -- it would drag
+# in `lerobot` via [project.dependencies], which is exactly what the tests are
+# built to run without. The suite needs pytest and nothing else:
+#     python -m pip install --user pytest
+#     cd Software/lerobot_robot_emre_arm && python -m pytest
+# This extra exists so the requirement is declared somewhere machine-readable,
+# not because it is the recommended install path.
+dev = ["pytest>=8"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+# `tests/` sits beside `src/` and is NOT part of the distribution.
+testpaths = ["tests"]
+
+# NO --doctest-modules, deliberately. It collects modules through the normal
+# import machinery, which executes this package's `__init__.py`, which imports
+# lerobot eagerly and on purpose (see src/lerobot_robot_emre_arm/__init__.py).
+# The tests load observation.py and calibration.py from their file paths instead
+# -- tests/_repo_files.py explains why. The one docstring example that matters
+# (mirror_image) is asserted by hand in tests/test_calibration_validators.py.
+addopts = "-ra"

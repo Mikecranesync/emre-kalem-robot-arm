@@ -19,9 +19,15 @@ work. This package genuinely requires LeRobot; importing it without LeRobot
 installed is expected to fail.
 
 `observation.py` and `calibration.py` depend on nothing outside the standard
-library, so they can be imported directly from their modules and exercised while
-both LeRobot and the board are absent -- which is how the schema and the
-calibration validators are tested.
+library, so they can be exercised while both LeRobot and the board are absent.
+NOTE THAT `import lerobot_robot_emre_arm.observation` DOES NOT DO THAT: Python
+executes this file before any submodule, and this file imports lerobot eagerly
+and on purpose (above). The tests therefore load those two modules FROM THEIR
+FILE PATHS with importlib, under a synthetic parent package, bypassing this
+`__init__` entirely -- `tests/_repo_files.py` does the loading, and
+`tests/test_observation_schema.py` and `tests/test_calibration_validators.py`
+are where the schema and the calibration validators are tested. Run them with
+`cd Software/lerobot_robot_emre_arm && python -m pytest`.
 
 THE ONE RULE THAT IS NOT ABOUT SOFTWARE: this adapter opens the serial port
 directly and is its sole owner. Close the arm console (and its bridge) before
