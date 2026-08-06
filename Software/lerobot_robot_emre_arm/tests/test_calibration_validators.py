@@ -135,20 +135,57 @@ def test_a_locked_joint_sitting_at_the_full_electrical_range_is_still_flagged(re
     assert "max_at_electrical_ceiling" in j4.flags
 
 
-def test_the_disputed_identity_leaves_the_voltage_judgement_unresolved(real_cal):
-    # calibration-log 2026-08-01 says the servo on D3 was the GRIPPER, not the
-    # Base. That leaves the servo TYPE unresolved and therefore the headroom on a
-    # 6.62 V supply unresolved too -- reported as unknown, not as a clean absence.
+def test_joint_0_identity_is_still_disputed_but_its_voltage_no_longer_is(real_cal):
+    """The dispute outlived the voltage question it used to imply.
+
+    calibration-log 2026-08-01 says the servo on D3 was the GRIPPER, not the
+    Base, so J0's servo TYPE is unresolved -- and it stays unresolved, because
+    the base servo is dead and driving D3 proves nothing either way. Re-test
+    after the replacement.
+
+    What DID resolve is the headroom. That used to be reported as unknown
+    because the type was unknown; on the +5 V JC-25-5 both candidate types are
+    in spec (MG996R 4.8-7.2, MG90S 4.8-6.0), so the answer is the same whichever
+    it turns out to be and there is nothing left to be unresolved about.
+    """
     j0 = real_cal.joint(0)
     assert "identity_disputed" in j0.flags
-    assert "over_spec_supply_unresolved" in j0.flags
+    assert "over_spec_supply_unresolved" not in j0.flags
     assert "over_spec_supply" not in j0.flags
 
 
-def test_an_mg90s_on_the_over_spec_supply_is_flagged_outright(real_cal):
+def test_joint_6_identity_was_resolved_by_watching_it_move(real_cal):
+    """J6 was commanded 10-70 twice and the operator saw the gripper open/close.
+
+    That is the approved exception to the vocabulary rule: a value a human
+    actually OBSERVED. The joint the firmware drives as J6 is the gripper, so
+    the wiring map is right about D11 and the 2026-08-01 row -- which records a
+    single-servo BENCH rig, horn off, where index 0 meant pin D3 -- was never
+    describing the assembled arm at all.
+    """
+    assert "identity_disputed" not in real_cal.joint(6).flags
+
+
+def test_a_joint_driven_over_spec_keeps_that_history_after_the_supply_is_fixed(real_cal):
+    """Replacing the supply fixes the condition, not the history.
+
+    J4 and J5 are MG90S rated 4.8-6.0 V and were both driven on the old 6.62 V
+    unit. Swapping to +5 V makes them safe FROM NOW ON; it does not un-stress
+    them. The two claims are now separate flags, because conflating them made J6
+    report "over spec" for a supply its own row had forbidden it from ever
+    touching.
+    """
     j4 = real_cal.joint(4)
     assert j4.servo_type == "MG90S"
-    assert "over_spec_supply" in j4.flags
+    assert "driven_over_spec_historically" in j4.flags
+    assert "driven_over_spec_historically" in real_cal.joint(5).flags
+    # ...and nothing is over spec on the CURRENT supply.
+    assert "over_spec_supply" not in j4.flags
+    assert not any(
+        "over_spec_supply" in real_cal.joint(j).flags for j in (0, 1, 3, 4, 5, 6)
+    )
+    # J6 is MG90S too but was never connected to the old supply.
+    assert "driven_over_spec_historically" not in real_cal.joint(6).flags
 
 
 def test_an_inferred_servo_type_is_flagged_and_a_confirmed_one_is_not(real_cal):
@@ -185,10 +222,12 @@ def test_the_locked_gripper_no_longer_claims_placeholder_width(real_cal):
         "max_at_electrical_ceiling",
     ):
         assert gone not in flags, gone
-    # What it DOES still carry: the D3/D11 identity dispute is unresolved, and
-    # home was moved off the locked end.
-    assert "identity_disputed" in flags
+    # What it DOES still carry: home was moved off the locked end. The D3/D11
+    # identity dispute that used to sit here was resolved on 2026-08-06 by
+    # driving J6 and watching the gripper move -- see
+    # test_joint_6_identity_was_resolved_by_watching_it_move.
     assert "home_edited" in flags
+    assert "identity_disputed" not in flags
 
 
 def test_every_flagged_joint_appears_in_the_warnings(real_cal, observation):

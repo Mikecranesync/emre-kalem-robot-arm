@@ -97,20 +97,48 @@ _LOCK_FILENAME_RE = re.compile(r"^calibration-row-J(\d+)_(\d{4}-\d{2}-\d{2})_(\d
 # safety flag would be worse than maintaining a four-line table.
 # ---------------------------------------------------------------------------
 
-#: calibration-log.csv 2026-08-01: the servo physically wired to D3 was the
-#: GRIPPER, not the Base. Limits follow the PIN so they hold either way, but the
-#: joint NAME may be wrong on both of these -- and so, therefore, may the servo
-#: type, and therefore the voltage-headroom judgement.
-_IDENTITY_DISPUTED = frozenset({0, 6})
+#: calibration-log.csv 2026-08-01 said the servo physically wired to D3 was the
+#: GRIPPER, not the Base, which put the joint NAME -- and therefore the servo
+#: type, and therefore the voltage-headroom judgement -- in doubt on both rows.
+#:
+#: JOINT 6 IS RESOLVED (2026-08-06, OBSERVED). J6 was commanded through two full
+#: 10-70 sweeps and the operator watched the gripper open and close. The joint
+#: the firmware drives as J6 IS the gripper, so the wiring map is correct about
+#: D11 and the dispute does not apply to this row.
+#:
+#: The 2026-08-01 row was never actually in conflict: it records the SINGLE-SERVO
+#: BENCH SKETCH with the horn off and the servo unloaded, where "index 0" selects
+#: pin D3 on a bench rig. That is not the assembled arm's wiring. Two different
+#: configurations, not two claims about one.
+#:
+#: JOINT 0 STAYS DISPUTED. The same observation cannot be made for D3, because
+#: the base servo is dead -- driving it proves nothing either way. Re-test after
+#: the replacement lands and resolve this row the same way: drive it and watch.
+_IDENTITY_DISPUTED = frozenset({0})
 
 #: joint-limits.csv: mirror_offset_deg has never been measured on this arm and
 #: sits at the placeholder 0. No column can currently express "this offset was
 #: measured", which is why `mirror_offset_source` is proposed in the docs.
 _MIRROR_OFFSET_UNMEASURED = frozenset({1})
 
-#: The bench supply measures 6.62 V. MG90S is rated 4.8-6.0 V.
-_OVER_SPEC_SUPPLY_V = 6.62
+#: THE CURRENT bench supply: a JCPOWER JC-25-5, +5 V 5 A, fitted 2026-08-06 and
+#: replacing the unit that measured 6.62 V. At 5.0 V BOTH candidate servo types
+#: are in spec -- MG996R 4.8-7.2, MG90S 4.8-6.0 -- so nothing is over spec today.
+#: NOT METERED: this is the label value. Meter it. The old unit was nominally
+#: 6 V and read 6.62, which is how the over-spec problem happened at all.
+_BENCH_SUPPLY_V = 5.0
 _MG90S_MAX_V = 6.0
+
+#: Joints that WERE driven on the old 6.62 V supply while rated 4.8-6.0 V.
+#:
+#: This is a HISTORICAL FACT about those servos and it does not stop being true
+#: when the supply is replaced. It is deliberately a separate set from the live
+#: `_BENCH_SUPPLY_V` comparison, because conflating the two is what made J6
+#: report "over spec" on 2026-08-06 for a supply it had never been connected to
+#: -- its own row had forbidden testing on that adapter, so it never ran on it.
+#: "This joint was stressed once" and "the supply is unsafe now" are different
+#: claims and only one of them is still true.
+_DRIVEN_OVER_SPEC_HISTORICALLY = frozenset({4, 5})
 
 
 class CalibrationError(Exception):
@@ -434,11 +462,24 @@ def _derive_flags(
     is_mg90s = "MG90S" in servo_type.upper()
     if joint_id in _IDENTITY_DISPUTED:
         flags.append("identity_disputed")
-        # The dispute leaves the servo TYPE unresolved, and therefore the voltage
-        # headroom too. Report unknown rather than a confident absence.
-        flags.append("over_spec_supply_unresolved" if not is_mg90s else "over_spec_supply")
-    elif is_mg90s and _OVER_SPEC_SUPPLY_V > _MG90S_MAX_V:
+
+    # Voltage headroom against the CURRENT supply, tested at the STRICTEST rating
+    # this joint could plausibly carry -- so an unresolved identity is handled by
+    # assuming the tighter MG90S window rather than by reporting "unknown".
+    #
+    # This used to be nested inside the identity branch, on the reasoning that an
+    # unresolved TYPE left the headroom unresolved too. That reasoning expired
+    # with the supply: at 5.0 V both candidate types are comfortably in spec, so
+    # the answer is the same whichever the servo turns out to be. There is
+    # nothing left to be unresolved about, and `over_spec_supply_unresolved` is
+    # therefore no longer emitted.
+    if (is_mg90s or joint_id in _IDENTITY_DISPUTED) and _BENCH_SUPPLY_V > _MG90S_MAX_V:
         flags.append("over_spec_supply")
+
+    # Separate, and permanent: what this joint was PUT THROUGH, not what it sits
+    # on now. Replacing the supply fixes the condition, not the history.
+    if joint_id in _DRIVEN_OVER_SPEC_HISTORICALLY:
+        flags.append("driven_over_spec_historically")
 
     if joint_id in _MIRROR_OFFSET_UNMEASURED:
         flags.append("mirror_offset_unmeasured")
