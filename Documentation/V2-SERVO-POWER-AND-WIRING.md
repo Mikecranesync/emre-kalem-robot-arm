@@ -200,11 +200,88 @@ figure.
 |---|---|---|
 | Female barrel jack, screw terminals, 5.5 × 2.1 mm | To use the 6 V supply without cutting its cable | $2 |
 | 470–1000 µF electrolytic capacitor, 10 V+ | Absorbs the startup current spike | $1 |
-| Inline fuse holder + 1 A fuses | Required by the walkthrough | $3 |
-| **Later:** regulated 5 V, 3–5 A supply | The 700 mA unit will never drive multiple servos | $15–25 |
+| Inline fuse holder + 1 A **slow-blow** fuses | Required by the walkthrough. Slow-blow, not fast — the capacitor's inrush nuisance-blows a fast 1 A | $3 |
+| ~~**Later:** regulated 5 V, 3–5 A supply~~ | ~~The 700 mA unit will never drive multiple servos~~ | ~~$15–25~~ **ACQUIRED — see §8** |
 
 The 6.62 V unit stays usable for **one MG996R**, unloaded (in spec: 4.8–7.2 V). It is
 **out of spec for the MG90S** (4.8–6.0 V) and cannot drive several servos at once.
+
+---
+
+## 8. The bench supply — JCPOWER JC-25-5 (acquired 2026-08-06)
+
+Photographed on the bench 2026-08-06. Transcribed from its own label, not inferred:
+
+| | |
+|---|---|
+| **Make / model** | JCPOWER **JC-25-5** (enclosed metal-case switching supply) |
+| **AC input** | 110 / 220 V ±15 %, 50/60 Hz |
+| **DC output** | **+5 V, 5 A** (25 W — which is what the "25-5" names) |
+| **Markings** | CE; ISO 9001 QC PASS sticker; warranty-void seal intact |
+
+### What this fixes
+
+**The current problem is solved.** 5 A replaces the ~700 mA unit that could not hold an
+assembled arm. That was the blocker on the whole marker slice, not just a convenience — you
+cannot survey sticker placement on an arm that cannot hold a pose.
+
+**The over-voltage problem is solved too, and this is the bigger one.** The old bench supply
+measured **6.62 V**, and the MG90S is rated **4.8–6.0 V**. Joints 4 (wrist pitch) and 5
+(wrist roll) are MG90S and have both already been **driven over spec** on it, which is
+recorded on their rows in `Software/arm-console/joint-limits.csv`. Joint 6 (gripper) is also
+MG90S and its row says in as many words: *"do NOT test it on the 6.62 V adapter."*
+
+At **5 V** every servo on this arm is inside its rated window:
+
+| Servo | Rated | On 6.62 V | On 5 V |
+|---|---|---|---|
+| MG996R — J0 base, J1 shoulder ×2, J3 elbow | 4.8 – 7.2 V | in spec | **in spec** |
+| MG90S — J4 wrist pitch, J5 wrist roll, J6 gripper | 4.8 – 6.0 V | **OVER SPEC** | **in spec** |
+
+**J6 can now be tested.** It could not be, before.
+
+### What it does NOT fix — read this before switching on
+
+**A 5 A supply is more dangerous than a 700 mA one, and the fuse now matters MORE, not less.**
+
+The 700 mA unit was accidentally protective: it current-limited. A servo driven into a
+mechanical stop would stall, the supply would sag, and the worst outcome was a brownout. A
+5 A supply has no such mercy — it will happily deliver 5 A into a stalled servo, a pinched
+lead, or a short, until something else gives way. On an MG90S that something is the plastic
+gear train or the driver IC; on a wire it is the insulation.
+
+An MG996R draws up to **2500 mA stalled**. Two of them stalled together exceed this supply's
+rating and it will current-limit or shut down — but a *single* stalled MG90S sits comfortably
+under 5 A and will simply cook.
+
+**So: the 1 A slow-blow inline fuse is now a hard prerequisite, not a nice-to-have.** It was
+listed as "required by the walkthrough" when the supply could not deliver enough current to
+matter. It can now.
+
+**Slow-blow specifically.** The 4700 µF capacitor being fitted draws a startup inrush that
+nuisance-blows a fast 1 A fuse. A fast fuse here will look like an intermittent hardware
+fault and cost an afternoon.
+
+### Torque consequence, stated so it is not a surprise
+
+5 V is the *bottom* of the MG996R's window rather than the middle. Servo torque scales
+roughly with supply voltage, so an MG996R delivers around **9.4 kg·cm at 4.8 V versus about
+11 kg·cm at 6 V** — call it 10–15 % less holding torque than the old 6.62 V bench supply
+gave. Everything stays in spec; the arm is simply a little weaker.
+
+If a gravity-loaded joint sags or buzzes under its own weight at 5 V where it did not before,
+that is the expected trade and **not** a fault to chase. The fix would be a 6 V supply, not
+more current.
+
+### Still outstanding
+
+- **1 A slow-blow inline fuse + holder.** Now a prerequisite, per above.
+- **The 4700 µF capacitor moved off the breadboard.** Breadboard rails are not rated for the
+  inrush this supply can now deliver.
+- Nothing here has been metered. The label says 5 V; **measure the actual rail before
+  trusting it**, the same way the old unit turned out to read 6.62 V rather than its
+  nominal 6 V. A supply that reads high is exactly how the MG90S over-spec problem happened
+  in the first place.
 
 ---
 
