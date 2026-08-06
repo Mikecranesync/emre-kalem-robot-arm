@@ -22,6 +22,47 @@ WHAT IS TO SCALE AND WHAT IS NOT - read this before trusting any distance
         deliberate: the size disparity across the arm IS the headline finding
         and it should be visible without reading a caption.
       * the three measured two-marker baselines, dimensioned.
+      * ELEVEN OF THIRTEEN STICKER POSITIONS. See the next block - this used to
+        be the weakest claim on the sheet and it is now derived, not draughted.
+
+    WHERE EACH STICKER SITS - derived, and gated
+        Sticker positions used to be hand-authored draughting constants that
+        merely LOOKED like the survey, and the drawing did not admit it. They
+        are now read from Software/vision/stl-face-survey.csv. For each marker
+        the SurveyCell in PLACEMENT names one exact row (part_file + face normal
+        + plane_offset_mm) and one exact column pair (square1_cx/cy/cz_mm or
+        square2_cx/cy/cz_mm). That surveyed point, in the part's own coordinate
+        frame, IS the drawn position:
+
+            u = centre[axis_along]  - bbox_min[axis_along]
+            v = centre[axis_across] - bbox_centre[axis_across]
+
+        Three gates make the claim checkable rather than asserted:
+          ROW GATE   the (part, normal, offset) address must select EXACTLY one
+                     survey row. Alt_Kasa y+, Alt_Kol y+ and On_Kol z+ each have
+                     several near-parallel faces; taking "the first match" would
+                     have drawn SHOULDER from the wrong face and still looked
+                     plausible. 0 or >1 matches is a hard error.
+          CELL GATE  the selected row's fill_ratio and square size must agree
+                     with markers.csv patch_fill_ratio and
+                     measured_inscribed_square_mm for that marker. This proves
+                     the row chosen is the row markers.csv sized the sticker
+                     from - square1 checks largest_inscribed_square_mm, square2
+                     checks second_square_mm.
+          PAIR GATE  for every within-part pair, the distance between the two
+                     DERIVED centres must reproduce markers.csv pair_baseline_mm.
+                     The drawn spacing cannot drift from the dimension.
+
+    A PANEL IS A COORDINATE RECTANGLE, NOT A VIEW
+        Each link panel is the part's own bounding rectangle in the two
+        part-coordinate axes perpendicular to its marker face: origin at the
+        bbox minimum, +u toward increasing part coordinate. It is deliberately
+        NOT "the face seen from outside", because VIEW A has no single view
+        direction - every panel is a different part's face laid flat for
+        legibility - so any left/right claim would be unsupportable. The
+        consequence is stated on the sheet: which physical end is u=0 cannot be
+        read off the drawing, so the schedule prints the surveyed centre as a
+        part-coordinate triple. That triple, not the picture, is the instruction.
 
     NOT TO SCALE, because it is not known or does not fit:
       * every joint-to-joint offset. The STLs are individual parts in PRINT
@@ -32,6 +73,13 @@ WHAT IS TO SCALE AND WHAT IS NOT - read this before trusting any distance
         make the drawing legible, not a commanded or observed configuration.
       * the camera standoffs. 550 mm and 250 mm would dwarf the page, so those
         lines carry a break symbol and a written distance.
+      * TURRET-1 and TURRET-2 - the two markers of thirteen that CANNOT be
+        derived. Alt_Govde has no planar patch to sit on; markers.csv records
+        patch_normal "cylindrical (no planar patch)" and n/a for both the square
+        and the baseline, so there is no cell to trace to. Their drawn spots are
+        schematic and are labelled NOT SURVEYED on the sheet and in the schedule.
+      * the X do-not-place callouts. The FACE each one condemns is surveyed; the
+        spot the X is struck at is chosen for legibility.
 
     INFERRED, not measured: which link belongs to which joint. Part-to-link
     assignment comes from the Turkish part names and the measured sizes. Worse,
@@ -108,10 +156,16 @@ GRADE_STYLE = {
 # STL bounding boxes - measured at run time, never transcribed
 # --------------------------------------------------------------------------
 
-def stl_bbox(path: str) -> tuple[float, float, float]:
-    """Binary STL bbox. Validated by the exact arithmetic 84 + 50n == filesize,
-    the same gate Software/vision/stl_face_survey.py uses: a mismatch is a hard
-    error, never a silent misparse of an ASCII or truncated file."""
+def stl_bounds(path: str) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Binary STL bbox as (mins, maxs). Validated by the exact arithmetic
+    84 + 50n == filesize, the same gate Software/vision/stl_face_survey.py uses:
+    a mismatch is a hard error, never a silent misparse of an ASCII or truncated
+    file.
+
+    Returns MINS as well as extents because the panel origin is now the part's
+    own bbox minimum - that is what makes a surveyed part-coordinate centre
+    convertible into a drawn position at all.
+    """
     size = os.path.getsize(path)
     with open(path, "rb") as fh:
         fh.seek(80)
@@ -122,7 +176,19 @@ def stl_bbox(path: str) -> tuple[float, float, float]:
                 f"= {84 + 50 * n} bytes, file is {size})")
         raw = np.frombuffer(fh.read(50 * n), dtype=np.uint8).reshape(n, 50)
     tri = raw[:, 12:48].copy().view("<f4").reshape(n * 3, 3)
-    return tuple(float(v) for v in (tri.max(0) - tri.min(0)))
+    return (tuple(float(v) for v in tri.min(0)), tuple(float(v) for v in tri.max(0)))
+
+
+_BOUNDS_CACHE: dict[str, tuple[tuple[float, ...], tuple[float, ...]]] = {}
+
+
+def bounds_for(stl_dir: str, part: str):
+    if part not in _BOUNDS_CACHE:
+        path = os.path.join(stl_dir, part)
+        if not os.path.isfile(path):
+            raise SystemExit(f"ERROR: STL not found: {path}")
+        _BOUNDS_CACHE[part] = stl_bounds(path)
+    return _BOUNDS_CACHE[part]
 
 
 # --------------------------------------------------------------------------
@@ -147,60 +213,120 @@ class Link:
     length: float = 0.0
     across: float = 0.0
     anchor: tuple[float, float] = (0.0, 0.0)
+    bbmin: tuple[float, ...] = (0.0, 0.0, 0.0)
+    bbmax: tuple[float, ...] = (0.0, 0.0, 0.0)
+    face: tuple[float, float, float] | None = None   # marker face normal, or None
+                                                     # if the part has no planar
+                                                     # patch (Alt_Govde)
 
 
 LINKS: list[Link] = [
     Link("GROUND", "Alt_Kasa.stl", None, (0, 2),
-         "marker face normal (0,1,0) -> the x-z face is drawn", 0.0, 0.0),
+         "marker face normal (0,1,0) -> the x-z face is drawn", 0.0, 0.0,
+         face=(0.0, 1.0, 0.0)),
     Link("TURRET", "Alt_Govde.stl", "J0", (2, 0),
          "no flat outward face; body of revolution about J0 -> height x diameter",
-         90.0, 14.0, attach=(0.5, 1.0), joint_note="29-110 deg"),
+         90.0, 14.0, attach=(0.5, 1.0), joint_note="29-110 deg", face=None),
     Link("UPPER_ARM", "Alt_Kol.stl", "J1", (2, 0),
          "marker face normal (0,1,0) -> the x-z face is drawn", 72.0, 16.0,
-         joint_note="0-91 deg, D4+D5"),
+         joint_note="0-91 deg, D4+D5", face=(0.0, 1.0, 0.0)),
     Link("FOREARM", "On_Kol.stl", "J3", (0, 1),
          "marker face normal (0,0,1) -> the x-y face is drawn", 0.0, 18.0,
-         joint_note="0-66 deg"),
+         joint_note="0-66 deg", face=(-0.0436, 0.0, 0.999)),
     Link("WRIST", "Bilek.stl", "J4", (1, 2),
          "marker face normal (-1,0,0) -> the y-z face is drawn", -34.0, 26.0,
-         joint_note="0-180 SUSPECT"),
+         joint_note="0-180 SUSPECT", face=(-1.0, 0.0005, 0.0)),
     Link("HAND", "El.stl", "J5", (0, 1),
          "marker face normal (0,0,1) -> the x-y face is drawn", -34.0, 30.0,
-         joint_note="31-178 deg"),
+         joint_note="31-178 deg", face=(0.0, 0.0, 1.0)),
     Link("FINGER_A", "Parmak_2 X 2.stl", "J6", (0, 1),
          "marker face normal (0,0,1) -> the x-y face is drawn", 2.0, 24.0,
-         joint_note="UNCALIBRATED"),
+         joint_note="UNCALIBRATED", face=(0.0, 0.0, 1.0)),
     Link("FINGER_B", "Parmak_2 X 2.stl", None, (0, 1),
-         "second printed copy of the same part", -62.0, 24.0, branch_of="FINGER_A"),
+         "second printed copy of the same part", -62.0, 24.0, branch_of="FINGER_A",
+         face=(0.0, 0.0, 1.0)),
 ]
 
 # Where each link's name/part/size caption sits, as a paper-mm offset from the
 # link centre. Small links cannot hold their own caption without it landing on
 # top of a marker, so those are pushed clear and given a leader.
 LABEL_OFFSET = {
-    "GROUND": (42.0, -14.0), "TURRET": (-34.0, -2.0), "UPPER_ARM": (0.0, 0.0),
+    "GROUND": (42.0, -14.0), "TURRET": (-34.0, -7.5), "UPPER_ARM": (0.0, 12.0),
     "FOREARM": (0.0, -13.0), "WRIST": (-17.0, 13.0), "HAND": (-13.0, 20.0),
     "FINGER_A": (25.0, -7.0), "FINGER_B": (17.0, 14.0),
 }
 
-# Where each sticker sits on its link, in link-local mm: u along the length from
-# the joint end, v across the width from the centreline. u=None means "the first
-# marker's u plus the measured pair_baseline_mm", so the DRAWN spacing IS the
-# dimensioned baseline. balloon is (bearing_deg, paper_mm) for the leader.
+# --------------------------------------------------------------------------
+# WHERE EACH STICKER SITS. This table no longer holds positions - it holds the
+# ADDRESS of the surveyed cell each position is read from. A SurveyCell names
+# exactly one row of Software/vision/stl-face-survey.csv (part_file + face
+# normal + plane_offset_mm) and exactly one column pair on that row
+# (square1_cx/cy/cz_mm or square2_cx/cy/cz_mm). u and v are computed from that
+# point in load-time code; there is deliberately nowhere here to type a
+# millimetre by hand.
+#
+# cell=None means NOT SURVEYED - only Alt_Govde's two turret markers, which have
+# no planar patch to sit on. Those keep an explicit schematic u/v and are drawn
+# and scheduled as NOT SURVEYED. balloon is (bearing_deg, paper_mm) for the
+# leader; it is pure draughting and moves nothing physical.
+# --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class SurveyCell:
+    part: str                                # part_file
+    normal: tuple[float, float, float]       # normal_x/y/z of the row
+    offset: float                            # plane_offset_mm of the row
+    square: str                              # "square1" or "square2"
+
+    def label(self) -> str:
+        return f"{self.part} n={fmt_normal(self.normal)} off={self.offset:g} {self.square}"
+
+
+def fmt_normal(n: tuple[float, float, float]) -> str:
+    return "(" + ";".join(f"{v:+.2f}".rstrip("0").rstrip(".") if v else "0"
+                          for v in n) + ")"
+
+
 PLACEMENT = {
-    "BASE-1":     dict(link="GROUND",    u=52.0,  v=-8.0,  balloon=(270, 15)),
-    "BASE-2":     dict(link="GROUND",    u=None,  v=-8.0,  balloon=(270, 15)),
-    "TURRET-1":   dict(link="TURRET",    u=30.0,  v=0.0,   balloon=(340, 15)),
-    "TURRET-2":   dict(link="TURRET",    u=30.0,  v=48.0,  balloon=(20, 14), edge_on=True),
-    "SHOULDER-1": dict(link="UPPER_ARM", u=34.0,  v=-26.0, balloon=(195, 19)),
-    "SHOULDER-2": dict(link="UPPER_ARM", u=None,  v=-26.0, balloon=(195, 19)),
-    "ELBOW-1":    dict(link="FOREARM",   u=40.0,  v=12.0,  balloon=(90, 16)),
-    "ELBOW-2":    dict(link="FOREARM",   u=None,  v=12.0,  balloon=(70, 19)),
-    "WRIST-1":    dict(link="WRIST",     u=20.0,  v=0.0,   balloon=(150, 14)),
-    "HAND-1":     dict(link="HAND",      u=25.0,  v=0.0,   balloon=(78, 18)),
-    "HAND-2":     dict(link="HAND",      u=25.0,  v=34.0,  balloon=(35, 15), cross_part=True),
-    "FINGER-A":   dict(link="FINGER_A",  u=24.0,  v=0.0,   balloon=(30, 16)),
-    "FINGER-B":   dict(link="FINGER_B",  u=24.0,  v=0.0,   balloon=(-55, 16)),
+    # BASE-2 is the LOW-u square and BASE-1 the high-u one, so their balloons
+    # splay outward (left / right) and clear the baseline dimension between them.
+    "BASE-1":     dict(link="GROUND", balloon=(290, 16),
+                       cell=SurveyCell("Alt_Kasa.stl", (0.0, 1.0, 0.0), 59.81, "square1")),
+    "BASE-2":     dict(link="GROUND", balloon=(250, 16),
+                       cell=SurveyCell("Alt_Kasa.stl", (0.0, 1.0, 0.0), 59.81, "square2")),
+    "TURRET-1":   dict(link="TURRET", balloon=(340, 15), cell=None, u=30.0, v=0.0),
+    "TURRET-2":   dict(link="TURRET", balloon=(20, 14), cell=None, u=30.0, v=48.0,
+                       edge_on=True),
+    "SHOULDER-1": dict(link="UPPER_ARM", balloon=(200, 17),
+                       cell=SurveyCell("Alt_Kol.stl", (0.0, 1.0, 0.0), 15.00, "square1")),
+    "SHOULDER-2": dict(link="UPPER_ARM", balloon=(195, 19),
+                       cell=SurveyCell("Alt_Kol.stl", (0.0, 1.0, 0.0), 15.00, "square2")),
+    # Both ELBOW balloons hang BELOW the forearm: the surveyed centres sit under
+    # the link caption, and leaders drawn upward printed straight through it.
+    "ELBOW-1":    dict(link="FOREARM", balloon=(300, 16),
+                       cell=SurveyCell("On_Kol.stl", (-0.0436, 0.0, 0.999), 19.61,
+                                       "square1")),
+    "ELBOW-2":    dict(link="FOREARM", balloon=(240, 16),
+                       cell=SurveyCell("On_Kol.stl", (-0.0436, 0.0, 0.999), 19.61,
+                                       "square2")),
+    "WRIST-1":    dict(link="WRIST", balloon=(150, 14),
+                       cell=SurveyCell("Bilek.stl", (-1.0, 0.0005, 0.0), 21.50, "square1")),
+    "HAND-1":     dict(link="HAND", balloon=(78, 18),
+                       cell=SurveyCell("El.stl", (0.0, 0.0, 1.0), 3.00, "square1")),
+    # El_Ust is a DIFFERENT part from El. Its surveyed centre is in El_Ust's own
+    # frame and is drawn on El's panel only because the two share a 50 x 48.3 mm
+    # footprint - an INFERENCE, checked at load time, flagged "? cross-part".
+    "HAND-2":     dict(link="HAND", balloon=(28, 16), cross_part=True,
+                       cell=SurveyCell("El_Ust.stl", (0.0, 0.0, -1.0), 0.00, "square2")),
+    "FINGER-A":   dict(link="FINGER_A", balloon=(30, 16),
+                       cell=SurveyCell("Parmak_2 X 2.stl", (0.0, 0.0, 1.0), 5.00,
+                                       "square1")),
+    # SAME cell as FINGER-A on purpose: the two fingers are two printed copies of
+    # one part, not two islands on one part. The row's own square2 belongs to the
+    # SAME finger and must not be borrowed for the opposing one.
+    "FINGER-B":   dict(link="FINGER_B", balloon=(-55, 16),
+                       cell=SurveyCell("Parmak_2 X 2.stl", (0.0, 0.0, 1.0), 5.00,
+                                       "square1")),
 }
 
 # Drawn as x callouts ON the geometry. Every one is a face that looks usable in
@@ -251,11 +377,16 @@ class Marker:
     standoff: str
     baseline: str
     orientation: str
+    fill: float | None            # markers.csv patch_fill_ratio ("n/a" -> None)
+    square: float | None          # markers.csv measured_inscribed_square_mm
     pos: dict = field(default_factory=dict)
-    u: float = 0.0
+    u: float = 0.0                # derived (or schematic for TURRET)
+    v: float = 0.0
+    centre: tuple[float, float, float] | None = None   # surveyed, part frame
+    src: str = ""                 # "sq1" / "sq2" / "" when not surveyed
 
 
-ORIENT_MAX = 42
+ORIENT_MAX = 40      # fits the 45 mm ORIENTATION column; gated in draw_schedule
 
 
 def short_orientation(s: str) -> str:
@@ -294,7 +425,8 @@ def load_markers(path: str) -> list[Marker]:
     need = ("marker_id", "human_label", "link_name", "black_square_mm",
             "approximate_size_mm", "grade_at_design_standoff", "camera",
             "design_standoff_mm", "pair_baseline_mm", "target_part_file",
-            "preferred_orientation")
+            "preferred_orientation", "patch_fill_ratio",
+            "measured_inscribed_square_mm")
     missing = [c for c in need if c not in hdr]
     if missing:
         raise SystemExit(f"ERROR: {path} missing column(s): {missing}")
@@ -321,6 +453,8 @@ def load_markers(path: str) -> list[Marker]:
             standoff=r[ix["design_standoff_mm"]].strip(),
             baseline=r[ix["pair_baseline_mm"]].strip(),
             orientation=short_orientation(r[ix["preferred_orientation"]]),
+            fill=_opt_float(r[ix["patch_fill_ratio"]]),
+            square=_opt_float(r[ix["measured_inscribed_square_mm"]]),
         )
         if not m.orientation:
             raise SystemExit(
@@ -337,24 +471,159 @@ def load_markers(path: str) -> list[Marker]:
     return out
 
 
-def resolve_u(markers: list[Marker]) -> None:
-    """u=None means 'first marker of this pair + the measured baseline', so the
-    drawn spacing IS the dimensioned number and cannot drift from it."""
-    for m in markers:
-        if m.pos["u"] is not None:
-            m.u = m.pos["u"]
+# --------------------------------------------------------------------------
+# stl-face-survey.csv -> drawn position. Three gates; see the module docstring.
+# --------------------------------------------------------------------------
+
+SURVEY_NEED = ("part_file", "normal_x", "normal_y", "normal_z", "plane_offset_mm",
+               "fill_ratio", "largest_inscribed_square_mm", "second_square_mm",
+               "square1_cx_mm", "square1_cy_mm", "square1_cz_mm",
+               "square2_cx_mm", "square2_cy_mm", "square2_cz_mm")
+
+NORMAL_DOT_MIN = 0.995      # a face is "the same face" only this parallel
+OFFSET_TOL_MM = 0.05        # plane_offset_mm is written to 2 dp
+FILL_TOL = 0.006            # markers.csv rounds fill to 2 dp, survey to 3
+SQUARE_TOL_MM = 0.06        # markers.csv rounds the square to 1 dp
+BASELINE_TOL_MM = 0.15      # markers.csv rounds pair_baseline_mm to 1 dp; the
+                            # two tilted-normal faces add ~0.02 mm of projection
+
+
+def _opt_float(s: str) -> float | None:
+    s = s.strip()
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def load_survey(path: str) -> list[dict]:
+    if not os.path.isfile(path):
+        raise SystemExit(f"ERROR: survey not found: {path}")
+    with open(path, "r", encoding="utf-8", newline="") as fh:
+        rows = list(csv.DictReader(
+            l for l in fh if not l.lstrip().startswith("#") and l.strip()))
+    if not rows:
+        raise SystemExit(f"ERROR: {path} has no data rows")
+    missing = [c for c in SURVEY_NEED if c not in rows[0]]
+    if missing:
+        raise SystemExit(f"ERROR: {path} missing column(s): {missing}")
+    return rows
+
+
+def select_row(survey: list[dict], cell: SurveyCell, label: str) -> dict:
+    """ROW GATE. The (part, normal, offset) address must select EXACTLY one row.
+
+    Alt_Kasa y+, Alt_Kol y+ and On_Kol z+ each carry several near-parallel faces
+    at different plane offsets; "first match wins" would silently draw a marker
+    from the wrong face and the result would look entirely plausible. Nothing
+    downstream can detect that, so it is caught here or not at all.
+    """
+    mag = math.sqrt(sum(v * v for v in cell.normal)) or 1.0
+    want = tuple(v / mag for v in cell.normal)
+    hits = []
+    for r in survey:
+        if r["part_file"] != cell.part:
             continue
-        try:
-            base = float(m.baseline)
-        except ValueError:
+        n = (float(r["normal_x"]), float(r["normal_y"]), float(r["normal_z"]))
+        nm = math.sqrt(sum(v * v for v in n)) or 1.0
+        if sum(a * b / nm for a, b in zip(want, n)) < NORMAL_DOT_MIN:
+            continue
+        if abs(float(r["plane_offset_mm"]) - cell.offset) > OFFSET_TOL_MM:
+            continue
+        hits.append(r)
+    if len(hits) != 1:
+        raise SystemExit(
+            f"ERROR: {label}: survey address {cell.label()} selected {len(hits)} rows, "
+            "expected exactly 1. A marker position must trace to ONE cell; refusing to "
+            "guess which near-parallel face was meant.")
+    return hits[0]
+
+
+def derive_positions(markers: list[Marker], by: dict[str, Link], survey: list[dict],
+                     stl_dir: str) -> list[str]:
+    """Turn each SurveyCell into a drawn (u, v). Returns the audit lines."""
+    audit: list[str] = []
+    for m in markers:
+        cell: SurveyCell | None = m.pos["cell"]
+        lk = by[m.link]
+        if cell is None:
+            m.u, m.v, m.src, m.centre = m.pos["u"], m.pos["v"], "", None
+            audit.append(f"  {m.label:<11} NOT SURVEYED - schematic "
+                         f"(u={m.u:.1f} v={m.v:.1f} on {lk.part})")
+            continue
+
+        row = select_row(survey, cell, m.label)
+        k = "1" if cell.square == "square1" else "2"
+        c = (float(row[f"square{k}_cx_mm"]), float(row[f"square{k}_cy_mm"]),
+             float(row[f"square{k}_cz_mm"]))
+        sq = float(row["largest_inscribed_square_mm" if k == "1" else "second_square_mm"])
+        fill = float(row["fill_ratio"])
+
+        # CELL GATE - the row selected must be the row markers.csv sized this
+        # sticker from. Without this, the ROW GATE only proves uniqueness, not
+        # correctness: a unique but wrong face would still pass.
+        if m.fill is not None and abs(m.fill - fill) > FILL_TOL:
             raise SystemExit(
-                f"ERROR: {m.label} has u=None but pair_baseline_mm={m.baseline!r} is not "
-                "a number. A marker positioned from a baseline needs a measured baseline.")
-        first = next((k for k in markers
-                      if k.link == m.link and k.pos["u"] is not None), None)
-        if first is None:
-            raise SystemExit(f"ERROR: {m.label} has u=None but no sibling on {m.link}")
-        m.u = first.pos["u"] + base
+                f"ERROR: {m.label}: markers.csv patch_fill_ratio={m.fill} but survey row "
+                f"{cell.label()} has fill_ratio={fill}. The drawing would be positioned "
+                "from a different face than the sticker was sized from.")
+        if m.square is not None and abs(m.square - sq) > SQUARE_TOL_MM:
+            raise SystemExit(
+                f"ERROR: {m.label}: markers.csv measured_inscribed_square_mm={m.square} "
+                f"but survey {cell.label()} gives {sq}. Same mismatch as above.")
+
+        # The point is in the SURVEY part's frame. When that part is not the one
+        # whose panel is drawn (HAND-2 on El_Ust vs the El panel) the two must at
+        # least agree on the drawn axes, or the co-registration is fiction.
+        smin, smax = bounds_for(stl_dir, cell.part)
+        if cell.part != lk.part:
+            for ax in lk.axes:
+                if (abs(smin[ax] - lk.bbmin[ax]) > 0.05
+                        or abs(smax[ax] - lk.bbmax[ax]) > 0.05):
+                    raise SystemExit(
+                        f"ERROR: {m.label}: {cell.part} is drawn on the {lk.part} panel but "
+                        f"their axis-{ax} bounds differ ({smin[ax]:.2f}..{smax[ax]:.2f} vs "
+                        f"{lk.bbmin[ax]:.2f}..{lk.bbmax[ax]:.2f}). The shared-footprint "
+                        "inference does not hold; do not draw it as if it did.")
+
+        a0, a1 = lk.axes
+        m.u = c[a0] - smin[a0]
+        m.v = c[a1] - (smin[a1] + smax[a1]) / 2.0
+        m.centre = c
+        m.src = "sq" + k
+        audit.append(f"  {m.label:<11} {cell.label():<52} "
+                     f"centre=({c[0]:.2f};{c[1]:.2f};{c[2]:.2f}) -> u={m.u:7.2f} v={m.v:+6.2f}")
+    return audit
+
+
+def check_baselines(markers: list[Marker]) -> list[str]:
+    """PAIR GATE. Every within-part pair's DERIVED spacing must reproduce
+    markers.csv pair_baseline_mm, so the drawn gap cannot drift from the
+    dimension printed beside it."""
+    out: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for m in markers:
+        want = _opt_float(m.baseline)
+        if want is None or m.centre is None:
+            continue
+        key = (m.link, m.baseline)
+        if key in seen:
+            continue
+        sibs = [k for k in markers
+                if k.link == m.link and k.baseline == m.baseline and k.centre is not None]
+        if len(sibs) != 2:
+            continue
+        seen.add(key)
+        a, b = sibs
+        got = math.dist((a.u, a.v), (b.u, b.v))
+        if abs(got - want) > BASELINE_TOL_MM:
+            raise SystemExit(
+                f"ERROR: {a.label}/{b.label}: derived spacing {got:.3f} mm but markers.csv "
+                f"pair_baseline_mm={want}. Tolerance {BASELINE_TOL_MM} mm. Either the wrong "
+                "survey cells are addressed or the CSV disagrees with itself.")
+        out.append(f"  {a.label:>11} <-> {b.label:<11} derived {got:8.3f} mm   "
+                   f"csv {want:7.2f} mm   delta {got - want:+.3f} mm")
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -375,11 +644,9 @@ def local_to_world(lk: Link, u: float, v: float) -> tuple[float, float]:
 def build_chain(stl_dir: str) -> tuple[list[Link], dict[str, Link]]:
     by: dict[str, Link] = {}
     for lk in LINKS:
-        path = os.path.join(stl_dir, lk.part)
-        if not os.path.isfile(path):
-            raise SystemExit(f"ERROR: STL not found: {path}")
-        bb = stl_bbox(path)
-        lk.length, lk.across = bb[lk.axes[0]], bb[lk.axes[1]]
+        lk.bbmin, lk.bbmax = bounds_for(stl_dir, lk.part)
+        lk.length = lk.bbmax[lk.axes[0]] - lk.bbmin[lk.axes[0]]
+        lk.across = lk.bbmax[lk.axes[1]] - lk.bbmin[lk.axes[1]]
         by[lk.name] = lk
 
     LINKS[0].anchor = (-LINKS[0].length / 2.0, LINKS[0].across / 2.0)
@@ -526,8 +793,9 @@ def balloon(p: Panel, cx, cy, tx, ty, n, color=INK) -> None:
 # --------------------------------------------------------------------------
 
 def draw_view_a(x, y, w, h, links, by, markers) -> Panel:
-    p = Panel("VIEW A", x, y, w, h, "VIEW A - SIDE ELEVATION",
-              "links + marker footprints to scale; joint offsets are NOT")
+    p = Panel("VIEW A", x, y, w, h, "VIEW A - LINK FACE PANELS",
+              "panels + footprints + 11 of 13 sticker positions to scale; "
+              "joint offsets are NOT")
 
     pts = []
     for lk in links:
@@ -566,7 +834,10 @@ def draw_view_a(x, y, w, h, links, by, markers) -> Panel:
                   f'stroke="{GHOST}" stroke-width="0.25"/>')
         p.text(lx, ly - 1.4, lk.name, 2.6, anchor="middle", weight="bold")
         p.text(lx, ly + 1.7, lk.part, 2.1, anchor="middle", fill=THIN, style="italic")
-        p.text(lx, ly + 4.4, f"{lk.length:.0f} x {lk.across:.0f} mm",
+        # The face normal completes the survey-row address: part_file + this
+        # normal + the schedule's sq1/sq2 names one cell of stl-face-survey.csv.
+        face = (f"face n={fmt_normal(lk.face)}" if lk.face else "- no planar patch")
+        p.text(lx, ly + 4.4, f"{lk.length:.0f} x {lk.across:.0f} mm {face}",
                1.95, anchor="middle", fill=THIN)
 
     # ---- dimensioned baselines --------------------------------------------
@@ -596,29 +867,35 @@ def draw_view_a(x, y, w, h, links, by, markers) -> Panel:
         lk = by[m.link]
         st = GRADE_STYLE[m.grade]
         half = m.sticker_mm / 2.0
+        # A position that is not fully established gets the sheet's one "unknown"
+        # colour on BOTH its footprint outline and its balloon. The words that say
+        # WHICH kind of unknown live in the gated note block below, not floating on
+        # the geometry: two "NOT SURVEYED" captions on the 60 mm turret panel
+        # overprinted each other and the part caption.
+        unsure = m.centre is None or bool(m.pos.get("cross_part"))
+        stroke = UNKNOWN if unsure else st["stroke"]
         if m.pos.get("edge_on"):
-            a = v(local_to_world(lk, m.u - half, m.pos["v"]))
-            b = v(local_to_world(lk, m.u + half, m.pos["v"]))
+            a = v(local_to_world(lk, m.u - half, m.v))
+            b = v(local_to_world(lk, m.u + half, m.v))
             p.raw(f'<line x1="{t(a[0])}" y1="{t(a[1])}" x2="{t(b[0])}" y2="{t(b[1])}" '
-                  f'stroke="{st["stroke"]}" stroke-width="1.5"/>')
+                  f'stroke="{stroke}" stroke-width="1.5"/>')
             cx, cy = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
         else:
-            corners = [local_to_world(lk, m.u - half, m.pos["v"] - half),
-                       local_to_world(lk, m.u + half, m.pos["v"] - half),
-                       local_to_world(lk, m.u + half, m.pos["v"] + half),
-                       local_to_world(lk, m.u - half, m.pos["v"] + half)]
-            dash = f' stroke-dasharray="{st["dash"]}"' if st["dash"] else ""
+            corners = [local_to_world(lk, m.u - half, m.v - half),
+                       local_to_world(lk, m.u + half, m.v - half),
+                       local_to_world(lk, m.u + half, m.v + half),
+                       local_to_world(lk, m.u - half, m.v + half)]
+            d = st["dash"] or ("1.2 0.9" if unsure else "")
+            dash = f' stroke-dasharray="{d}"' if d else ""
             p.raw(f'<polygon points="{v.poly(corners)}" fill="{st["fill"]}" '
-                  f'stroke="{st["stroke"]}" stroke-width="0.45"{dash}/>')
-            cx, cy = v(local_to_world(lk, m.u, m.pos["v"]))
+                  f'stroke="{stroke}" stroke-width="0.45"{dash}/>')
+            cx, cy = v(local_to_world(lk, m.u, m.v))
 
         bearing, dist = m.pos["balloon"]
         ang = math.radians(bearing)
+        col = UNKNOWN if unsure else (WARN if m.grade == "below-floor" else INK)
         balloon(p, cx, cy, cx + math.cos(ang) * dist, cy - math.sin(ang) * dist,
-                m.marker_id, WARN if m.grade == "below-floor" else INK)
-        if m.pos.get("cross_part"):
-            p.text(cx, cy - half * v.s - 1.6, "? cross-part", 1.95,
-                   anchor="middle", fill=UNKNOWN, weight="bold")
+                m.marker_id, col)
 
     # ---- do-not-place ------------------------------------------------------
     for link_name, fu, fv, bearing, dist, cols, note in DO_NOT_PLACE:
@@ -657,12 +934,28 @@ def draw_view_a(x, y, w, h, links, by, markers) -> Panel:
         p.text(px, py - 5.2, f"{standoff} - NOT TO SCALE", 2.0, anchor="middle",
                weight="bold")
 
-    p.text(x + 2.5, y + h - 5.6,
+    # Name the violet balloons by id rather than hard-coding "2, 3 and 10" - the
+    # ids come from markers.csv and a hand-typed list would rot the moment it changes.
+    ns = ", ".join(str(m.marker_id) for m in sorted(markers, key=lambda k: k.marker_id)
+                   if m.centre is None)
+    xp = ", ".join(str(m.marker_id) for m in sorted(markers, key=lambda k: k.marker_id)
+                   if m.centre is not None and m.pos.get("cross_part"))
+    p.text(x + 2.5, y + h - 11.6,
            "Every dashed violet link is a joint whose offset is UNKNOWN - no assembly file "
-           "exists in this repository.", 2.15, fill=UNKNOWN)
+           "exists here. Do not scale those gaps; the pose is for legibility only.",
+           2.05, fill=UNKNOWN)
+    p.text(x + 2.5, y + h - 8.6,
+           f"Violet balloon + dashed footprint: {ns} are NOT SURVEYED (schematic). "
+           f"{xp} is surveyed in its OWN part's frame - which way round it mates with the "
+           "part drawn is not established, so it may belong at the opposite end.",
+           2.0, fill=UNKNOWN)
+    p.text(x + 2.5, y + h - 5.4,
+           "Each panel is its PART'S OWN coordinate rectangle: origin at the part bbox "
+           "minimum, +u toward increasing part coordinate.", 1.95, weight="bold")
     p.text(x + 2.5, y + h - 2.6,
-           "Do not scale those gaps, and do not read the drawn angles as commanded angles. "
-           "The pose is chosen for legibility only.", 2.15, fill=UNKNOWN)
+           "It is NOT a view from a defined direction, so which physical end is u=0 is NOT "
+           "readable here - use the SURVEY CENTRE column in the schedule.", 1.95,
+           weight="bold")
     return p
 
 
@@ -783,7 +1076,9 @@ def draw_legend(x, y, w, h, markers) -> Panel:
     cy += 7.0
     p.raw(x_mark(x + 6, cy + 1.5, 1.6))
     p.text(x + 12, cy + 2.4, "DO NOT PLACE a marker here", 2.25, weight="bold", fill=WARN)
-    cy += 7.0
+    p.text(x + 12, cy + 5.3, "the FACE is surveyed; where the X is struck is not",
+           1.9, fill=THIN)
+    cy += 9.4
     p.circle(x + 6, cy + 1.5, 2.9, fill=PAPER, stroke=INK, stroke_width="0.5")
     p.text(x + 6, cy + 2.5, "7", 2.7, anchor="middle", weight="bold")
     p.text(x + 12, cy + 2.4, "marker id - see MARKER SCHEDULE", 2.25, weight="bold")
@@ -827,23 +1122,41 @@ def draw_legend(x, y, w, h, markers) -> Panel:
 # MARKER SCHEDULE
 # --------------------------------------------------------------------------
 
-COLS = [("ID", 6, "middle"), ("LABEL", 21, "start"), ("STL PART", 28, "start"),
-        ("BLACK", 12, "end"), ("STICKER", 13, "end"), ("CAM", 11, "start"),
-        ("STANDOFF", 15, "end"), ("GRADE", 19, "start"),
-        ("PAIR BASELINE", 24, "start"), ("ORIENTATION - which way is UP", 47, "start")]
+# (header, width mm, align). Widths were re-cut to make room for SURVEY CENTRE
+# without losing a column - the provenance of a position belongs on the sheet,
+# not only in the generator. draw_schedule gates every cell against its width, so
+# a future edit cannot silently overlap two columns.
+COLS = [("ID", 6, "middle"), ("LABEL", 18, "start"), ("STL PART", 20, "start"),
+        ("SURVEY CENTRE part mm", 27, "start"),
+        ("BLACK", 10, "end"), ("STICKER", 10, "end"), ("CAM", 9, "start"),
+        ("STANDOFF", 12, "end"), ("GRADE", 17, "start"),
+        ("PAIR BASELINE", 22, "start"), ("ORIENTATION - which way is UP", 45, "start")]
+
+CELL_PAD_MM = 1.5           # breathing room a cell must leave inside its column
 
 
 def draw_schedule(x, y, w, h, markers) -> Panel:
     p = Panel("SCHEDULE", x, y, w, h, "MARKER SCHEDULE",
-              "sizes derived in Software/vision/markers.csv from measured STL faces")
+              "positions from Software/vision/stl-face-survey.csv; sizes from markers.csv")
     cy = y + 12.0
     cxs, acc = [], x + 3.0
     for _, cw, _ in COLS:
         cxs.append(acc)
         acc += cw
+
+    def cell(cxp, cw, al, s, size, **kw) -> None:
+        """Place one cell AND gate it against its column width. The panel gate
+        only catches text leaving the sheet; two columns quietly overprinting
+        each other would still look like a finished table."""
+        if len(s) * size * GLYPH_W > cw - CELL_PAD_MM:
+            p.bad.append(f"SCHEDULE: {s!r} is {len(s) * size * GLYPH_W:.1f} mm wide, "
+                         f"column allows {cw - CELL_PAD_MM:.1f} mm")
+        ax = cxp if al == "start" else (cxp + cw - CELL_PAD_MM if al == "end"
+                                        else cxp + cw / 2)
+        p.text(ax, cy, s, size, anchor=al, **kw)
+
     for (name, cw, al), cxp in zip(COLS, cxs):
-        ax = cxp if al == "start" else (cxp + cw - 1.5 if al == "end" else cxp + cw / 2)
-        p.text(ax, cy, name, 2.05, anchor=al, weight="bold")
+        cell(cxp, cw, al, name, 2.05, weight="bold")
     p.raw(f'<line x1="{t(x+3)}" y1="{t(cy+1.3)}" x2="{t(acc)}" y2="{t(cy+1.3)}" '
           f'stroke="{INK}" stroke-width="0.35"/>')
     cy += 4.6
@@ -853,20 +1166,39 @@ def draw_schedule(x, y, w, h, markers) -> Panel:
         base = m.baseline if m.baseline not in ("", "n/a") else "-"
         if base == "unknown-cross-part":
             base = "UNKNOWN cross-part"
-        vals = [str(m.marker_id), m.label, m.part, f"{m.black_mm:.0f} mm",
+        if m.centre is None:
+            centre = "NOT SURVEYED"
+        else:
+            # "-0.0" is a faithful echo of the CSV's "-0.00" but reads as a bug.
+            trio = ",".join(f"{c:.1f}".replace("-0.0", "0.0") for c in m.centre)
+            centre = f"{m.src} {trio}"
+        vals = [str(m.marker_id), m.label, m.part, centre, f"{m.black_mm:.0f} mm",
                 f"{m.sticker_mm:.0f} mm", m.camera, f"{m.standoff} mm",
                 m.grade.upper(), base, m.orientation]
         for (name, cw, al), cxp, val in zip(COLS, cxs, vals):
-            ax = cxp if al == "start" else (cxp + cw - 1.5 if al == "end"
-                                            else cxp + cw / 2)
             fill = col if name in ("ID", "LABEL", "GRADE") else (
-                UNKNOWN if val.startswith("UNKNOWN") else THIN)
-            p.text(ax, cy, val, 1.95, anchor=al, fill=fill,
-                   weight="bold" if name in ("ID", "LABEL") else "normal")
+                UNKNOWN if val.startswith(("UNKNOWN", "NOT SURVEYED")) else THIN)
+            cell(cxp, cw, al, val, 1.95, fill=fill,
+                 weight="bold" if name in ("ID", "LABEL") else "normal")
         cy += 3.15
     p.raw(f'<line x1="{t(x+3)}" y1="{t(cy-2.2)}" x2="{t(acc)}" y2="{t(cy-2.2)}" '
           f'stroke="{GHOST}" stroke-width="0.3"/>')
     cy += 0.8
+    p.text(x + 3, cy,
+           "SURVEY CENTRE is where the sticker goes: sq1 = square1_cx/cy/cz_mm, sq2 = "
+           "square2_cx/cy/cz_mm on the stl-face-survey.csv row for that part and face "
+           "normal.", 1.95, weight="bold")
+    cy += 2.9
+    p.text(x + 3, cy,
+           "Part-frame millimetres - unambiguous without a view direction. The drawn spot "
+           "is computed from it (u from the part bbox minimum, v from the bbox centre).",
+           1.95, fill=THIN)
+    cy += 2.9
+    p.text(x + 3, cy,
+           "NOT SURVEYED = TURRET-1/2 only: Alt_Govde has no planar patch (markers.csv "
+           "patch_normal cylindrical; square and baseline n/a). All others are derived.",
+           1.95, fill=UNKNOWN, weight="bold")
+    cy += 2.9
     p.text(x + 3, cy,
            "BLACK is the ArUco square edge - the value you pass to solvePnP. "
            "STICKER is the white square you cut out (BLACK x 8/6, one module of quiet zone).",
@@ -983,6 +1315,8 @@ def main(argv=None) -> int:
     repo = os.path.abspath(os.path.join(here, "..", ".."))
     ap = argparse.ArgumentParser(description="Emre arm marker placement diagram")
     ap.add_argument("--csv", default=os.path.join(repo, "Software", "vision", "markers.csv"))
+    ap.add_argument("--survey", default=os.path.join(repo, "Software", "vision",
+                                                     "stl-face-survey.csv"))
     ap.add_argument("--stl-dir", default=os.path.join(repo, "Backups", "STL_parts"))
     ap.add_argument("--out", default=os.path.join(repo, "docs",
                                                   "marker_placement_diagram.svg"))
@@ -996,13 +1330,35 @@ def main(argv=None) -> int:
             f"ERROR: markers.csv references link(s) with no LINKS entry: {unknown}. "
             "Add the link (with its part file and the reason for the drawn axes) rather "
             "than dropping the marker from the drawing.")
-    resolve_u(markers)
+
+    survey = load_survey(args.survey)
+    # A surveyed marker on its own link's part must use that link's declared face
+    # normal, or the panel caption would advertise a cell the schedule does not use.
+    for m in markers:
+        c = m.pos["cell"]
+        lk = by[m.link]
+        if c is not None and c.part == lk.part and lk.face is not None:
+            if fmt_normal(c.normal) != fmt_normal(lk.face):
+                raise SystemExit(
+                    f"ERROR: {m.label} addresses face {fmt_normal(c.normal)} on {c.part} but "
+                    f"link {lk.name} is captioned {fmt_normal(lk.face)}. The drawing would "
+                    "name one survey row and use another.")
+    audit = derive_positions(markers, by, survey, args.stl_dir)
+    pairs = check_baselines(markers)
 
     print(f"markers.csv : {args.csv}   ({len(markers)} markers)")
+    print(f"survey      : {args.survey}   ({len(survey)} rows)")
     print("link outlines measured from the STLs at run time:")
     for lk in links:
         print(f"  {lk.name:<10} {lk.part:<20} drawn {lk.length:7.1f} x {lk.across:6.1f} mm"
               f"   ({lk.why})")
+    print("sticker positions derived from stl-face-survey.csv "
+          "(row gate + cell gate passed):")
+    for ln in audit:
+        print(ln)
+    print("pair gate - derived spacing vs markers.csv pair_baseline_mm:")
+    for ln in pairs:
+        print(ln)
 
     svg, problems = build_svg(links, by, markers,
                               os.path.relpath(args.csv, repo).replace("\\", "/"))

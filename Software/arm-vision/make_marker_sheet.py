@@ -97,22 +97,67 @@ PAGE_W_MM = 210.0           # A4 portrait
 PAGE_H_MM = 297.0
 MARGIN_MM = 10.0
 
-# The cut line is held OFF the quiet-zone boundary. approximate_size_mm already
-# includes the one-module quiet zone, so a hairline drawn at that edge would be
-# ink at the quiet zone - which MARKER-SYSTEM.md section 5 forbids. The ring is
-# spare white; more quiet zone never hurts detection.
-CUT_RING_MM = 2.5
+# TWO boundaries per card, and they do different jobs. One line could not do
+# both, which is the defect this pair fixes.
+#
+#   OUTER CUT LINE   what the scissors follow on the sheet. Held CUT_RING_MM off
+#                    the sticker square so there is a real margin to cut inside
+#                    of, and so the hairline is never ink at the quiet-zone
+#                    boundary - MARKER-SYSTEM.md section 5 forbids that.
+#
+#   INNER TRIM LIMIT the line you must NOT cut inside. Five of the thirteen
+#                    stickers are printed on cards far larger than the surveyed
+#                    island they have to be applied to (a 28 mm card for a
+#                    10.4 mm finger island), so those MUST be trimmed down after
+#                    the first cut. Before this line existed there was nothing
+#                    printed to trim to: you cut by eye, and by eye you cut into
+#                    the one-module quiet zone that ArUco detection requires.
+#                    It is drawn TRIM_LINE_MM OUTSIDE the sticker square, never
+#                    on it, so the line itself is not ink in the quiet zone.
+CUT_RING_MM = 3.2
+TRIM_LINE_MM = 0.8
+SCISSOR_MARGIN_MM = CUT_RING_MM - TRIM_LINE_MM      # 2.4 mm of cuttable white
 LABEL_STRIP_MM = 5.0        # inside the cut line, so the label travels with the
-                            # sticker and it can be re-applied the same way up
+                            # sticker and it can be re-applied the same way up.
+                            # NOTE: a sticker trimmed to its island loses this -
+                            # the footer says so, with the numbers.
 MIN_CARD_W_MM = 28.0        # so a 6 mm finger sticker still carries a legible
                             # "FINGER-A id11 6mm" without the label overrunning
                             # the card it is printed on
-CARD_GAP_MM = 4.0
+CARD_GAP_MM = 5.0           # scissors path between two adjacent cut lines, so
+                            # each is cuttable with +/- 2.5 mm of wander
 LABEL_FS_MAX = 2.6
 LABEL_FS_MIN = 1.5
 GLYPH_W = 0.55              # width of one Helvetica character as a fraction of
-                            # font size - close enough to fit a label, and the
-                            # only consequence of being wrong is whitespace
+                            # font size. Used ONLY to shrink a sticker label to
+                            # fit its card: there it must be an OVER-estimate
+                            # (too small a label is ugly, too large is trimmed
+                            # off by the scissors), and it is ~25% high on
+                            # lowercase prose, which is the safe direction.
+
+# Helvetica advance widths, units per 1000 em (the standard AFM table). Used for
+# the footer page gate, where GLYPH_W's 25% over-estimate would reject lines that
+# actually fit. Checked against the rightmost ink observed on the rendered sheet:
+# within +0.5% on every regular-weight line. Helvetica-Bold runs wider - BOLD_K.
+_AFM = {' ': 278, '!': 278, '"': 355, '#': 556, '$': 556, '%': 889, '&': 667,
+        "'": 191, '(': 333, ')': 333, '*': 389, '+': 584, ',': 278, '-': 333,
+        '.': 278, '/': 278, ':': 278, ';': 278, '<': 584, '=': 584, '>': 584,
+        '?': 556, '@': 1015, '[': 278, ']': 278, '^': 469, '_': 556, '`': 333,
+        '{': 334, '|': 260, '}': 334, '~': 584}
+_AFM.update({c: 556 for c in "0123456789"})
+_AFM.update(zip("ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+                (667, 667, 722, 722, 667, 611, 778, 722, 278, 500, 667, 556, 833,
+                 722, 778, 667, 778, 722, 667, 611, 722, 667, 944, 667, 667, 611)))
+_AFM.update(zip("abcdefghijklmnopqrstuvwxyz",
+                (556, 556, 500, 556, 556, 278, 556, 556, 222, 222, 500, 222, 833,
+                 556, 556, 556, 556, 333, 500, 278, 556, 500, 722, 500, 500, 500)))
+BOLD_K = 1.08
+
+
+def helv_mm(s: str, size: float, bold: bool = False) -> float:
+    """Rendered width of a Helvetica string, in millimetres."""
+    w = sum(_AFM.get(c, 556) for c in s) / 1000.0 * size
+    return w * (BOLD_K if bold else 1.0)
 
 RULE_LEN_MM = 100.0         # the printer scale check
 EPS_MM = 0.01               # sub-printer-resolution overlap that closes hairline
@@ -122,6 +167,8 @@ INK = "#000000"
 PAPER = "#ffffff"
 GUIDE = "#9a9a9a"           # cut lines and rule ticks - grey so it is obviously
                             # not part of any marker
+LIMIT = "#c0c0c0"           # the inner trim-limit line - lighter still, so it
+                            # never competes with the cut line for the scissors
 
 
 # --------------------------------------------------------------------------
@@ -135,6 +182,20 @@ class Sticker:
     link_name: str
     black_mm: float          # edge of the ArUco black square - the solvePnP value
     sticker_mm: float        # edge of the printed white square incl. quiet zone
+    island_mm: float | None  # measured_inscribed_square_mm - the surveyed patch
+                             # this sticker must physically fit on. None where
+                             # markers.csv records n/a (the curved turret).
+
+    @property
+    def quiet_mm(self) -> float:
+        """One module of quiet zone, in millimetres. This is the width that must
+        survive every cut - not a rule of thumb, it is black_mm / 6."""
+        return self.black_mm / MARKER_MODULES
+
+    @property
+    def trim_mm(self) -> float:
+        """Edge of the inner trim-limit square."""
+        return self.sticker_mm + 2 * TRIM_LINE_MM
 
     @property
     def card_w(self) -> float:
@@ -143,6 +204,18 @@ class Sticker:
     @property
     def card_h(self) -> float:
         return self.sticker_mm + 2 * CUT_RING_MM + LABEL_STRIP_MM
+
+    @property
+    def oversize(self) -> bool:
+        """True when the printed card cannot be applied as cut - it does not fit
+        inside the surveyed island. These are the ones that MUST be trimmed.
+
+        BOTH dimensions, not just the width: card_h carries the label strip and
+        overtakes card_w for any sticker above ~16.6 mm, so a width-only test
+        would eventually call a too-tall card 'fits' and print a wrong count.
+        """
+        return self.island_mm is not None and max(self.card_w,
+                                                  self.card_h) > self.island_mm
 
 
 def load_stickers(path: str) -> list[Sticker]:
@@ -160,7 +233,8 @@ def load_stickers(path: str) -> list[Sticker]:
 
     header = [c.strip() for c in rows[0]]
     need = ("marker_id", "human_label", "link_name",
-            "black_square_mm", "approximate_size_mm")
+            "black_square_mm", "approximate_size_mm",
+            "measured_inscribed_square_mm")
     missing = [c for c in need if c not in header]
     if missing:
         raise SystemExit(f"ERROR: {path} is missing required column(s): {missing}")
@@ -186,6 +260,10 @@ def load_stickers(path: str) -> list[Sticker]:
                 f"(x{STICKER_RATIO:.4f} for the 1-module quiet zone). "
                 "Fix the CSV; do not print a sheet whose sizes disagree."
             )
+        try:
+            island = float(row[idx["measured_inscribed_square_mm"]])
+        except ValueError:
+            island = None       # markers.csv records n/a for the curved turret
         out.append(Sticker(
             marker_id=int(row[idx["marker_id"]]),
             human_label=row[idx["human_label"]].strip(),
@@ -194,6 +272,7 @@ def load_stickers(path: str) -> list[Sticker]:
             # Use the DERIVED value, not the rounded CSV value: this is the one
             # number the printed geometry must honour exactly.
             sticker_mm=derived,
+            island_mm=island,
         ))
 
     ids = [s.marker_id for s in out]
@@ -269,6 +348,76 @@ def verify_detectable(dictionary, detector, grid: np.ndarray, marker_id: int) ->
             f"ERROR: marker {marker_id}: re-detection returned id {int(ids[0][0])}. "
             "The emitted grid encodes the WRONG marker (a flip or transpose)."
         )
+
+
+def verify_card_detectable(detector, s: Sticker, grid: np.ndarray,
+                           px_per_mm: float = 20.0) -> None:
+    """GATE 4: rasterise the WHOLE CARD as it is printed and detect it back.
+
+    GATE 2 renders the bare module grid on clean white and has never seen a card,
+    so it says nothing about the ink this sheet puts AROUND the marker. This gate
+    draws the sticker square, the trim-limit square, the cut outline and the
+    label strip at their real millimetre offsets and requires the detector to
+    find this marker and no other. It is deliberately pessimistic against the
+    real print: the guide squares are drawn SOLID rather than dashed and the
+    label is a solid black bar rather than text, so both put more ink near the
+    marker than the sheet actually does.
+
+    WHAT IT DOES AND DOES NOT PROVE - measured, not assumed. Sweeping the guide
+    offsets against this gate shows it fires only once ink physically OVERLAPS
+    the black square (label ink at -1.0 mm relative to the black edge). A thin
+    line drawn even in BLACK, 0.9 mm inside the quiet zone, still detects - at
+    print resolution and at 24 px across the black square with blur, the whole
+    graded range. So:
+        catches   gross ink placement - a label over the marker, a guide square
+                  crossing the black, a flipped or wrong-id grid.
+        does NOT  establish the quiet-zone margin. That claim stays GEOMETRIC and
+                  is the honest form of it: the trim line sits TRIM_LINE_MM
+                  OUTSIDE the sticker square, so the full one-module quiet zone
+                  (1.00 mm on the 6 mm markers) remains white by construction.
+    Do not cite a green GATE 4 as evidence that a smaller quiet zone would work.
+    """
+    def px(v: float) -> int:
+        return int(round(v * px_per_mm))
+
+    w, h = s.card_w, s.card_h
+    pad = 6.0                                   # white beyond the cut line
+    img = np.full((px(h + 2 * pad), px(w + 2 * pad)), 255, np.uint8)
+
+    def rect(x0, y0, x1, y1, val):
+        img[px(y0 + pad):px(y1 + pad), px(x0 + pad):px(x1 + pad)] = val
+
+    def frame(x0, y0, x1, y1, val, lw):
+        rect(x0, y0, x1, y0 + lw, val)
+        rect(x0, y1 - lw, x1, y1, val)
+        rect(x0, y0, x0 + lw, y1, val)
+        rect(x1 - lw, y0, x1, y1, val)
+
+    # Greys come from the sheet's own colours, so this gate tests what is
+    # actually printed and follows any change to them.
+    frame(0, 0, w, h, int(GUIDE[1:3], 16), 0.15)           # outer cut outline
+    sx = (w - s.sticker_mm) / 2.0
+    sy = CUT_RING_MM
+    frame(sx - TRIM_LINE_MM, sy - TRIM_LINE_MM,            # inner trim limit
+          sx + s.sticker_mm + TRIM_LINE_MM, sy + s.sticker_mm + TRIM_LINE_MM,
+          int(LIMIT[1:3], 16), 0.12)
+    rect(1.0, h - LABEL_STRIP_MM + 1.0, w - 1.0, h - 1.0, 0)   # label, as solid ink
+
+    module = s.black_mm / MARKER_MODULES
+    bx, by = sx + QUIET_MODULES * module, sy + QUIET_MODULES * module
+    for r, c0, c1 in black_runs(grid):
+        rect(bx + c0 * module, by + r * module,
+             bx + c1 * module, by + (r + 1) * module, 0)
+
+    corners, ids, _ = detector.detectMarkers(img)
+    found = 0 if ids is None else len(ids)
+    if found != 1 or int(ids[0][0]) != s.marker_id:
+        got = "none" if ids is None else ",".join(str(int(i[0])) for i in ids)
+        raise SystemExit(
+            f"ERROR: marker {s.marker_id} ({s.human_label}): the printed CARD detects as "
+            f"{found} marker(s) [{got}], expected exactly this id. The guide lines or the "
+            f"label are too close to a {s.black_mm:g} mm marker - increase CUT_RING_MM / "
+            "TRIM_LINE_MM rather than shipping a sheet whose stickers do not detect.")
 
 
 def black_runs(grid: np.ndarray) -> list[tuple[int, int, int]]:
@@ -350,6 +499,16 @@ def draw_card(s: Sticker, grid: np.ndarray, x: float, y: float) -> list[str]:
         f'height="{t(s.sticker_mm)}" fill="{PAPER}"/>'
     )
 
+    # INNER TRIM LIMIT. Sits TRIM_LINE_MM outside the sticker square, so cutting
+    # ON it still leaves the full one-module quiet zone (plus that margin), and
+    # so the line itself is never ink inside the quiet zone. Lighter and finer
+    # than the cut line: it is a limit, not a path.
+    out.append(
+        f'<rect x="{t(sx - TRIM_LINE_MM)}" y="{t(sy - TRIM_LINE_MM)}" '
+        f'width="{t(s.trim_mm)}" height="{t(s.trim_mm)}" fill="none" '
+        f'stroke="{LIMIT}" stroke-width="0.12" stroke-dasharray="0.5 0.5"/>'
+    )
+
     # The 6x6 black square, inset by exactly one module of quiet zone.
     module = s.black_mm / MARKER_MODULES
     bx = sx + QUIET_MODULES * module
@@ -411,8 +570,17 @@ def draw_rule(x: float, y: float) -> list[str]:
     return out
 
 
-def build_svg(stickers: list[Sticker], grids: dict[int, np.ndarray], csv_path: str) -> str:
+def build_svg(stickers: list[Sticker], grids: dict[int, np.ndarray],
+              csv_path: str) -> tuple[str, list[tuple], float]:
+    """Returns (svg, placed_cards, last_baseline_y).
+
+    The two extra returns exist so main() can gate the geometry it just emitted -
+    the placement diagram has had a layout gate since it was written and this
+    sheet has not, which is how a widened trim margin could have pushed the last
+    row or the footer off A4 without anything complaining.
+    """
     usable_w = PAGE_W_MM - 2 * MARGIN_MM
+    placed: list[tuple] = []           # (sticker, x, y, w, h)
     body: list[str] = [
         f'<rect x="0" y="0" width="{t(PAGE_W_MM)}" height="{t(PAGE_H_MM)}" fill="{PAPER}"/>'
     ]
@@ -422,7 +590,8 @@ def build_svg(stickers: list[Sticker], grids: dict[int, np.ndarray], csv_path: s
                      5.0, anchor="start", weight="bold"))
     body.append(text(x0, 19.6,
                      f"ArUco {DICT_NAME}  -  {len(stickers)} stickers  -  "
-                     f"quiet zone {QUIET_MODULES} module (already inside every white square)",
+                     f"quiet zone {QUIET_MODULES} module (already inside every white square)"
+                     f"  -  cut on the OUTER line, never inside the INNER line",
                      2.6, anchor="start"))
     body.append(text(x0, 23.8,
                      "Generated by Software/arm-vision/make_marker_sheet.py from "
@@ -439,6 +608,7 @@ def build_svg(stickers: list[Sticker], grids: dict[int, np.ndarray], csv_path: s
         row_h = max(s.card_h for s in row)
         for s in row:
             body += draw_card(s, grids[s.marker_id], x, y)
+            placed.append((s, x, y, s.card_w, s.card_h))
             x += s.card_w + CARD_GAP_MM
         y += row_h + CARD_GAP_MM + 2.0
 
@@ -448,25 +618,55 @@ def build_svg(stickers: list[Sticker], grids: dict[int, np.ndarray], csv_path: s
                 f'y2="{t(fy)}" stroke="{INK}" stroke-width="0.35"/>')
     fy += 5.2
     body.append(text(x0, fy, "BEFORE YOU CUT", 3.2, anchor="start", weight="bold"))
+    # Every number in the trim warning is BUILT FROM THE DATA, not typed. If
+    # markers.csv changes a size these sentences change with it rather than
+    # quietly going stale - which is how the old sheet came to promise that the
+    # printed label "travels with the sticker" for markers that must lose it.
+    over = sorted((s for s in stickers if s.oversize), key=lambda k: k.marker_id)
+    smallest = min(s.quiet_mm for s in stickers)
+    tight = min((s for s in stickers if s.island_mm is not None),
+                key=lambda k: k.island_mm - k.trim_mm)
+    tight_ids = "/".join(str(s.marker_id) for s in stickers
+                         if s.island_mm is not None
+                         and abs((s.island_mm - s.trim_mm)
+                                 - (tight.island_mm - tight.trim_mm)) < 1e-6)
+
     lines = [
         "1. Print at Actual Size / 100%. Check the 100 mm rule above with a steel rule. "
         "Everything on this sheet is wrong if that fails.",
-        "2. Cut on the grey dashed line. The white ring between the line and the marker is "
-        "SPARE quiet zone - keeping it is free and helps detection.",
-        "3. Never write, stamp or stick anything inside the white square. Ink in the quiet "
-        "zone breaks detection. The printed label is deliberately outside it.",
-        "4. The arrow on each label is UP. Apply the sticker that way up every time - a "
+        f"2. TWO lines per marker. Cut on the OUTER dashed line: it clears the inner line "
+        f"by {SCISSOR_MARGIN_MM:.1f} mm and the next marker by {CARD_GAP_MM:.1f} mm.",
+        "3. The INNER dotted square is the TRIM LIMIT. NEVER cut inside it and never let "
+        "ink cross it - the white it encloses is the quiet zone",
+        f"   ArUco needs, one module, only {smallest:.1f} mm on the smallest markers. Cut "
+        "inside that line and the marker stops being detected at all.",
+        f"4. TRIM TO FIT. {len(over)} of {len(stickers)} cards are LARGER than the surveyed "
+        "surface they go on - the printed label needs the room, the arm does not",
+        "   have it. Cut the outer line, offer the sticker up, then trim toward the inner "
+        f"line and never past it. The inner square DOES fit: tightest is",
+        f"   id{tight_ids} at {tight.trim_mm:.1f} mm inside a {tight.island_mm:.1f} mm "
+        "island. Trimming that far removes the label AND ITS UP-ARROW, so mark the id and "
+        "the up edge",
+        "   on the back before you cut - note 5 is why the arrow matters more than the id.",
+        "5. The arrow on each label is UP. Apply the sticker that way up every time - a "
         "re-applied sticker at a different rotation silently flips the residual sign.",
-        "5. The number on the label (e.g. 36mm) is the BLACK SQUARE edge. That is the value "
+        "6. The number on the label (e.g. 36mm) is the BLACK SQUARE edge. That is the value "
         "you pass to cv2.aruco / solvePnP as the marker length -",
         "   NOT the size of the white square you cut out, and NOT the size of the paper card.",
-        "6. Matte paper or matte label stock. A gloss finish specular-highlights under the "
+        "7. Matte paper or matte label stock. A gloss finish specular-highlights under the "
         "bench lamp and blinds the detector at exactly the angles you care about.",
-        "7. Stick each marker only where docs/marker_placement_diagram.svg says. Several "
+        "8. Stick each marker only where docs/marker_placement_diagram.svg says. Several "
         "faces that look ideal are inner channel walls you cannot reach.",
     ]
     fy += 4.6
     for ln in lines:
+        # Footer lines are full-width prose; a line that overran the right margin
+        # would simply be clipped by the printer with no warning at all.
+        w_mm = helv_mm(ln, 2.35)
+        if w_mm > usable_w:
+            raise SystemExit(
+                f"ERROR: footer line is {w_mm:.1f} mm wide, page allows {usable_w:.1f} mm: "
+                f"{ln[:60]!r}...")
         body.append(text(x0, fy, ln, 2.35, anchor="start"))
         fy += 3.5
 
@@ -496,7 +696,70 @@ def build_svg(stickers: list[Sticker], grids: dict[int, np.ndarray], csv_path: s
         f'viewBox="0 0 {t(PAGE_W_MM)} {t(PAGE_H_MM)}" shape-rendering="crispEdges">\n'
         f'<title>Emre Kalem arm - ArUco {DICT_NAME} marker print sheet (A4, print at 100%)</title>\n'
     )
-    return head + "\n".join(body) + "\n</svg>\n"
+    return head + "\n".join(body) + "\n</svg>\n", placed, fy
+
+
+# --------------------------------------------------------------------------
+# GATE 3 - page geometry. The sheet had no layout gate at all; widening a trim
+# margin could have pushed the last row or the footer off A4 in silence.
+# --------------------------------------------------------------------------
+
+def check_page(placed: list[tuple], last_y: float) -> list[str]:
+    """Return the human-readable geometry report. Raises on anything off-page or
+    on a cut line that cannot physically be cut."""
+    problems: list[str] = []
+    right, bottom = PAGE_W_MM - MARGIN_MM, PAGE_H_MM - MARGIN_MM
+    for s, x, y, w, h in placed:
+        if x < MARGIN_MM - 1e-6 or x + w > right + 1e-6:
+            problems.append(f"id{s.marker_id} card spans x {x:.1f}..{x + w:.1f}, "
+                            f"page allows {MARGIN_MM:.1f}..{right:.1f}")
+        if y < MARGIN_MM - 1e-6 or y + h > bottom + 1e-6:
+            problems.append(f"id{s.marker_id} card spans y {y:.1f}..{y + h:.1f}, "
+                            f"page allows {MARGIN_MM:.1f}..{bottom:.1f}")
+    if last_y > bottom:
+        problems.append(f"footer text reaches y {last_y:.1f}, page allows {bottom:.1f}")
+
+    # The whole point of the inner line is that trimming TO it leaves a sticker
+    # that fits. If the trim square were bigger than the surveyed island the line
+    # would be a lie and the fitter would have to cut into the quiet zone.
+    clear = None
+    for s, *_ in placed:
+        if s.island_mm is None:
+            continue
+        c = s.island_mm - s.trim_mm
+        if c < 0:
+            problems.append(f"id{s.marker_id} trim limit {s.trim_mm:.2f} mm exceeds its "
+                            f"{s.island_mm:.1f} mm island - cannot be applied without "
+                            "cutting into the quiet zone")
+        clear = c if clear is None else min(clear, c)
+
+    # Smallest clear white gap between any two cut outlines. This is the number
+    # behind "can this be cut with scissors" - not an opinion.
+    gap = None
+    for i, (si, xi, yi, wi, hi) in enumerate(placed):
+        for sj, xj, yj, wj, hj in placed[i + 1:]:
+            dx = max(xj - (xi + wi), xi - (xj + wj))
+            dy = max(yj - (yi + hi), yi - (yj + hj))
+            d = max(dx, dy)          # boxes are axis-aligned and never overlap
+            if d < 0:
+                problems.append(f"id{si.marker_id} and id{sj.marker_id} cut outlines OVERLAP")
+                continue
+            gap = d if gap is None else min(gap, d)
+    if gap is not None and gap < 2.0:
+        problems.append(f"closest two cut outlines are {gap:.2f} mm apart - "
+                        "not cuttable with scissors")
+    if problems:
+        for p in problems:
+            print("  " + p)
+        raise SystemExit(f"ERROR: {len(problems)} page-geometry problem(s); refusing to "
+                         "write a sheet that cannot be printed or cut as drawn.")
+
+    report = [f"min gap between adjacent cut outlines : {gap:.2f} mm",
+              f"scissors margin, cut line -> trim limit: {SCISSOR_MARGIN_MM:.2f} mm",
+              f"min clearance, trim limit -> island    : {clear:.2f} mm",
+              f"lowest ink on the page                : y {last_y:.1f} mm "
+              f"(A4 usable to {bottom:.1f} mm)"]
+    return report
 
 
 # --------------------------------------------------------------------------
@@ -536,11 +799,31 @@ def main(argv: list[str] | None = None) -> int:
             )
         g = marker_grid(dictionary, s.marker_id, args.block_px)   # GATE 1 + strict
         verify_detectable(dictionary, detector, g, s.marker_id)   # GATE 2
+        verify_card_detectable(detector, s, g)                    # GATE 4
         grids[s.marker_id] = g
     print(f"gate 1 module align  : PASS ({len(stickers)}/{len(stickers)})")
     print(f"gate 2 re-detection  : PASS ({len(stickers)}/{len(stickers)})")
+    print(f"gate 4 printed card  : PASS ({len(stickers)}/{len(stickers)}) - each card "
+          "detects with its cut line, trim line and label ink in frame")
+    print("                       (catches ink OVERLAPPING the marker; the quiet-zone "
+          "margin itself is a geometric claim - see the docstring)")
 
-    svg = build_svg(stickers, grids, os.path.relpath(args.csv, repo).replace("\\", "/"))
+    svg, placed, last_y = build_svg(
+        stickers, grids, os.path.relpath(args.csv, repo).replace("\\", "/"))
+    for ln in check_page(placed, last_y):                       # GATE 3
+        print(f"gate 3 page geometry : {ln}")
+
+    print("per-marker cut geometry (mm) - quiet zone is what every cut must leave:")
+    print(f"  {'id':>3} {'label':<11} {'black':>6} {'sticker':>8} {'quiet':>6} "
+          f"{'trim sq':>8} {'card':>12} {'island':>7}  applied as cut?")
+    for s in sorted(stickers, key=lambda k: k.marker_id):
+        isl = f"{s.island_mm:.1f}" if s.island_mm is not None else "n/a"
+        verdict = ("MUST TRIM" if s.oversize else
+                   "fits" if s.island_mm is not None else "curved - see diagram")
+        print(f"  {s.marker_id:>3} {s.human_label:<11} {s.black_mm:6.1f} "
+              f"{s.sticker_mm:8.2f} {s.quiet_mm:6.2f} {s.trim_mm:8.2f} "
+              f"{s.card_w:5.1f} x {s.card_h:4.1f} {isl:>7}  {verdict}")
+
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(svg)
