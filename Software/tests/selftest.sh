@@ -39,9 +39,17 @@ if [ -z "${CHROME:-}" ]; then
       done
       ;;
     *)
-      if [ -x "/c/Program Files/Google Chrome/Application/chrome.exe" ]; then
-        CHROME="/c/Program Files/Google Chrome/Application/chrome.exe"
-      fi
+      # The directory is "Google/Chrome", NOT "Google Chrome". Getting that
+      # wrong silently costs the whole Windows path: nothing below matches
+      # either (Git Bash has no google-chrome on PATH), so the harness exits 2
+      # on a machine where Chrome is installed and working. Both per-machine
+      # install locations plus the per-user one, because Chrome uses all three.
+      for candidate in \
+        "/c/Program Files/Google/Chrome/Application/chrome.exe" \
+        "/c/Program Files (x86)/Google/Chrome/Application/chrome.exe" \
+        "${LOCALAPPDATA:-/c/Users/$USERNAME/AppData/Local}/Google/Chrome/Application/chrome.exe"; do
+        if [ -x "$candidate" ]; then CHROME="$candidate"; break; fi
+      done
       ;;
   esac
 fi

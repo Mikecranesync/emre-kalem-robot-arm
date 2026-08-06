@@ -371,8 +371,22 @@ def main():
 
     port = args.port or find_port()
     if not port:
-        sys.stderr.write("HARNESS ERROR: no serial port found. Plug the board in with a "
-                         "DATA cable.\n")
+        # find_port() returns None for TWO different situations and they need
+        # different words. Telling an operator whose board IS plugged in to
+        # "plug the board in" - because two ports tied for best rank and the
+        # harness declined to guess - sends them to re-seat a cable that was
+        # never the problem. Same phantom-hardware-fault class that the
+        # bridge's friendly_open_error() is careful about.
+        found = list(list_ports.comports())
+        if not found:
+            sys.stderr.write("HARNESS ERROR: no serial port found at all. Plug the board in "
+                             "with a DATA cable - charge-only cables enumerate nothing.\n")
+        else:
+            sys.stderr.write(
+                "HARNESS ERROR: %d serial port(s) present but none is clearly the Arduino, "
+                "so this harness will not guess. Name one with --port:\n" % len(found))
+            for p in found:
+                sys.stderr.write("    %s   %s\n" % (p.device, p.description or "(no description)"))
         return 2
 
     if args.motion_ok:
