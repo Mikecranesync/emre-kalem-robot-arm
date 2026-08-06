@@ -43,6 +43,7 @@ from __future__ import annotations
 import logging
 import math
 import time
+from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 
@@ -63,6 +64,82 @@ from .observation import (
 from .transport import CommandError, SerialLink, parse_sta
 
 log = logging.getLogger("lerobot_robot_emre_arm")
+
+
+# ---------------------------------------------------------------------------
+# The one-MOV-per-CHANGE decision, deliberately kept pure
+#
+# `lerobot` is not installed on the development host, so NOTHING in this module
+# can be imported there -- this function included. Keeping the decision a plain
+# function of plain values at least lets it be lifted out of the AST and executed
+# standalone, which no method of EmreArm can be. That is the only reason it is a
+# module-level function rather than a method.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _AcceptedTarget:
+    """What the board said the last time it accepted a target for one joint.
+
+    sent_deg
+        The INTEGER that actually went on the wire. The wire is integer degrees;
+        centidegrees exist only inside the firmware. So this -- not the incoming
+        float -- is what a later tick must compare against: 64.4 and 64.5 both
+        send `MOV <j> 64`, and comparing the floats would emit a second,
+        redundant MOV for a target that never changed.
+    accepted_deg
+        That MOV ack's `SET=`, i.e. the target AFTER clamping. Note this is the
+        MOV-ack `SET=`, not STA's `SET=` -- same key, two different quantities
+        (transport.py says so at length). This is the number LeRobot records.
+
+        ALWAYS FINITE. An entry is only ever cached from an ack that carried a
+        readable `SET=`; send_action() refuses to cache NaN. The no-MOV path
+        replays this value verbatim, so a NaN in here would not be one bad row,
+        it would be every row until the target next changed.
+    clamped
+        That same ack's `CL=`.
+    """
+
+    sent_deg: int
+    accepted_deg: float
+    clamped: bool
+
+
+def _plan_joint(
+    requested: Any, held: _AcceptedTarget | None
+) -> tuple[int | None, _AcceptedTarget | None]:
+    """Decide what one ENABLED joint does this tick. No I/O, no board state.
+
+    Returns `(send_deg, held)`:
+
+        (None, None)     nothing was asked of this joint -- record NaN.
+        (None, entry)    the target has NOT changed. Send no MOV, and record
+                         `entry.accepted_deg` -- the value the board actually
+                         took when that target was set. Never the request (the
+                         firmware may have clamped it, and recording the request
+                         teaches a policy that an unreachable angle is
+                         reachable), and never NaN (NaN means "not driven this
+                         tick", and a joint holding a target is very much still
+                         being driven).
+        (deg, None)      the target changed. Send `MOV <j> deg`; the recorded
+                         value and the clamp flag come from the ack.
+
+    A None/NaN request also produces no MOV, which is why the caller must not
+    read a clamp flag off the no-MOV path at all: a readable MOV ack is the only
+    thing that SETS `EmreArm._clamped[jid]`. The one other writer clears it —
+    get_observation() puts a joint's flag back to False when it reconciles that
+    joint away as detached, because a detached joint's clamp flag would assert
+    something nobody observed. Nothing else may touch it.
+    """
+    if requested is None:
+        return None, None
+    value = float(requested)
+    if math.isnan(value):
+        return None, None
+    sent = int(round(value))
+    if held is not None and held.sent_deg == sent:
+        return None, held
+    return sent, None
 
 
 class EmreArm(Robot):
@@ -100,6 +177,13 @@ class EmreArm(Robot):
         self._enabled: set[int] = set()
         self._clamped: dict[int, bool] = {j: False for j in JOINT_IDS}
         self._adopted: dict[int, float] = {}
+        # The last target this host got the board to accept, per joint. It is
+        # what makes send_action() send a MOV only when a target CHANGES, and it
+        # is also what send_action() records for a joint that got no MOV. It
+        # describes FIRMWARE state, so it is void the moment the firmware is
+        # reset or a joint is re-adopted -- cleared in configure(), disconnect()
+        # and _check_latch(), and never anywhere else.
+        self._targets: dict[int, _AcceptedTarget] = {}
 
     # ------------------------------------------------------------------
     # Feature dicts -- pure functions of config, callable while disconnected
@@ -321,6 +405,15 @@ class EmreArm(Robot):
     def configure(self) -> None:
         """The step that actually drives pins. Separate from connect() because
         the handshake is safe and this is not."""
+        # FIRST, and above the early return on purpose. This is the only ENA site
+        # in the file and connect() always reaches it, so clearing here covers
+        # every way a joint's accepted target can become a lie: the DTR reset that
+        # opening the port causes (the firmware keeps nothing across it), the
+        # re-adopt that ENA itself performs, and a reconnect onto a fresh
+        # SerialLink after the port died with _enabled still populated. A joint
+        # must never consult an entry left over from a board that has since reset.
+        self._targets.clear()
+
         if self.config.adopt_deg is None:
             log.warning(
                 "no adopt_deg supplied -- NOTHING IS ENABLED. send_action() will "
@@ -368,6 +461,10 @@ class EmreArm(Robot):
             self._link.park_and_close()   # STP, DIS A, close -- THE ARM SAGS
             self._link = None
         self._enabled.clear()
+        # park_and_close() already sent STP, which freezes every target at its
+        # current commanded angle, and DIS A, which detaches. Both make the cached
+        # accepted targets false, and the next open() resets the board anyway.
+        self._targets.clear()
         # Nothing is driven any more; disarm so the watcher cannot park
         # an arm that is already detached.
         if self._link is not None:
@@ -394,6 +491,9 @@ class EmreArm(Robot):
         if sys_row.get("ES") != "1":
             return
         self._enabled.clear()
+        # Every joint is detached and recovery routes through CLR + a fresh
+        # ENA per joint, so nothing the board previously accepted is still true.
+        self._targets.clear()
         # Nothing is driven any more; disarm so the watcher cannot park
         # an arm that is already detached.
         if self._link is not None:
@@ -441,6 +541,50 @@ class EmreArm(Robot):
             else:
                 commanded[jid] = math.nan
 
+        # RECONCILE `_enabled` AGAINST THE BOARD. `EN=` is the truth; the set is
+        # only what this object last asked for, and the two diverge SILENTLY.
+        # transport.SerialLink._idle_loop sends `DIS A` from its own thread after
+        # idle_disable_s of loop silence, detaching every joint without telling
+        # this object anything -- try_command swallows the reply, and
+        # note_loop_activity() clears only its own parked flag.
+        #
+        # Left unreconciled, the very next send_action() finds the joint still in
+        # `_enabled`, finds an unchanged target in `_targets`, sends no MOV, and
+        # writes down the angle the board accepted BEFORE it was detached: a
+        # finite, confident number for a joint hanging loose on a sagged arm.
+        # That is the dataset lying.
+        #
+        # Deduplicating MOVs is what made it silent. Before the dedup this same
+        # tick sent a MOV at a detached joint and earned a loud ERR E6. Dropping
+        # the joint here is what puts the loudness back -- afterwards the joint
+        # takes the `jid not in self._enabled` branch and records NaN, which is
+        # already defined as "not driven this tick" and is exactly true.
+        #
+        # `_targets` goes with it: re-enabling at a fresh adopt angle that happens
+        # to equal the stale target would otherwise skip the first MOV. `_clamped`
+        # goes back to False because a detached joint's clamp flag would assert
+        # something nobody observed.
+        #
+        # The idle watcher's own arming state is deliberately NOT touched here.
+        # set_idle_watch() is the explicit-DIS path's to call; the watcher already
+        # stops repeating via its parked flag, and a third writer to that state
+        # from a reconciliation path is how the 2.0 s watcher went wrong.
+        detached = {j for j in self._enabled if snap.get(j, {}).get("EN") != "1"}
+        if detached:
+            log.error(
+                "joints %s are DETACHED on the board but were still marked "
+                "enabled here -- almost certainly the idle watcher's DIS A. THE "
+                "ARM HAS PROBABLY SAGGED. Their actions now record NaN, and "
+                "nothing is driven until each is re-enabled with a FRESHLY "
+                "estimated adopt angle: the staleness is mechanical, not "
+                "bookkeeping.",
+                sorted(detached),
+            )
+            for jid in detached:
+                self._enabled.discard(jid)
+                self._targets.pop(jid, None)
+                self._clamped[jid] = False
+
         frames: dict[str, Any] = {}
         capture_mono: dict[str, float] = {}
         for name, cam in self.cameras.items():
@@ -477,6 +621,21 @@ class EmreArm(Robot):
         one only when a target CHANGES -- six MOVs every control tick would be six
         sequential round trips against the one-command-in-flight rule, and would
         make a perfectly achievable rate look impossible.
+
+        WHAT A JOINT THAT GOT NO MOV RECORDS, AND WHY IT IS NOT NaN. Sending
+        fewer commands must not change what LeRobot writes down. A joint whose
+        target did not change is still being held at that target, so it records
+        the value the board ACCEPTED when the target was set -- from `_targets`,
+        which persists across ticks. Not NaN, which means "not driven this tick"
+        and would be a lie about a held joint; not the request, which the
+        firmware may have clamped. `_clamped[jid]` likewise keeps the flag from
+        the accepting ack: no reply arrived this tick, so there is nothing to
+        recompute it from, and it must not be.
+
+        Returning the accepted target while the interpolator is still walking
+        toward it is correct, not stale. This channel is the accepted target by
+        contract; the interpolator's current commanded output is a different
+        quantity and it is reported by get_observation() from STA's `SET=`.
         """
         if not self.is_connected:
             raise RuntimeError("not connected")
@@ -499,14 +658,37 @@ class EmreArm(Robot):
                 out[key] = math.nan
                 continue
 
-            requested = action.get(key)
-            if requested is None or (isinstance(requested, float) and math.isnan(requested)):
-                out[key] = math.nan
+            send_deg, held = _plan_joint(action.get(key), self._targets.get(jid))
+
+            if send_deg is None:
+                # No MOV this tick. Either nothing was asked of this joint
+                # (held is None -> NaN, same meaning as the disabled case above),
+                # or the target is unchanged and the honest record is what the
+                # board accepted for it. self._clamped[jid] is deliberately NOT
+                # touched on this path -- see the docstring.
+                out[key] = math.nan if held is None else held.accepted_deg
                 continue
 
-            reply = self._link.command(f"MOV {jid} {int(round(float(requested)))}")
+            reply = self._link.command(f"MOV {jid} {send_deg}")
             fields = reply.fields()
-            self._clamped[jid] = fields.get("CL") == "1"
-            out[key] = float(fields.get("SET", "nan"))
+            accepted = float(fields.get("SET", "nan"))
+            was_clamped = fields.get("CL") == "1"
+            if not math.isnan(accepted):
+                # Cache and record come from the same ack, so the value a later
+                # tick replays can never drift from the value this tick wrote
+                # down. An ack with no readable `SET=` is NOT cached: caching NaN
+                # would make the next unchanged-target tick replay it, and the
+                # one after that, latching a held joint at NaN forever. Learning
+                # nothing means the next tick re-sends and gets another chance --
+                # which is how this behaved before MOVs were deduplicated.
+                self._targets[jid] = _AcceptedTarget(send_deg, accepted, was_clamped)
+                # INSIDE the same guard, for the same reason. `CL=` is read off
+                # an ack whose `SET=` was unreadable, and an ack we could not
+                # parse is not evidence about clamping either -- `fields.get("CL")`
+                # simply returns None there and would silently record False,
+                # CLEARING a real clamp flag. Flag and target come from one ack or
+                # from neither, so they can never disagree about the same tick.
+                self._clamped[jid] = was_clamped
+            out[key] = accepted
 
         return out
