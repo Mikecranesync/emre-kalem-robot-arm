@@ -102,6 +102,16 @@ io.open(sys.argv[2], 'w', encoding='utf-8', newline='\n').write(b[-1] if b else 
     exit 1
   fi
   rm -f "$TMPJS"
+
+  # The scroll-wheel guard on the console's number boxes. It is NOT in the
+  # ?selftest=1 maths block, because that block is deliberately DOM-free, so it
+  # runs here instead -- against the noWheel() source lifted straight out of the
+  # HTML. Gated for real: an unwired test is a test that never runs, and a silent
+  # regression here costs an afternoon. See nowheel_check.js's header.
+  if ! node "$SCRIPT_DIR/nowheel_check.js" "$PAGE_FILE"; then
+    echo "SELFTEST FAILED: the scroll-wheel guard on the console's number boxes is broken."
+    exit 1
+  fi
 fi
 
 # --virtual-time-budget makes the dump deterministic: it fires after the page's
