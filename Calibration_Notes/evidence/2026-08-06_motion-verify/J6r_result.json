@@ -1,0 +1,114 @@
+{
+  "joint": 6,
+  "dps": 6.0,
+  "roi": [
+    330,
+    425,
+    485,
+    565
+  ],
+  "threshold": 25,
+  "pass_ratio": 4.0,
+  "waypoints": [
+    {
+      "label": "open",
+      "deg": 70,
+      "from": 10,
+      "reply": "OK MOV J6 REQ=70 SET=70 CL=0",
+      "sta": "STA J6 EN=1 SET=70 TGT=70 MIN=10 MAX=70 CAL=1 DPS=6 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "70",
+      "moving": "0",
+      "noise_floor_px": 1,
+      "signal_px": 0,
+      "in_travel_peak_px": 10484,
+      "silhouette": {
+        "area": 3226,
+        "bbox_h": 79,
+        "bbox_w": 81,
+        "med_span": 61
+      },
+      "ratio": null,
+      "global_shift_px": 0.0,
+      "daemon_intervened": false,
+      "vs": null,
+      "verdict": "baseline"
+    },
+    {
+      "label": "closed",
+      "deg": 10,
+      "from": 70,
+      "reply": "OK MOV J6 REQ=10 SET=10 CL=0",
+      "sta": "STA J6 EN=1 SET=10 TGT=10 MIN=10 MAX=70 CAL=1 DPS=6 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "10",
+      "moving": "0",
+      "noise_floor_px": 44,
+      "signal_px": 17,
+      "in_travel_peak_px": 35,
+      "silhouette": {
+        "area": 3264,
+        "bbox_h": 80,
+        "bbox_w": 81,
+        "med_span": 61
+      },
+      "ratio": 0.39,
+      "global_shift_px": 0.22,
+      "daemon_intervened": false,
+      "vs": "open:70",
+      "verdict": "NOT RESOLVED"
+    },
+    {
+      "label": "open",
+      "deg": 70,
+      "from": 10,
+      "reply": "OK MOV J6 REQ=70 SET=70 CL=0",
+      "sta": "STA J6 EN=1 SET=70 TGT=70 MIN=10 MAX=70 CAL=1 DPS=6 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "70",
+      "moving": "0",
+      "noise_floor_px": 1,
+      "signal_px": 519,
+      "in_travel_peak_px": 403,
+      "silhouette": {
+        "area": 3244,
+        "bbox_h": 79,
+        "bbox_w": 81,
+        "med_span": 62
+      },
+      "ratio": 519.0,
+      "global_shift_px": 0.52,
+      "daemon_intervened": false,
+      "vs": "closed:10",
+      "verdict": "MOVED"
+    },
+    {
+      "label": "closed",
+      "deg": 10,
+      "from": 70,
+      "reply": "OK MOV J6 REQ=10 SET=10 CL=0",
+      "sta": "STA J6 EN=1 SET=10 TGT=10 MIN=10 MAX=70 CAL=1 DPS=6 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "10",
+      "moving": "0",
+      "noise_floor_px": 13,
+      "signal_px": 609,
+      "in_travel_peak_px": 943,
+      "silhouette": {
+        "area": 3274,
+        "bbox_h": 80,
+        "bbox_w": 81,
+        "med_span": 61
+      },
+      "ratio": 46.85,
+      "global_shift_px": 0.6,
+      "daemon_intervened": false,
+      "vs": "open:70",
+      "verdict": "MOVED"
+    }
+  ]
+}

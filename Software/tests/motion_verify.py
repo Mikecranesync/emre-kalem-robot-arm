@@ -149,6 +149,28 @@ def changed_px(a, b, roi) -> int:
     return int((d > DIFF_THRESHOLD).sum())
 
 
+def silhouette(frame, roi, dark_below=95):
+    """Geometry of the dark part of an ROI, against the operator's white backdrop.
+
+    Frame differencing answers "did anything change". This answers "what shape is
+    it in", which is the question that matters for a gripper: two frames can differ
+    because the whole assembly shifted while the fingers never moved. Area, height
+    and per-column span are all illumination-robust in a way a diff is not, and it
+    was this measure -- identical at commanded 10 and 70 -- that settled the J6
+    question when the diff was still arguable.
+    """
+    x0, y0, x1, y1 = roi
+    g = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+    m = (g < dark_below).astype(np.uint8)
+    ys, xs = np.nonzero(m)
+    if len(ys) == 0:
+        return {"area": 0, "note": "no dark pixels -- joint outside the geo ROI"}
+    spans = [np.ptp(np.nonzero(m[:, c])[0])
+             for c in range(m.shape[1]) if len(np.nonzero(m[:, c])[0]) > 1]
+    return {"area": int(m.sum()), "bbox_h": int(np.ptp(ys)), "bbox_w": int(np.ptp(xs)),
+            "med_span": int(np.median(spans)) if spans else 0}
+
+
 def global_shift(a, b, roi) -> float:
     """Pixels of whole-ROI translation. Large => the arm/loom swung, not the joint."""
     ga = cv2.cvtColor(crop(a, roi), cv2.COLOR_BGR2GRAY).astype(np.float64)
@@ -182,9 +204,12 @@ def main():
     ap.add_argument("--label", default="run")
     ap.add_argument("--film", type=int, default=0,
                     help="capture up to N frames DURING each travel window")
+    ap.add_argument("--geo-roi", default=None,
+                    help="x0,y0,x1,y1 -- tighter box for dark-silhouette geometry")
     args = ap.parse_args()
 
     roi = tuple(int(v) for v in args.roi.split(","))
+    geo_roi = tuple(int(v) for v in args.geo_roi.split(",")) if args.geo_roi else None
     waypoints = [(w.split(":")[0], int(w.split(":")[1])) for w in args.waypoint]
     os.makedirs(args.out, exist_ok=True)
 
@@ -259,6 +284,7 @@ def main():
                 "moving": link.field(row, "MOV"),
                 "noise_floor_px": floor, "signal_px": signal,
                 "in_travel_peak_px": in_travel,
+                "silhouette": silhouette(a, geo_roi) if geo_roi else None,
                 "ratio": None if prev_frame is None else round(ratio, 2),
                 "global_shift_px": round(shift, 2),
                 "daemon_intervened": intervened,
@@ -274,6 +300,8 @@ def main():
                   f"signal={signal:<6} floor={floor:<5} ratio={rec['ratio']} "
                   f"travel_peak={in_travel:<6} shift={rec['global_shift_px']}px  "
                   f"{rec['verdict']}")
+            if rec["silhouette"]:
+                print(f"               geo {rec['silhouette']}")
 
             frames.append(a)
             labels.append(f"{label} {deg}deg")
