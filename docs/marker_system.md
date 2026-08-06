@@ -16,7 +16,8 @@ where to stick them, and what to write down afterwards.
 
 `docs/marker_placement_table.csv` is **generated**, never hand-edited. It is the
 first 8 columns of `Software/vision/markers.csv`, unchanged. Regenerate it after
-any change to that file:
+any change to that file — **run this from the repository root**, the paths are
+relative:
 
 ```bash
 python - <<'PY'
