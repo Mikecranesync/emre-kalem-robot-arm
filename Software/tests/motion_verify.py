@@ -59,6 +59,38 @@ PASS_RATIO = 4.0  # signal must beat the same-waypoint noise floor by this much
 MIN_SIGNAL_PX = 400
 SETTLE_MARGIN_S = 1.4  # added to travel time before the joint is believed parked
 
+#: GEOMETRY GATE. Pixel gates answer "did anything change". For a gripper that is
+#: the wrong question, and answering it got J6 reported as MOVED at 519x while its
+#: fingers were provably not articulating -- the changed pixels were a 1 px sag of
+#: the whole assembly. So when --geo-roi is given, a waypoint must ALSO show a
+#: changed silhouette, or it is called NOT ARTICULATING however big the diff is.
+#:
+#: Thresholds are calibrated on 2026-08-06 against two joints in one session, one
+#: working and one broken, same camera and ROI scale (see
+#: Calibration_Notes/evidence/2026-08-06_motion-verify/). Per waypoint transition:
+#:   J4, articulating:  bbox_h delta 3,4,5,5 px   span delta 1,1,4,4   area 0.3-2.3%
+#:   J6, NOT:           bbox_h delta 1,1,1 px     span delta 0,1,1     area 0.6-1.2%
+#: bbox_h separates cleanly with a px of slack either side; area alone does not.
+#: RE-CALIBRATE these if the camera moves or the ROI scale changes -- they are a
+#: bench heuristic, not a physical constant.
+#:
+#: KNOWN FALSE NEGATIVE, measured not guessed. A 15 deg J4 pitch at this camera
+#: distance moves the silhouette by ~1 px, which is indistinguishable from J6's
+#: sag, so some real J4 legs fail this gate (1 of 3 in the prong ROI, 1 of 3 in the
+#: wrist ROI). The gate is therefore NOT tight enough to certify small-angle pitch,
+#: and it is kept strict anyway because the two errors do not cost the same: a
+#: false positive records a wrong claim as fact -- which is the failure this whole
+#: harness exists to stop -- while a false negative costs a re-run, with the pixel
+#: numbers printed on the same line to show it was marginal. A disagreement is
+#: reported as DISAGREES, not as a diagnosis.
+#:
+#: ROI GOTCHA: bbox_h saturates when the ROI is filled edge to edge (the wrist box
+#: pins it at 202 px regardless of pose), leaving med_span as the only live signal.
+#: Frame the geo ROI on the articulating feature with white margin around it.
+GEO_MIN_BBOX_H_DELTA = 2  # px
+GEO_MIN_SPAN_DELTA = 3  # px
+GEO_MIN_AREA_FRAC = 0.03  # 3%
+
 
 class ArmLink:
     """Command channel to the holder daemon. Never opens the serial port."""
@@ -171,6 +203,17 @@ def silhouette(frame, roi, dark_below=95):
             "med_span": int(np.median(spans)) if spans else 0}
 
 
+def geometry_changed(prev, cur):
+    """True/False if the silhouette changed shape; None when it cannot be judged."""
+    if not prev or not cur or "note" in prev or "note" in cur:
+        return None
+    d_h = abs(cur["bbox_h"] - prev["bbox_h"])
+    d_span = abs(cur["med_span"] - prev["med_span"])
+    d_area = abs(cur["area"] - prev["area"]) / max(prev["area"], 1)
+    return (d_h >= GEO_MIN_BBOX_H_DELTA or d_span >= GEO_MIN_SPAN_DELTA
+            or d_area >= GEO_MIN_AREA_FRAC)
+
+
 def global_shift(a, b, roi) -> float:
     """Pixels of whole-ROI translation. Large => the arm/loom swung, not the joint."""
     ga = cv2.cvtColor(crop(a, roi), cv2.COLOR_BGR2GRAY).astype(np.float64)
@@ -228,6 +271,7 @@ def main():
     results, frames, labels = [], [], []
     prev_frame = None
     prev_label = None
+    prev_geo = None
     cur = start_deg
     try:
         for idx, (label, deg) in enumerate(waypoints, 1):
@@ -276,6 +320,25 @@ def main():
             # settle point.
             in_travel = max((changed_px(a, f, roi) for f in film), default=0)
 
+            geo = silhouette(a, geo_roi) if geo_roi else None
+            geo_moved = geometry_changed(prev_geo, geo)
+            pixels_pass = ratio >= PASS_RATIO and signal >= MIN_SIGNAL_PX
+            if intervened:
+                verdict = "INVALID (daemon re-enabled mid-waypoint)"
+            elif prev_frame is None:
+                verdict = "baseline"
+            elif not pixels_pass:
+                verdict = "NOT RESOLVED"
+            elif geo_moved is False:
+                # The diff passed and the shape did not: the two measures DISAGREE.
+                # Deliberately not asserted as "not articulating" -- see the
+                # asymmetry note on the geometry gate above. Refuse to certify and
+                # make the disagreement visible; the pixel numbers are on the same
+                # line for whoever reads it.
+                verdict = "DISAGREES (pixels moved, shape unchanged)"
+            else:
+                verdict = "MOVED"
+
             rec = {
                 "label": label, "deg": deg, "from": cur, "reply": reply,
                 "sta": row, "clamped": link.field(row, "CL") == "1",
@@ -284,15 +347,12 @@ def main():
                 "moving": link.field(row, "MOV"),
                 "noise_floor_px": floor, "signal_px": signal,
                 "in_travel_peak_px": in_travel,
-                "silhouette": silhouette(a, geo_roi) if geo_roi else None,
+                "silhouette": geo, "geometry_changed": geo_moved,
                 "ratio": None if prev_frame is None else round(ratio, 2),
                 "global_shift_px": round(shift, 2),
                 "daemon_intervened": intervened,
                 "vs": prev_label,
-                "verdict": "INVALID (daemon re-enabled mid-waypoint)" if intervened
-                else ("baseline" if prev_frame is None
-                      else ("MOVED" if (ratio >= PASS_RATIO and signal >= MIN_SIGNAL_PX)
-                            else "NOT RESOLVED")),
+                "verdict": verdict,
             }
             results.append(rec)
             print(f"  {label:<12} cmd={deg:<4} parked={rec['parked_at']:<4} "
@@ -301,11 +361,11 @@ def main():
                   f"travel_peak={in_travel:<6} shift={rec['global_shift_px']}px  "
                   f"{rec['verdict']}")
             if rec["silhouette"]:
-                print(f"               geo {rec['silhouette']}")
+                print(f"               geo {rec['silhouette']} changed={geo_moved}")
 
             frames.append(a)
             labels.append(f"{label} {deg}deg")
-            prev_frame, prev_label, cur = a, f"{label}:{deg}", deg
+            prev_frame, prev_label, cur, prev_geo = a, f"{label}:{deg}", deg, geo
     finally:
         cam.release()
 
@@ -320,8 +380,10 @@ def main():
 
     graded = [r for r in results if r["verdict"] not in ("baseline",)]
     bad = [r for r in graded if r["verdict"] != "MOVED"]
+    gate = (f">={PASS_RATIO}x noise floor, >={MIN_SIGNAL_PX} px"
+            + (" AND a changed silhouette" if geo_roi else ""))
     print(f"\n{len(graded) - len(bad)}/{len(graded)} transitions resolved as motion "
-          f"at >={PASS_RATIO}x the same-waypoint noise floor")
+          f"({gate})")
     if bad:
         print("NOT PROVEN:", ", ".join(f"{r['label']}({r['verdict']})" for r in bad))
     raise SystemExit(1 if bad else 0)
