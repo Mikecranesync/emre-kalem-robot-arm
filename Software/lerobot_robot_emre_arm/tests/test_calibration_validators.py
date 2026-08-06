@@ -73,11 +73,19 @@ def test_joint_0_agrees_with_its_own_receipt(real_cal):
     assert j0.lock_console == "1.2.0"
 
 
-def test_the_gripper_is_the_one_joint_with_no_lock_at_all(real_cal):
+def test_every_joint_on_this_arm_now_has_a_lock(real_cal):
+    """J6 was the last hold-out. It was locked 2026-08-06 14:53 at 10-70.
+
+    This test used to assert the opposite -- that the gripper was the one joint
+    with no lock at all -- and it failed the moment the operator locked it. That
+    is the test doing its job: it encodes a fact about THIS arm, so it is
+    supposed to break when the arm changes.
+    """
     j6 = real_cal.joint(6)
-    assert j6.calibrated is False
-    assert j6.lock_source is None
-    assert real_cal.uncalibrated_ids() == (6,)
+    assert j6.calibrated is True
+    assert j6.lock_source == "calibration-row-J6_2026-08-06_14-53.csv"
+    assert (j6.lock_min_deg, j6.lock_max_deg) == (10, 70)
+    assert real_cal.uncalibrated_ids() == ()
 
 
 def test_newest_lock_wins_and_the_older_ones_are_counted(real_cal):
@@ -150,16 +158,37 @@ def test_an_inferred_servo_type_is_flagged_and_a_confirmed_one_is_not(real_cal):
     assert "type_inferred" not in real_cal.joint(5).flags
 
 
-def test_the_uncalibrated_gripper_carries_every_relevant_flag(real_cal):
-    flags = real_cal.joint(6).flags
+def test_the_placeholder_width_flags_now_live_on_the_suspect_wrist(real_cal):
+    """J4 is the remaining 0-180 row, so it carries the placeholder-width flags.
+
+    These used to be asserted against J6. J6 was locked to a real 10-70 on
+    2026-08-06 and dropped them; J4 still sits at exactly the servo's whole
+    electrical range and is flagged SUSPECT in joint-limits.csv for that reason.
+    The flags did not disappear -- they moved to the joint that still earns them.
+    """
+    flags = real_cal.joint(4).flags
     for expected in (
+        "full_electrical_range",
+        "min_at_electrical_floor",
+        "max_at_electrical_ceiling",
+    ):
+        assert expected in flags, expected
+
+
+def test_the_locked_gripper_no_longer_claims_placeholder_width(real_cal):
+    flags = real_cal.joint(6).flags
+    for gone in (
         "uncalibrated",
         "no_lock_artifact",
         "full_electrical_range",
         "min_at_electrical_floor",
         "max_at_electrical_ceiling",
     ):
-        assert expected in flags, expected
+        assert gone not in flags, gone
+    # What it DOES still carry: the D3/D11 identity dispute is unresolved, and
+    # home was moved off the locked end.
+    assert "identity_disputed" in flags
+    assert "home_edited" in flags
 
 
 def test_every_flagged_joint_appears_in_the_warnings(real_cal, observation):
@@ -513,8 +542,12 @@ def test_h4_names_the_joint_that_claims_the_calibration(
 def test_an_uncalibrated_joint_needs_no_receipt(
     calibration, limits, tmp_limits_path, empty_lock_dir
 ):
+    # Every joint, explicitly. This used to set only 0/1/3/4/5 and rely on J6
+    # already being calibrated=no in the real file -- so it broke the moment the
+    # operator locked the gripper. A validator test must not depend on the arm's
+    # live state; construct the state you are testing.
     edited = limits()
-    for jid in (0, 1, 3, 4, 5):
+    for jid in (0, 1, 3, 4, 5, 6):
         edited.set(jid, "calibrated", "no")
     path = edited.write(tmp_limits_path)
     cal = calibration.load_calibration(path, empty_lock_dir, REAL_WIRING_MAP)
@@ -680,7 +713,7 @@ def test_a_missing_lock_directory_is_treated_as_no_receipts(
     calibration, limits, tmp_limits_path, tmp_path
 ):
     edited = limits()
-    for jid in (0, 1, 3, 4, 5):
+    for jid in (0, 1, 3, 4, 5, 6):
         edited.set(jid, "calibrated", "no")
     path = edited.write(tmp_limits_path)
     cal = calibration.load_calibration(path, tmp_path / "nope", REAL_WIRING_MAP)
@@ -759,20 +792,55 @@ def test_a_measured_mirror_offset_removes_the_blocker(
     assert not any("PLACEHOLDER" in w for w in cal.warnings)
 
 
-def test_the_uncalibrated_gripper_is_blocked(calibration, real_cal):
-    blockers = calibration.enable_blockers(real_cal, 6)
+def test_an_uncalibrated_joint_is_blocked(
+    calibration, limits, tmp_limits_path, copied_lock_dir
+):
+    """Built, not borrowed.
+
+    This used to run against the real J6, which was the arm's only uncalibrated
+    joint. The operator locked it on 2026-08-06 and `uncalibrated_ids()` is now
+    empty, so there is no longer a real joint to point at -- and the guard still
+    has to be tested. Construct one.
+    """
+    path = (
+        limits()
+        .set(6, "calibrated", "no")
+        .set(6, "min_deg", "0")
+        .set(6, "max_deg", "180")
+        .write(tmp_limits_path)
+    )
+    # J6's receipt is REMOVED rather than the whole directory emptied. Two guards
+    # already caught cheaper versions of this fixture and both were right:
+    #   - REAL_LOCK_DIR + a 0-180 J6 row tripped H5, because J6's genuine 10-70
+    #     receipt contradicts it. That is precisely the 2026-08-05 widening.
+    #   - an EMPTY dir tripped H4 on joint 0, because 0/1/3/4/5 really are
+    #     calibrated=yes and deleting their receipts makes them lie.
+    # An uncalibrated joint on an otherwise-honest arm is the state under test.
+    (copied_lock_dir / "calibration-row-J6_2026-08-06_14-53.csv").unlink()
+    cal = calibration.load_calibration(path, copied_lock_dir, REAL_WIRING_MAP)
+    blockers = calibration.enable_blockers(cal, 6)
     assert len(blockers) == 1
     assert "UNCALIBRATED" in blockers[0]
     assert "electrical range, not measured travel" in blockers[0]
 
 
-def test_the_gripper_can_be_enabled_only_by_accepting_that_risk_explicitly(
-    calibration, real_cal
+def test_an_uncalibrated_joint_can_be_enabled_only_by_accepting_that_risk(
+    calibration, limits, tmp_limits_path, copied_lock_dir
 ):
-    assert calibration.enable_blockers(real_cal, 6, allow_uncalibrated_joints=True) == []
+    path = (
+        limits()
+        .set(6, "calibrated", "no")
+        .set(6, "min_deg", "0")
+        .set(6, "max_deg", "180")
+        .write(tmp_limits_path)
+    )
+    (copied_lock_dir / "calibration-row-J6_2026-08-06_14-53.csv").unlink()
+    cal = calibration.load_calibration(path, copied_lock_dir, REAL_WIRING_MAP)
+    assert calibration.enable_blockers(cal, 6) != []
+    assert calibration.enable_blockers(cal, 6, allow_uncalibrated_joints=True) == []
 
 
-@pytest.mark.parametrize("joint_id", [0, 3, 4, 5])
+@pytest.mark.parametrize("joint_id", [0, 3, 4, 5, 6])
 def test_a_calibrated_non_shoulder_joint_has_no_blockers(calibration, real_cal, joint_id):
     assert calibration.enable_blockers(real_cal, joint_id) == []
 
