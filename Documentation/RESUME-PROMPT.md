@@ -152,20 +152,53 @@ stepping `12 17 23 29 34 40 46 51 57 63 68 70`, ~11–12 °/s against a commande
 
 ---
 
-## Known broken
+## The camera — solved, and how to unstick it next time
 
-**The laptop's built-in webcam is frozen.** Device is `Integrated Camera`
-(`USB\VID_174F&PID_2469`) — the only camera on this machine; the other PnP entries
-are the HP Envy printer's scanner. `MSMF` and `CAP_ANY` cannot read at all;
-`DSHOW` returns frames differing by 26 px, i.e. sensor noise. It froze after
-repeated open/close cycles. It is internal, so "replug it" is wrong advice —
-it needs whatever holds it released, or a reboot.
+Device is `Integrated Camera` (`USB\VID_174F&PID_2469`), the laptop's **internal**
+webcam and the only camera on this machine — the other PnP entries are the HP Envy
+printer's scanner. So "replug it" is never the answer.
 
-**Until it is back, the operator is the only sensor.** Board acks prove the
-firmware accepted a command. They do **not** prove a motor turned — that
-distinction is what cost the D3 afternoon, and a `0 px` image difference means the
-capture is dead, not that the arm is steady. Always take a same-command control
-frame before believing a null result.
+**If it returns frozen frames (identical MD5s, `max 0` between captures), another
+app owns it.** Find the holder without guessing — Windows tracks per-app camera
+use in the registry, and `LastUsedTimeStop = 0` means *in use right now*:
+
+```powershell
+$r='HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam'
+Get-ChildItem $r -Recurse | ForEach-Object {
+  $p = Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue
+  if ($p.LastUsedTimeStop -eq 0) { Split-Path $_.PSPath -Leaf } }
+```
+
+On 2026-08-06 the holder was **`Microsoft.WindowsCamera`** — the operator had
+opened the Camera app to aim the laptop at the arm. Closing it freed the device
+immediately. No reboot, no admin needed. (Restarting the `FrameServer` service or
+cycling the PnP device *would* need admin; this session had none.)
+
+### The measurement lesson that outlives the bug
+
+A `0 px` difference means **the capture is dead, not that the arm is steady.**
+Always take a **same-command control frame** before believing any null result.
+That control is what caught a false negative earlier the same day, where an
+over-aggressive threshold plus a 5×5 morphological opening erased the thin edge
+bands a moving finger produces, and the absence was nearly reported as a finding.
+
+### Backdrop matters more than it sounds
+
+Against the operator's **white sheet** behind the gripper, open-vs-closed measured
+a clean **6× separation over a 272 px floor**. Against cluttered cardboard, with
+the gripper smaller in frame, it could not be resolved at all. **Put the white
+backdrop back for any camera-based gripper or marker verification.**
+
+### The arm drifts while held
+
+Observed 2026-08-06: with five joints energised, the whole gripper assembly
+settles downward slowly. The joints hold, but frames captured minutes apart are
+**not** comparable — an aggregate frame difference picks up the drift rather than
+the thing you are measuring. Capture control and test frames close together in
+time, and expect this to matter for the marker work.
+
+**Board acks prove the firmware accepted a command. They do not prove a motor
+turned** — that distinction is what cost the D3 afternoon.
 
 ---
 
