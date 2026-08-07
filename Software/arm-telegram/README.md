@@ -11,7 +11,7 @@ from an earlier bench session or labelled as a desk choice.
 
 ```
 cd Software/arm-telegram && python -m pytest -q
-217 passed
+259 passed
 ```
 
 | File | What it is |

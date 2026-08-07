@@ -10,7 +10,7 @@ can be regression-tested with no board, no servos, no power and no bench.
 
 ```
 cd Software/arm-sim && python -m pytest -q
-86 passed
+88 passed
 ```
 
 | File | What it is |

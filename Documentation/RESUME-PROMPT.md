@@ -62,6 +62,47 @@ a bench rig. Not the assembled arm. Two configurations, never a conflict.
 
 ## Where things stand right now
 
+> ### ⏫ UPDATED 2026-08-07 ~01:50 — this ADDS to the block below; nothing in it changed
+>
+> **Full detail: `Documentation/2026-08-07-TELEGRAM-VOICE-SESSION-FINDINGS.md`.**
+>
+> **Branch is now `feat/telegram-voice-control` — two commits, NOT pushed, NOT merged**
+> (the branch line at the top of this file predates it).
+>
+> **A Telegram control surface now exists at `Software/arm-telegram/`** (bot, policy layer,
+> link client, audit log, voice seam), specified in
+> `Documentation/specs/2026-08-06-telegram-voice-control-prd.md` and phased in
+> `Documentation/plans/2026-08-06-telegram-voice-plan.md` — **259 tests**. A
+> protocol-faithful firmware simulator exists at `Software/arm-sim/` — **88 tests**.
+> **NEITHER HAS EVER TALKED TO THE BOARD.** No COM5, no board, camera on the ceiling all
+> night; 347 green tests say a model of a bot talks correctly to a model of the daemon
+> talking to a model of the firmware. They say nothing about a motor turning.
+>
+> **Two new skills:** `.claude/skills/arm-telegram-control/SKILL.md` and
+> `.claude/skills/arm-sim-offline/SKILL.md`.
+>
+> **The safety shape, one line:** motion only inside an armed window opened by an explicit
+> `/arm <pose>` from an allowlisted chat id, expiry sends **nothing** to the arm, named
+> poses along their own recorded entry paths only, `MOV_JOINTS = (1, 3, 4, 5)` — no
+> gripper, no J0.
+>
+> **`SERIAL-PROTOCOL.md` is stale in three places and the firmware is right in all three.**
+> Unfixed; each pinned by a test, see `Software/arm-sim/README.md` §2.
+>
+> - `STA` joint lines carry a `JTO=` field that §4's "byte for byte" list and §12's "exact
+>   bytes" vectors both omit (§3's `JOG` text has it right, so the doc contradicts itself)
+>   — the doc's own literal vectors would fail a real board.
+> - A watchdog trip emits a **second** line, `EVT ESTOP SRC=WDG`; `SRC=WDG` is nowhere in
+>   the doc, so a host switching on `SRC=` defaults out on the event most needing explaining.
+> - The latch gates only `ENA`/`MOV`/`JOG` — twelve verbs answer `OK` latched, so §3's
+>   `STP`-vs-`EST` row and §7's `E7` row read too globally. Sharp edge: **`STP <j>` on a
+>   latched board answers `E6`, not `E7`.**
+>
+> **Decisions are waiting on Mike** — §6 of the findings doc, plain English, one sentence
+> per option. **Six are listed and they are NOT the whole open set** — §6's preamble names
+> which PRD questions they cover, and which two the build settled by following the PRD's own
+> recommendation rather than Mike's ruling. Do not guess past any of them now.
+
 > ### ⏫ UPDATED 2026-08-06 ~21:50 — this supersedes the block below it
 >
 > **Full detail: `Documentation/2026-08-06-EVENING-SESSION-FINDINGS.md`.**
@@ -267,3 +308,5 @@ turned** — that distinction is what cost the D3 afternoon.
    flag the same way J6's was: drive it and watch.
 4. Longer-term: calibrate a camera so the marker sizes stop resting on an
    assumption, and measure the shoulder's true mirror offset.
+5. **First real board run of the Telegram path is plan Phase 4** — needs Mike at the
+   bench; the pre-flight is §7 of `2026-08-07-TELEGRAM-VOICE-SESSION-FINDINGS.md`.
