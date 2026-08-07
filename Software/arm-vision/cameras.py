@@ -259,6 +259,12 @@ def read(cap, spec: CameraSpec):
 
 
 def main() -> int:
+    import argparse
+    ap = argparse.ArgumentParser(description="resolve and open every camera role")
+    ap.add_argument("--save", default="", metavar="DIR",
+                    help="write one oriented frame per role into DIR")
+    args = ap.parse_args()
+
     specs = load_specs()
     print(f"{'role':6} {'vid:pid':12} {'idx':>4} {'size':>10} {'fmt':>5} "
           f"{'rot':>4} {'focus':>6}  device")
@@ -272,9 +278,19 @@ def main() -> int:
             continue
         ok, frame = read(cap, s)
         shape = f"{frame.shape[1]}x{frame.shape[0]}" if ok else "no frame"
+        extra = ""
+        if ok and args.save:
+            os.makedirs(args.save, exist_ok=True)
+            path = os.path.join(args.save, f"{role}.png")
+            cv2.imwrite(path, frame)
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Luma and sharpness reported together: a frame can be well exposed
+            # and out of focus, and only one of those is visible in a thumbnail.
+            extra = (f"  luma {gray.mean():5.1f}  "
+                     f"sharp {cv2.Laplacian(gray, cv2.CV_64F).var():7.1f}")
         cap.release()
         print(f"{role:6} {s.vid_pid:12} {idx:>4} {shape:>10} {s.fourcc:>5} "
-              f"{s.rotation_deg:>4} {s.focus:>6}  {s.friendly_name}")
+              f"{s.rotation_deg:>4} {s.focus:>6}  {s.friendly_name}{extra}")
         if not ok:
             rc = 1
     print("\nintrinsics: " + ", ".join(f"{r}={s.intrinsics}"
