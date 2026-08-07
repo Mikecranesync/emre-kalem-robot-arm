@@ -14,6 +14,7 @@ settles downward while held, so frames minutes apart are not comparable.
 |---|---|---|---|---|---|---|
 | **J5 wrist roll** | 104 → 70 → 140 → 104 | **3/3 MOVED** | 10221 / 13487 / 10533 | 6 / 7 / 0 | 1700–1930× | 25–60 px (expected: roll swings the whole gripper) |
 | **J4 wrist pitch** | 90 → 75 → 90 → 105 → 90 | **4/4 MOVED** | 1852–2286 | 1–4 | 463–2286× | 0.3–0.56 px (articulation, not arm swing) |
+| **J3 elbow** | 33 → 23 → 33 → 43 → 33 | **4/4 MOVED** | 15963–17807 | 2–40 | 421–7981× | 24–63 px (expected: the elbow swings everything distal) |
 | **J6 gripper** | 10 ↔ 70, two cycles | **NOT ARTICULATING** | 27–60 | 2–17 | 1.4–1.8× | <0.5 px |
 
 `JTO=0` on every waypoint of every run — no joint timeout, no stall. Every `MOV`
