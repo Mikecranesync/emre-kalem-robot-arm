@@ -62,6 +62,42 @@ a bench rig. Not the assembled arm. Two configurations, never a conflict.
 
 ## Where things stand right now
 
+> ### ⏫ UPDATED 2026-08-06 ~21:50 — this supersedes the block below it
+>
+> **Full detail: `Documentation/2026-08-06-EVENING-SESSION-FINDINGS.md`.**
+>
+> **Every joint with a live servo is now camera-verified** — J1 shoulder, J3 elbow,
+> J4 wrist pitch, J5 wrist roll. Ratios 96–16369× over the noise floor, `JTO=0`
+> throughout. J3's result resolves the old "no-motion report for the elbow".
+>
+> **J6 GRIPPER HAS REGRESSED and is NOT controllable.** It opened and closed at
+> 14:53; by 19:00 the same commands moved nothing. Firmware is exonerated (`SET`
+> ramps correctly on D11), the prong silhouette is identical at commanded 10 and 70,
+> and the operator's diagnosis after checking it by hand is *the gear is slipping on
+> the motor shaft*. Mechanical. Do not re-mark it confirmed without a fresh
+> camera-verified run.
+>
+> **Two named poses are recorded in `Software/arm-console/arm-poses.csv`, each with
+> its entry path** — `storage` (J1 88, J3 64, J4 90, J5 104) and `pick` (J1 8, J3 36,
+> J4 140, J5 165). To leave a pose, reverse its own path; never interpolate.
+>
+> **Parked at `storage` for the night, still energised.** 16 pick↔storage cycles ran
+> clean up to the firmware's 90 dps ceiling (9.8 s round trip). **Zero watchdog
+> latches in ~3.5 hours.**
+>
+> **`hold_arm.py` now lives at `Software/arm-console/hold_arm.py`** — it is no longer
+> only in a temp directory. The copy that ran tonight was the scratchpad one.
+>
+> **Direction mapping** (one of these was reported backwards first): J1 HIGHER folds
+> onto the base, LOWER reaches out. J3 HIGHER tucks and tilts the forearm down.
+> **Aiming the claw down is ROLL (J5), not pitch** — J4 rotates it mostly out of the
+> camera plane.
+>
+> **The measurement trap that bit four times:** a metric saturating on something
+> that was not the arm — an ROI edge, a stand foot in the box, a claw clipped out of
+> frame, a reference frame five minutes stale. When a measure stops changing,
+> suspect the measure and look at the image.
+
 **A holder daemon is running and keeping the arm up.** Detached OS process,
 `python hold_arm.py`, in the session scratchpad.
 
@@ -129,6 +165,12 @@ black window open.
 ---
 
 ## What is proven, and what is not
+
+> **⏫ 2026-08-06 evening — the J6 claim below is now HISTORICAL.** It was true when
+> written; the gripper has since stopped articulating and the fault is mechanical
+> (gear slipping on the motor shaft). J1/J3/J4/J5 have since been camera-verified,
+> which the block below predates. See
+> `Documentation/2026-08-06-EVENING-SESSION-FINDINGS.md`.
 
 **Proven 2026-08-06 — the first motion on this arm confirmed against the shaft**
 rather than against an ack. The operator watched the gripper open and close, and

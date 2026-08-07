@@ -11,3 +11,7 @@ desktop.ini
 # Python bytecode
 __pycache__/
 *.pyc
+
+arm_cmd.txt
+arm_hold.log
+arm_status.txt
