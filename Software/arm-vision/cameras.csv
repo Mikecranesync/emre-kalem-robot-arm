@@ -1,0 +1,81 @@
+# cameras.csv - the two cameras this project uses- and the settings that do not
+# survive being closed.
+#
+# WHAT THIS FILE IS. One row per camera ROLE. A role is what the camera is FOR-
+# not which USB port it happens to be in. "side" watches the whole arm from
+# outside it; "wrist" is the eye-in-hand view that sees what the gripper sees.
+# Downstream code asks for a role and never for a number.
+#
+# WHY THERE IS AN index_hint COLUMN AND WHY YOU MUST NOT TRUST IT. An OpenCV
+# index is not an identity. Windows hands VideoCapture(0) whichever device
+# enumerated first- and that order changes when something is replugged or a hub
+# wakes up. A config pinned to an index is how the WRIST camera silently becomes
+# the SIDE camera - and a visual servo loop that thinks it is looking at the
+# gripper while it is actually looking at the room will drive the arm somewhere
+# nobody asked for. index_hint is a starting guess for the search. IDENTITY is
+# the vid_pid column- resolved at open time by capability probe. If the probe
+# cannot resolve a role- cameras.py RAISES rather than opening something.
+#
+# HOW IDENTITY IS ACTUALLY RESOLVED. Windows will tell you VID:PID for the
+# devices present but not which OpenCV index maps to which. So cameras.py opens
+# each index and asks what it can do. These two parts are trivially separable:
+# the Arducam is a 12 MP module that offers 3840x2160- and the laptop lid camera
+# refuses anything above 1280x720. That capability signature is the fingerprint.
+# If a third camera ever arrives that also does 4K- this stops working and the
+# resolver must change. It is a heuristic that fits TWO cameras- not a law.
+#
+# EVERY SETTING HERE IS PER-OPEN AND DOES NOT PERSIST. DirectShow forgets all of
+# it the moment the capture closes. So this file is not a record of how the
+# cameras are configured - it is the list of things that MUST BE RE-APPLIED
+# every single time one is opened. That is the whole reason cameras.py exists
+# rather than a note in a runbook: a setting a human has to remember is a
+# setting that will be forgotten.
+#
+# rotation_deg IS APPLIED IN SOFTWARE- NOT IN THE DEVICE. The wrist camera is
+# mounted upside down - photographed 2026-08-07 with the bench surface at the
+# top of frame and the tape-measure lettering reading backwards. ArUco does not
+# care- it resolves a marker's own orientation. HUMANS care- and so does every
+# sign convention derived from watching which way something moves in the image.
+# Get this wrong and "the target moved left so drive the joint this way" is
+# backwards- which is exactly the class of error that took two attempts to get
+# right on the shoulder direction. Read frames through cameras.read() and the
+# rotation is applied for you.
+#
+# THE focus COLUMN IS A MEASUREMENT- AND IT IS DISTANCE-SPECIFIC. 469 was found
+# by sweeping the full 1..1023 range and measuring sharpness (variance of the
+# Laplacian over the centre half) at every step. The autofocus had settled at
+# 200- which measures 3.4 against the peak's 117.9 - roughly 35x worse. It also
+# read 380 in an earlier probe of the same static scene- which is what a hunting
+# lens looks like. THE NUMBER IS ONLY RIGHT FOR THE DISTANCE IT WAS MEASURED AT-
+# and focus_set_at records that this was the bench edge at close range with the
+# distance NEVER MEASURED IN MILLIMETRES. Mounting the camera on the wrist moves
+# it. Re-run `camera_probe.py --focus <idx>` then- and write the real distance in.
+#
+# WHY FOCUS MUST BE PINNED BEFORE INTRINSICS ARE CALIBRATED. Calibrated
+# intrinsics are only valid at the focus they were measured at - a lens that
+# refocuses changes its effective focal length and every pose estimate drifts
+# with it. On a wrist camera it will refocus on every joint move. Autofocus off-
+# focus pinned- THEN calibrate. The other order produces a calibration that
+# looks fine and is scrap.
+#
+# THE autofocus COLUMN HAS THREE HONEST VALUES. "off" means a manual focus set
+# was honoured on read-back AND held without drifting while watched.
+# "unsupported" means the device does not expose the control at all - the
+# integrated camera reports -1 for both AUTOFOCUS and FOCUS- it is a fixed lens
+# and there is nothing to pin. "unknown" means nobody has checked. NOTE that the
+# Arducam answers 2.0 when asked for its AUTOFOCUS state - neither 0 nor 1 and
+# not a documented value - so "off" on that row rests on BEHAVIOUR (the value
+# stuck and held for 8 s) and NOT on the property read-back. What that does not
+# prove is that autofocus stays disengaged once the SCENE changes. A static
+# bench is the easiest possible case. Re-check it while the arm moves.
+#
+# intrinsics: none on both rows. NO CAMERA IN THIS PROJECT HAS BEEN CALIBRATED-
+# so every marker size in Software/vision/markers.csv still rests on an ASSUMED
+# ~60 degree field of view. Do not print marker stickers until this column says
+# otherwise. Board generator: make_charuco_board.py. Solver: calibrate_intrinsics.py.
+#
+# Do not put a comma inside any field. Use a semicolon or a dash.
+#
+role,vid_pid,friendly_name,index_hint,width,height,fourcc,rotation_deg,autofocus,focus,focus_set_at,intrinsics,notes
+side,174F:2469,Integrated Camera,0,1280,720,YUY2,0,unsupported,-1,n/a - fixed lens,none,THE LAPTOP LID CAMERA. REFUSES MJPG - it stays YUY2 whatever you ask for- which at 1280x720x30 is roughly 440 Mbit/s of uncompressed video against USB 2.0's ~480 Mbit/s ceiling. It measured fine alongside the Arducam on 2026-08-07 (299 frames each- 29.9 fps each- every frame hash distinct) but that is thin margin and not free headroom - re-measure before a third stream or a hub joins the bus. Max resolution is 1280x720; it silently refuses 1080p. AUTOFOCUS and FOCUS both report -1 (not supported) so there is nothing to pin. ERGONOMIC COLLISION worth knowing: this camera points where the SCREEN points- so aiming it at the arm turns the display away from the operator. That is how it ended up photographing the ceiling on 2026-08-06. A clamped second bench camera would solve it; that is a purchase decision and not mine.
+wrist,0C40:0304,Arducam-708-12MP-HDR,1,1280,720,MJPG,180,off,469,bench edge - close range - DISTANCE NOT MEASURED,none,THE EYE-IN-HAND CAMERA - the torque-stripe camera from the earlier project. Accepts MJPG which is what makes two simultaneous streams affordable. Offers up to 3840x2160 which is the capability signature the resolver uses to tell it from the lid camera. Ran 19626 frames at 32.7 fps for 600 s with no dropout on 2026-08-07- and 299 frames at 29.9 fps alongside the lid camera and the Uno on COM5. MOUNTED UPSIDE DOWN - rotation_deg 180 is applied in software- see the header. NOT YET ON THE ARM: mass and cable are the open physical questions - a cased webcam is often 70-150 g hanging off two MG90S wrist servos at 5 V on an arm that already sags- and the USB cable crosses J5 roll which sweeps 147 degrees and will wind it up. Weigh it and plan a service loop before it goes on. Both recorded poses in arm-poses.csv were driven WITHOUT this mass and cable and must be re-verified after mounting.
