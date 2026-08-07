@@ -15,3 +15,8 @@ __pycache__/
 arm_cmd.txt
 arm_hold.log
 arm_status.txt
+
+# pytest / eval tool caches
+.pytest_cache/
+.deepeval/
+.deepeval-cache.json
