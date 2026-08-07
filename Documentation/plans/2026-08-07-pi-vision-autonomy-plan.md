@@ -223,3 +223,88 @@ millimetres. `MARKER-SYSTEM.md` §4 already reports that from a single camera at
 to frame the arm, only the two BASE markers reach pose grade and everything past the turret is below
 the detection floor — that is a real obstacle to the marker-based observation route in PRD §5.4, and
 it is documented, not solved.
+
+---
+
+## 9. Outer context — the rover master plan
+
+A second document arrived the same day: *Emre Kalem Autonomous Pickup Rover — Master Phase Plan*
+(Phases A–E, ending at scheduled household cleanup missions). It does not compete with the Pi vision
+PRD; it **contains** it. The rover plan's Phase A ("finish the stationary arm") is the Pi PRD's
+M0–M7. Everything in this plan up to click-to-pick serves both.
+
+Its two governing principles are the right ones and are adopted here without qualification:
+
+> *"Prove manipulation before mobility. A rover that cannot reliably grasp objects is only a moving
+> camera."*
+> *"Do not buy a depth camera until the webcam-only floor-plane approach has been tested."*
+
+### 9.1 It resolves the open camera question from §4.2
+
+§4.2 flagged that no existing asset gives a fixed camera viewing the work plane, and left the choice
+open. The rover plan settles it by architecture: the webcam's job is *"what is on the floor / where
+is the object / where should the gripper go"*, and on the rover it is **chassis-mounted looking
+forward and down at the pickup zone**. It is not a wrist camera, and the rover architecture never
+asks for one.
+
+**Recommendation: move the Arducam off the gripper onto a fixed mount looking down at the pickup
+zone.** Reasons, in order:
+
+1. It is the camera that can actually be calibrated well — MJPG, manual focus that holds, 4K-capable.
+   The laptop lid camera refuses MJPG, caps at 720p, has no focus control at all, and points where
+   the screen points.
+2. A fixed downward view is the geometry both documents' pixel→floor-plane maths assumes. The lid
+   camera's near-horizontal view gives a badly conditioned homography.
+3. It costs nothing. No third camera, no purchase.
+4. It matches the rover's final geometry, so the bench calibration procedure is the one that will be
+   re-run after Phase D rather than a throwaway.
+
+What is given up: the eye-in-hand view. That was a good experiment — the POV map and the J5
+sign/scale measurement both came from it — but **neither PRD requires it**, and grasp confirmation
+can come from the fixed camera watching the gripper close. Keep the wrist mount; it can go back on
+later for grasp verification once the fixed pipeline works.
+
+### 9.2 Its empirical reach map is a bigger simplification than §5.1
+
+§5.1 proposed uncalibrated visual servoing to defer the URDF. The rover plan §5 goes further and is
+better for this arm: **teach the software where the real gripper lands for a set of safe, observed
+joint configurations**, and interpolate between them. It states the reason exactly right — that
+automatically captures print tolerance, servo-horn offsets, actual assembly and linkage variation,
+none of which loose STLs can supply.
+
+That is a **taught reach map**, and it sidesteps M5 (measured kinematics, URDF, FK, IK) entirely for
+v1 rather than merely deferring it. For a 4-working-DOF arm on a fixed table it is very likely
+sufficient, and it is far less work than recovering a kinematic model by measurement.
+
+**Recommendation: build the taught reach map first; keep uncalibrated visual servoing as the
+refinement that corrects residual error near the target; treat the URDF as Phase H, wanted for
+MoveIt and reachability reasoning rather than for picking things up.**
+
+### 9.3 A direct conflict between the two documents
+
+- Pi vision PRD §4: **Ubuntu 24.04 + ROS 2 Jazzy**.
+- Rover master plan §22: **Ubuntu 22.04 + ROS 2 Humble**, on stated stability grounds.
+
+Both cannot be the baseline. This plan's §5.2 position makes the conflict non-urgent: **nothing
+through click-to-pick needs ROS 2 at all**, so the decision can be deferred to the point where Nav2
+and SLAM Toolbox are actually being installed — which is rover Phase C, well after the bench arm is
+finished. Deciding it then also means deciding it against whatever is current at that time rather
+than now.
+
+### 9.4 Reuse, not re-creation
+
+Rover plan §27 proposes `Software/arm-autonomy/` containing, among others, `arm_link.py`. **That file
+already exists** at `Software/arm-telegram/arm_link.py` — stdlib-only, with the log-offset primitive,
+the reply cut and the LIVE/STALE/NO-LINK freshness verdict already in it. `Software/tests/reply_cut.py`
+holds the shared cut + three-state `clamped()`. Import them; do not write a third copy. Three private
+copies of that exact logic is what produced the defect fixed in `fd97760`.
+
+`geometry.py` / `reach_map.py` / `calibrate_floor.py` / `teach_reach.py` are genuinely new and belong
+in the proposed package.
+
+### 9.5 The fuse, again
+
+Rover plan §29 Phase A item 6 ("fit intended fuse") and §28 readiness gates both require it, as did
+the Pi PRD. Same note as §2 of this plan: the operator's recorded ruling is *"Don't worry about the
+fuse. the power is fine."* Three documents now ask for it and the operator has closed it once.
+Recorded here so the next reader does not raise it a fourth time; it is his call and he has made it.
