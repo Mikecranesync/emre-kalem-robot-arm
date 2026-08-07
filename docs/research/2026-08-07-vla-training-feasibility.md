@@ -206,6 +206,33 @@ measured sign and scale.
 - **This is what the arm is genuinely well suited to, and today's data is already most of the way
   there.**
 
+**Route A is cheaper than written above, and this is the single most useful finding in the report.**
+There is a whole line of work on **uncalibrated visual servoing** that skips intrinsics and hand-eye
+entirely by estimating the image Jacobian *online* from observed motion:
+
+- Hosoda & Asada, *Versatile Visual Servoing without Knowledge of True Jacobian* (IROS 1994) —
+  recursive online estimator, no calibration.
+- Jägersand, Fuentes & Nelson (ICRA 1997) — Broyden secant update of the Jacobian from motion that
+  already happened, so no dedicated calibration moves are needed at all.
+- Piepmeier, McMurray & Lipkin (ICRA 1999; IEEE T-RO 2004) — quasi-Newton/RLS estimator, and they
+  say plainly that this *is* system identification applied to visual servoing.
+- Sutanto, Sharma & Varma, *The Role of Exploratory Movement in Visual Servoing Without Calibration*
+  (RAS 1998) — proposes injecting deliberate small exploratory motions, separate from the task
+  motion, purely to keep the online Jacobian well-conditioned as it degrades.
+
+That last paper describes what the J5 sweep and the J4xJ5 grid already are. So the ordering
+inverts: **calibration is an optimisation of Route A, not a prerequisite for it.** An uncalibrated
+loop can start with the sign/scale table we can measure this week, and intrinsics/hand-eye can be
+added later to make it metric.
+
+Also worth knowing for the world-model option: Nagabandi et al. (ICRA 2018) trained a usable
+dynamics model on a real millirobot from **17 minutes of purely random data**. The volumes there are
+small in a way the imitation-learning volumes are not.
+
+**The name for what we are doing.** In the literature this is **"motor babbling"** — goal-free,
+demonstrator-free self-generated motion, the term borrowed from infant motor development. Searching
+under that name finds the relevant work far faster than "random exploration".
+
 ### Route B — self-supervised grasping on this arm
 
 Fix the gripper, then run autonomous grasp attempts with the wrist camera as the success signal, per
@@ -281,3 +308,12 @@ Zhang calibration https://www.microsoft.com/en-us/research/wp-content/uploads/20
 Tsai & Lenz https://kmlee.gatech.edu/me6406/handeye.pdf ·
 Swevers excitation https://lirias.kuleuven.be/server/api/core/bitstreams/ead2fc07-2a23-4cf6-a97c-70310c363294/content ·
 LeRobot IL docs https://huggingface.co/docs/lerobot/il_robots
+
+Uncalibrated visual servoing: Hosoda & Asada http://www.er.ams.eng.osaka-u.ac.jp/Paper/1994/Hosoda94b.pdf ·
+Piepmeier et al. https://www.usna.edu/Users/weaprcon/piepmeie/_files/documents/H2002_282final.pdf ·
+Sutanto/Sharma/Varma https://www.sciencedirect.com/science/article/abs/pii/S0921889097000523 ·
+EasyHeC (automatic hand-eye via space exploration) https://arxiv.org/abs/2305.01191 ·
+DREAM camera-to-robot pose https://arxiv.org/abs/1911.09231 ·
+Nagabandi 2018 (17 min of random data) https://people.eecs.berkeley.edu/~ronf/PAPERS/anagabandi-icra18.pdf ·
+Rackl et al. excitation B-splines https://elib.dlr.de/76903/1/2012_ICRA_WRackl.pdf ·
+easy_handeye https://github.com/IFL-CAMP/easy_handeye
