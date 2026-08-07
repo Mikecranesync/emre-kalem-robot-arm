@@ -228,3 +228,40 @@ Recorded because each was reported as fact before being corrected.
 - **The arm is not self-supporting in any pose.** All five live joints detach the
   instant the daemon stops or the rocker goes off. Hand under the forearm, then the
   switch.
+
+---
+
+## 9. Postscript — how the session actually ended (21:55)
+
+The holder daemon **crashed** rather than being stopped cleanly:
+
+```
+serial.serialutil.SerialException: WriteFile failed
+  (PermissionError(13, 'The device does not recognize the command.', None, 22))
+  ... in send: ser.write((line + "\n").encode("ascii"))
+```
+
+Cause was benign and external: the operator powered the bench down for the night.
+`Get-CimInstance Win32_SerialPort` afterwards returns **no ports at all**, so the
+board's USB serial device was gone — the daemon was mid-`PNG` heartbeat when it
+vanished. All five joints detached at that instant. The arm was already parked
+folded at `storage`, which is exactly why that pose was chosen: the drop is short
+and away from the loom.
+
+**Two things learned that were not known before:**
+
+1. **`hold_arm.py` does not survive a serial disconnect** — it takes the exception
+   out of `main()` and exits. That is arguably correct for an unplug (there is
+   nothing to hold once the board is gone) but it means the process disappears
+   silently, and `arm_status.txt` is left behind showing `EN=1` on every joint.
+   **A stale `arm_status.txt` reads exactly like a healthy held arm.** Check the
+   file's mtime, or that the PID is alive, before believing it. This is the same
+   class as every other trap in section 5: a stale artifact that looks like live data.
+2. The last recorded live state before the disconnect was the intended park —
+   J1 88, J3 64, J4 90, J5 104, `ES=0 WD=0`, **zero watchdog latches across the
+   entire ~3.7 hour session**.
+
+**Next session:** the arm's physical resting position after the detach has NOT been
+observed — the camera had been repositioned by then. Look at it before commanding
+anything, and expect the adopt angles in `hold_arm.py` to be estimates of where the
+joints *are*, not where they were left.
