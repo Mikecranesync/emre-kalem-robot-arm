@@ -217,6 +217,36 @@ cd /c/RobotArm/Software/arm-telegram && python -m pytest -q
 
 ## Phase 4 — FIRST REAL BOARD RUN. Mike at the bench, hand near the rocker.
 
+> ### ⏫ UPDATED 2026-08-07 ~02:15 — TWO STEPS BELOW CANNOT PASS AS WRITTEN. Read this first.
+>
+> This phase was written before the Phase 0–3 code existed. Building it changed what
+> Steps 3 and 5 can prove. Nothing else in the phase is affected, and the six
+> before-a-single-command items are unchanged and still govern.
+>
+> **Step 3 tests the case that always worked, not the one that was broken.** "Restart
+> the daemon mid-window" means *between messages* — the bot sees the restart on the next
+> update and disarms, and it always did. The defect the adversarial pass found was a
+> restart **MID-TRANSITION**, while a `/go` is actually running: the bot went on sending
+> the remaining waypoints into an arm whose joints had just snapped to their adopt
+> angles, ran the wrist-and-elbow phase with the shoulder folded back down, then reported
+> the move complete and left the window open. It is fixed and pinned by regression tests
+> **against a model of the daemon.** To exercise the fix at the bench: **restart the
+> daemon while the arm is moving, after the first phase has landed.** Expect the bot to
+> stop, refuse, and say the joints snapped to their adopt angles. **Watch the arm.**
+> Keep the between-messages case too — it is now the canary that says the detector has
+> not become trigger-happy.
+>
+> **Step 5 cannot be performed as written.** `/stop` **cannot interrupt a transition.**
+> The bot is a single long-poll loop and is not reading updates while it dispatches
+> waypoints, so a `/stop` sent mid-transition is not seen until the transition ends. This
+> is a real limitation, not a bug to fix at the bench, and `Software/arm-telegram/README.md`
+> records it. What Step 5 can actually test: `/stop` while armed and idle, and `/stop`
+> while unarmed — that it is accepted, that exactly `STP` goes out, that the reply is
+> quoted, and that the arm **holds with joints driven** rather than dropping.
+>
+> Full context: `Documentation/2026-08-07-TELEGRAM-VOICE-SESSION-FINDINGS.md`.
+> Skill: `.claude/skills/arm-telegram-control/SKILL.md`.
+
 **Files:** create `Documentation/2026-08-06-telegram-bench-log.md` (date it the day it runs)
 
 **Nothing in Phases 0–3 is evidence about the arm.** The offline suite proves the logic and proves nothing else. This phase is the first time a message from a phone reaches a motor.
