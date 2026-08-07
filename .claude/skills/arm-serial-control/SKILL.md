@@ -96,16 +96,30 @@ Correct primitive: **record `arm_hold.log`'s byte length BEFORE writing the
 command, then tail from that offset.** That yields this command's own reply,
 synchronously, and works for a `STA` you push through the same channel.
 
-The working implementation is the `ArmLink` class in
-`Software/tests/motion_verify.py` — `offset()`, `tail(offset)`, `send(line)`,
+The reference implementation is `Software/tests/reply_cut.py` plus the `Arm`
+class in `Software/tests/cycle_poses.py` — `offset()`, `tail(offset)`, `send(line)`,
 `sta_row(jid)`, `field(row, key)`. Import it rather than rewriting it:
 
+**Do NOT import it from `motion_verify.py`.** That module imports `cv2` and
+`numpy` at the top, so the one-line convenience drags OpenCV into any process
+that follows it -- including a bot whose strongest true claim is zero new
+dependencies. Two stdlib-only choices, both with the reply-cut fix:
+
 ```python
+# in-repo tools (bench):
 import sys; sys.path.insert(0, "C:/RobotArm/Software/tests")
-from motion_verify import ArmLink
-l = ArmLink(link_dir)
-print(l.send("MOV 5 140"))     # -> OK MOV J5 REQ=140 SET=140 CL=0
+from cycle_poses import Arm          # + reply_cut.cut_reply / clamped
+# anything that must stay stdlib-only:
+sys.path.insert(0, "C:/RobotArm/Software/arm-telegram")
+from arm_link import ArmLink
 ```
+
+**Read the reply through `reply_cut.clamped()`, not `"CL=1" in reply`.** The
+daemon logs its own heartbeat and 5 s poll into the same file, so a reply can
+arrive contaminated or truncated before its `CL=` field -- on 2026-08-07 a live
+run produced `OK MOV J1 REQ=88 SET=88 C`, on which a real clamp is invisible.
+`clamped()` returns True / False / **None**, and None means unreadable, which is
+not a pass.
 
 ## 5. Protocol gotchas — hard facts, do not re-derive these
 
@@ -176,10 +190,12 @@ homes and find the arm somewhere else.
 
 ## 10. Unresolved: the daemon is not in the repo
 
-`hold_arm.py` is **not committed**. It lives in a session-temporary scratchpad under
-a *previous* session's UUID, and `motion_verify.py --link` points at that directory.
-When Windows cleans it, **the committed harness has no runnable dependency** — the
-consumer is in git and the producer is not.
+`hold_arm.py` **is committed**, at `Software/arm-console/hold_arm.py`. It derives
+`arm_cmd.txt` / `arm_hold.log` / `arm_status.txt` from `__file__`, so running the
+repo copy puts the link files in `Software/arm-console/` -- that is the `--link`
+directory. All three names are gitignored. (This section previously said the file
+was not committed and lived only in a session scratchpad; that was true when it
+was written and stopped being true on 2026-08-06.)
 
 This is the operator's decision to make, not an agent's. Surface it; do not
 silently commit the daemon into the repo, and do not assume the path still exists.

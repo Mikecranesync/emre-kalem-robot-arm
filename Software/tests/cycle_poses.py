@@ -44,6 +44,10 @@ import time
 import cv2
 import numpy as np
 
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from reply_cut import cut_reply, clamped  # noqa: E402
+
 PICK = {1: 8, 3: 36, 4: 140, 5: 165}
 STORAGE = {1: 88, 3: 64, 4: 90, 5: 104}
 TRANSIT_J1 = 40  # shoulder height used to cross between the two, claw clear of the mat
@@ -83,7 +87,12 @@ class Arm:
         while time.monotonic() - t0 < timeout:
             new = self.tail(off)
             if marker in new:
-                return new.split(marker, 1)[1].strip()
+                # CUT at the daemon's next timestamped line -- reply_cut.py. The
+                # daemon logs a PNG heartbeat and a 5 s STA poll into this same
+                # file, so without the cut they are returned as part of THIS
+                # command's reply, and a reply read mid-flush can be truncated
+                # before its own CL= field. Observed live 2026-08-07.
+                return cut_reply(new.split(marker, 1)[1])
             time.sleep(0.05)
         raise SystemExit(f"no reply for {line!r}")
 
@@ -133,8 +142,20 @@ def run_leg(arm, phases, dps, cur):
         travel = max(abs(targets[j] - cur.get(j, targets[j])) for j in targets)
         for j, v in targets.items():
             reply = arm.send(f"MOV {j} {v}")
-            if "CL=1" in reply:
+            cl = clamped(reply)
+            if cl is None:
+                # No CL= field survived. NOT a pass -- an unreadable reply is
+                # exactly how a real clamp went unseen before the cut was added.
+                notes.append(f"{label}: J{j} reply UNREADABLE (no CL=) -- {reply!r}")
+                return False, round(time.monotonic() - t0, 2), notes
+            if cl:
+                # A clamp means the joint is NOT where it was told to go. The
+                # docstring's own definition of smooth says "no clamp (CL=1)",
+                # and arm-serial-control section 6 says treat it as a failed
+                # command, not a warning. It used to only append a note and keep
+                # driving; it now stops.
                 notes.append(f"{label}: J{j} CLAMPED -- {reply}")
+                return False, round(time.monotonic() - t0, 2), notes
             if "ERR" in reply:
                 return False, round(time.monotonic() - t0, 2), notes + [f"{label}: {reply}"]
         ok, rows, waited = arm.settle(targets, timeout=max(3.0, travel / dps * 1.8 + 2.0))

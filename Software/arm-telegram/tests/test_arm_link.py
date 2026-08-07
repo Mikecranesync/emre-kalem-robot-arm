@@ -501,14 +501,21 @@ def test_drift_the_give_up_message_is_identical(daemon, both):
     assert str(a.value) == str(b.value)
 
 
-def test_drift_the_one_place_they_are_meant_to_disagree(daemon, both, monkeypatch):
-    """The reply cut. Asserted rather than left as a comment, because a
-    divergence nobody tests is a divergence somebody deletes.
+def test_both_copies_now_cut_the_reply_the_same_way(daemon, both, monkeypatch):
+    """The reply cut, now present in BOTH copies. Was a deliberate divergence.
 
-    Identical input to both copies: a latch fires between the reply landing and
-    the tail being read. The lifted original returns everything to end-of-tail
-    and so quotes the daemon's `LATCHED` line back as though the board had
-    answered the move with it. The new one stops at the log boundary.
+    THIS TEST USED TO ASSERT THE OPPOSITE, and the change is the point. It
+    pinned motion_verify.ArmLink as quoting the daemon's `LATCHED` line back as
+    though the board had answered the move with it, because only the lifted copy
+    cut at the log boundary. On 2026-08-07 that defect surfaced on the bench in a
+    third tool -- a live pick->storage run returned `OK MOV J1 REQ=88 SET=88 C`,
+    truncated before the clamp flag, on which `"CL=1" in reply` reads CLEAN --
+    so the cut was pushed back into motion_verify.py and cycle_poses.py via the
+    shared Software/tests/reply_cut.py. The divergence is closed.
+
+    The assertion is now the stronger one: identical input to both copies, a
+    latch firing between the reply landing and the tail being read, and NEITHER
+    quotes the daemon's line. It still fails if either side regresses.
     """
     import time as _time
 
@@ -526,12 +533,15 @@ def test_drift_the_one_place_they_are_meant_to_disagree(daemon, both, monkeypatc
 
     armed.append(True)
     old_reply = old.send("MOV 3 64")
-    assert "LATCHED" in old_reply, "the lifted original quotes the daemon's line"
+    assert old_reply == "OK MOV J3 REQ=64 SET=64 CL=0"
+    assert "LATCHED" not in old_reply, "motion_verify must cut at the boundary now"
 
     armed.append(True)
     new_reply = new.send("MOV 3 64")
     assert new_reply == "OK MOV J3 REQ=64 SET=64 CL=0"
     assert "LATCHED" not in new_reply
+
+    assert old_reply == new_reply, "the two copies must not drift apart again"
 
 
 def test_the_lifted_methods_have_the_same_signature_shape():

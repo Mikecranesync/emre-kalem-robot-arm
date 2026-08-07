@@ -235,6 +235,16 @@ class ArmSim:
         host that does not push its state back in is driving a board at
         defaults it did not choose.
         """
+        # millis() RESTARTS AT 0 on a real reset -- timer0's counter is cleared
+        # with everything else, which is why UP= is an uptime and not a clock.
+        # Leaving the virtual clock running made UP= survive a simulated DTR
+        # reset, contradicting this method's own first line. It was not
+        # cosmetic: it is the direct cause of a restarted daemon's log coming
+        # out the SAME LENGTH as the one it replaced (1595 -> 1596 bytes), which
+        # is what left the telegram restart detector resting on a timestamp
+        # comparison rather than a size comparison. A fidelity gap in the
+        # substrate becomes a wrong belief two layers up.
+        self.clock.set(0)
         for p in ALL_PINS:
             self._attached[p] = False
             self._pulse_us[p] = 0

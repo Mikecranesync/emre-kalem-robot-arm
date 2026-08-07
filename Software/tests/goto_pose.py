@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 import time
 
@@ -52,6 +51,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "arm-vision"))
 
 import cameras                                                     # noqa: E402
 from cycle_poses import PICK, STORAGE, TO_PICK, TO_STORAGE, Arm     # noqa: E402
+from reply_cut import clamped, cut_reply                            # noqa: E402
 
 # The recovery leg: from the daemon's adopt state onto storage, using the
 # waypoint list recorded in arm-poses.csv. J4/J5 already sit at storage's values
@@ -61,46 +61,18 @@ ADOPT_TO_STORAGE = [
     ("tuck_j3", [(3, a) for a in (52, 60, 64)]),
 ]
 LATCH_MARKERS = ("LATCHED", "re-ENA")
-_STAMP = re.compile(r"^\d\d:\d\d:\d\d ", re.M)
 
 
 class CleanArm(Arm):
     """Arm.send() with the reply cut at the daemon's next timestamp.
 
-    THE DEFECT THIS FIXES, OBSERVED ON A REAL RUN AND SAFETY-RELEVANT.
-    cycle_poses.Arm.send() returns everything after its marker to the END of the
-    log, and the daemon writes its own lines into that same log -- PNG
-    heartbeats and a STA poll every 5 s. So an unrelated daemon line lands
-    INSIDE the quoted reply, and worse, the reply can be read before the rest of
-    its own line has been flushed. The 2026-08-07 pick->storage run produced:
-
-        03_fold: J1->88  OK PNG UP=2480971 \\n\\n OK MOV J1 REQ=88 SET=88 C
-
-    -- truncated immediately before the clamp flag. Every guard in this tool
-    tests `"CL=1" in reply`. On that string a genuine CL=1 is INVISIBLE and the
-    run continues past a joint that is not where it was told to go. The run
-    happened to be clean; the check was not.
-
-    Cut at the next line beginning HH:MM:SS, NOT at the next newline -- the
-    daemon timestamps only the FIRST line of a multi-line message, so a naive
-    newline cut truncates every STA to its J0 row. Same rule as
-    arm-telegram/arm_link.py, which fixed this on the other surface first.
-
-    A reply that still has no CL= field after cutting is treated as unreadable
-    rather than as a pass -- silence is not consent.
+    The cutting rule itself lives in reply_cut.py, shared with cycle_poses.py and
+    motion_verify.py, because three private copies of it is exactly how all three
+    ended up carrying the same defect. See that module for the live evidence.
     """
 
     def send(self, line, timeout=6.0):
-        raw = super().send(line, timeout)
-        m = _STAMP.search(raw)
-        return (raw[:m.start()] if m else raw).strip()
-
-
-def clamped(reply: str) -> bool | None:
-    """True clamped, False clean, None unreadable. None is NOT a pass."""
-    if "CL=" not in reply:
-        return None
-    return "CL=1" in reply
+        return cut_reply(super().send(line, timeout))
 
 
 def check_ready(arm: Arm, joints) -> bool:

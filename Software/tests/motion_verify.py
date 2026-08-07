@@ -51,6 +51,10 @@ import time
 import cv2
 import numpy as np
 
+import sys as _sys, os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from reply_cut import cut_reply, clamped  # noqa: E402
+
 DIFF_THRESHOLD = 25  # grayscale levels; see docstring -- do not raise this
 PASS_RATIO = 4.0  # signal must beat the same-waypoint noise floor by this much
 #: A ratio alone is not enough. A freakishly quiet noise floor (2 px) turned a
@@ -119,7 +123,12 @@ class ArmLink:
             new = self.tail(off)
             marker = f"CMD {line} -> "
             if marker in new:
-                return new.split(marker, 1)[1].strip()
+                # CUT at the daemon's next timestamped line -- see reply_cut.py.
+                # Without it, everything the daemon logs after this command (a
+                # PNG heartbeat, the 5 s STA poll) comes back as part of THIS
+                # reply, and a reply read mid-flush can be truncated before its
+                # own CL= field. Observed live 2026-08-07.
+                return cut_reply(new.split(marker, 1)[1])
             time.sleep(0.08)
         raise SystemExit(f"daemon never logged a reply for {line!r} in {timeout}s")
 

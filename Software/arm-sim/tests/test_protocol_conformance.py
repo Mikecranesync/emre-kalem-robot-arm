@@ -1360,8 +1360,15 @@ def test_the_watchdog_survives_the_millis_rollover():
     `millis() > last + timeout`; it writes `(uint32_t)(millis() - last) >
     timeout`, which is correct across the wrap. Nobody is going to hold a bench
     session open for seven weeks to check that, so it is checked here."""
-    clock = VirtualClock(start_ms=0xFFFFFFFF - 500)
+    clock = VirtualClock()
     p = FakeSerial("SIM", 115200, timeout=0.3, sim=ArmSim(clock))
+    # A real board BOOTS at millis()=0 -- reset() clears timer0 with
+    # everything else -- so a near-wrap clock has to be set AFTER
+    # construction. Setting it before describes a board that boots 49.7
+    # days old, which cannot happen; and now that reset() correctly zeroes
+    # the clock, that setup silently removed the wrap this test exists to
+    # check. Verified: without the set() below, millis() never wraps here.
+    clock.set(0xFFFFFFFF - 500)
     p.reset_input_buffer()
 
     one(p, "WDG 1000")
@@ -1376,8 +1383,15 @@ def test_the_watchdog_survives_the_millis_rollover():
 
 
 def test_the_jog_timeout_survives_the_millis_rollover():
-    clock = VirtualClock(start_ms=0xFFFFFFFF - 200)
+    clock = VirtualClock()
     p = FakeSerial("SIM", 115200, timeout=0.3, sim=ArmSim(clock))
+    # A real board BOOTS at millis()=0 -- reset() clears timer0 with
+    # everything else -- so a near-wrap clock has to be set AFTER
+    # construction. Setting it before describes a board that boots 49.7
+    # days old, which cannot happen; and now that reset() correctly zeroes
+    # the clock, that setup silently removed the wrap this test exists to
+    # check. Verified: without the set() below, millis() never wraps here.
+    clock.set(0xFFFFFFFF - 200)
     p.reset_input_buffer()
 
     one(p, "SPD 3 1")
