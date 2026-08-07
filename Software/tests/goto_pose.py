@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -50,7 +51,7 @@ sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(_HERE), "arm-vision"))
 
 import cameras                                                     # noqa: E402
-from cycle_poses import PICK, STORAGE, TO_PICK, Arm                 # noqa: E402
+from cycle_poses import PICK, STORAGE, TO_PICK, TO_STORAGE, Arm     # noqa: E402
 
 # The recovery leg: from the daemon's adopt state onto storage, using the
 # waypoint list recorded in arm-poses.csv. J4/J5 already sit at storage's values
@@ -60,6 +61,46 @@ ADOPT_TO_STORAGE = [
     ("tuck_j3", [(3, a) for a in (52, 60, 64)]),
 ]
 LATCH_MARKERS = ("LATCHED", "re-ENA")
+_STAMP = re.compile(r"^\d\d:\d\d:\d\d ", re.M)
+
+
+class CleanArm(Arm):
+    """Arm.send() with the reply cut at the daemon's next timestamp.
+
+    THE DEFECT THIS FIXES, OBSERVED ON A REAL RUN AND SAFETY-RELEVANT.
+    cycle_poses.Arm.send() returns everything after its marker to the END of the
+    log, and the daemon writes its own lines into that same log -- PNG
+    heartbeats and a STA poll every 5 s. So an unrelated daemon line lands
+    INSIDE the quoted reply, and worse, the reply can be read before the rest of
+    its own line has been flushed. The 2026-08-07 pick->storage run produced:
+
+        03_fold: J1->88  OK PNG UP=2480971 \\n\\n OK MOV J1 REQ=88 SET=88 C
+
+    -- truncated immediately before the clamp flag. Every guard in this tool
+    tests `"CL=1" in reply`. On that string a genuine CL=1 is INVISIBLE and the
+    run continues past a joint that is not where it was told to go. The run
+    happened to be clean; the check was not.
+
+    Cut at the next line beginning HH:MM:SS, NOT at the next newline -- the
+    daemon timestamps only the FIRST line of a multi-line message, so a naive
+    newline cut truncates every STA to its J0 row. Same rule as
+    arm-telegram/arm_link.py, which fixed this on the other surface first.
+
+    A reply that still has no CL= field after cutting is treated as unreadable
+    rather than as a pass -- silence is not consent.
+    """
+
+    def send(self, line, timeout=6.0):
+        raw = super().send(line, timeout)
+        m = _STAMP.search(raw)
+        return (raw[:m.start()] if m else raw).strip()
+
+
+def clamped(reply: str) -> bool | None:
+    """True clamped, False clean, None unreadable. None is NOT a pass."""
+    if "CL=" not in reply:
+        return None
+    return "CL=1" in reply
 
 
 def check_ready(arm: Arm, joints) -> bool:
@@ -112,7 +153,12 @@ def drive(arm: Arm, caps, out_dir, label, moves, dps, settle_extra=2.0) -> bool:
         if "ERR" in reply:
             print(f"    {label}: J{j}->{v}  {reply}  -- STOPPING")
             return False
-        if "CL=1" in reply:
+        cl = clamped(reply)
+        if cl is None:
+            print(f"    {label}: J{j}->{v}  reply has no CL= field -- UNREADABLE, "
+                  f"not a pass. STOPPING.  raw: {reply!r}")
+            return False
+        if cl:
             print(f"    {label}: J{j}->{v}  CLAMPED ({reply}) -- STOPPING. The "
                   f"joint is not where it was asked to be.")
             return False
@@ -144,7 +190,7 @@ def main() -> int:
                    help="start with the adopt->storage recovery leg")
     args = p.parse_args()
 
-    arm = Arm(args.link)
+    arm = CleanArm(args.link)
     sta = arm.send("STA")
     if "ES=1" in sta or "WD=1" in sta:
         print("  arm is LATCHED -- refusing to move. Clear it and re-enable first.")
@@ -162,8 +208,14 @@ def main() -> int:
         legs += ADOPT_TO_STORAGE
     if args.to == "pick":
         legs += [(label, list(t.items())) for label, t in TO_PICK]
+    elif not args.from_adopt:
+        # pick -> storage. The ordering is the whole safety property: LIFT first
+        # to get the claw off the mat, THEN neutralise the wrist while the arm
+        # is high, THEN fold onto the base. Neutralising before lifting swings a
+        # downward-pointing claw across the table.
+        legs += [(label, list(t.items())) for label, t in TO_STORAGE]
     if not legs:
-        print("  nothing to do -- --to storage needs --from-adopt from an adopt state")
+        print("  nothing to do")
         return 1
 
     caps = {}
