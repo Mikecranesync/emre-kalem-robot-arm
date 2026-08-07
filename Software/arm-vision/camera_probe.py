@@ -400,6 +400,197 @@ def cmd_preview(args) -> int:
     return 0
 
 
+def sharpness(frame, roi_frac: float = 0.5) -> float:
+    """Variance of the Laplacian over a centre crop. Higher is sharper.
+
+    Centre crop, not the whole frame, because the edges of a wide lens are soft
+    no matter what the focus does, and the thing being focused on is what the
+    crosshair is pointed at. roi_frac=0.5 keeps the middle half in each axis.
+    """
+    h, w = frame.shape[:2]
+    ch, cw = int(h * roi_frac) // 2, int(w * roi_frac) // 2
+    crop = frame[h // 2 - ch:h // 2 + ch, w // 2 - cw:w // 2 + cw]
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+
+def _settle(cap, n=6):
+    """Discard buffered frames after a control change, then return one."""
+    frame = None
+    for _ in range(n):
+        ok, f = cap.read()
+        if ok:
+            frame = f
+        time.sleep(0.03)
+    return frame
+
+
+def cmd_focus(args) -> int:
+    """Turn autofocus OFF and pin focus at the sharpest value for this scene.
+
+    WHY THIS IS NOT OPTIONAL BEFORE CALIBRATION. Calibrated intrinsics -- focal
+    length and distortion -- are only valid at the focus they were measured at.
+    A lens that refocuses changes the effective focal length, so every pose
+    estimate downstream silently drifts. On a WRIST camera it will refocus
+    constantly, because every joint move changes what it is looking at and how
+    far away that is. Autofocus off, focus pinned, THEN calibrate. Doing it the
+    other way round makes the calibration scrap.
+
+    WHY IT SWEEPS INSTEAD OF SETTING A NUMBER. Focus units are device-specific
+    and undocumented; the value autofocus happens to land on is a fact about
+    THIS scene at THIS distance, not a setting. So: sweep the range, measure
+    sharpness at each step, and pin the peak. The measurement is the argument.
+
+    WHAT THIS VALUE IS AND IS NOT. It is correct for the distance the camera is
+    at RIGHT NOW. Move the camera -- and mounting it on the wrist WILL move it
+    -- and this must be re-run. Record the working distance alongside it.
+    """
+    idx = args.focus
+    cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        print(f"index {idx}: will not open")
+        return 1
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, args.width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, args.height)
+    _settle(cap, 8)
+
+    af_before = cap.get(cv2.CAP_PROP_AUTOFOCUS)
+    f_before = cap.get(cv2.CAP_PROP_FOCUS)
+    print(f"  before:  AUTOFOCUS={af_before}  FOCUS={f_before}")
+
+    # 1. Autofocus off, and CHECK. Plenty of UVC devices accept the set and
+    #    ignore it; a set that returns True proves nothing.
+    cap.set(cv2.CAP_PROP_AUTOFOCUS, 0)
+    _settle(cap, 4)
+    af_off = cap.get(cv2.CAP_PROP_AUTOFOCUS)
+    # DO NOT judge this by the readback alone. This device answers 2.0 -- which
+    # is neither 0 nor 1 and is not a documented value -- so the property is
+    # uninterpretable here. The behavioural test below is the real one: does a
+    # manual FOCUS set stick, and does it HOLD. A readback is a claim; a lens
+    # that stays where it was put is evidence.
+    print(f"  autofocus off requested -> AUTOFOCUS={af_off}"
+          + ("" if af_off in (0.0, 1.0) else
+             "   (uninterpretable value -- judged by behaviour below)"))
+
+    # 2. Find the range the device actually honours.
+    lo, hi = None, None
+    for probe_v in (0, 1, 5):
+        cap.set(cv2.CAP_PROP_FOCUS, probe_v)
+        _settle(cap, 3)
+        if abs(cap.get(cv2.CAP_PROP_FOCUS) - probe_v) < 2:
+            lo = probe_v
+            break
+    for probe_v in (1023, 1000, 500, 255):
+        cap.set(cv2.CAP_PROP_FOCUS, probe_v)
+        _settle(cap, 3)
+        if abs(cap.get(cv2.CAP_PROP_FOCUS) - probe_v) < 2:
+            hi = probe_v
+            break
+    if lo is None or hi is None or hi <= lo:
+        print(f"  could not establish a focus range (lo={lo} hi={hi}); the"
+              " device may not expose manual focus over DSHOW")
+        cap.release()
+        return 1
+    print(f"  focus range honoured: {lo} .. {hi}")
+
+    # 3. Coarse sweep, then fine around the peak.
+    def sweep(values, prev=[None]):
+        """Sweep, waiting LONGER after a large jump.
+
+        A defect the first run exposed: the fine sweep jumped from 511 back down
+        to 409 and measured 4.1 there, where the coarse sweep -- arriving at 409
+        from 358, a small step -- measured 33.2. Same focus value, eight times
+        the sharpness. The lens had not finished travelling when the frame was
+        taken, so the number described a moving lens rather than a focus
+        setting. A fixed settle count is only valid for a fixed step size.
+        """
+        rows = []
+        for v in values:
+            jump = abs(v - prev[0]) if prev[0] is not None else 10 ** 9
+            cap.set(cv2.CAP_PROP_FOCUS, v)
+            prev[0] = v
+            # Big travel needs more time; the range is 1..1023 so scale to it.
+            extra = min(20, int(jump / 40))
+            frame = _settle(cap, args.settle + extra)
+            if frame is None:
+                continue
+            rows.append((v, cap.get(cv2.CAP_PROP_FOCUS), sharpness(frame), frame))
+        return rows
+
+    step = max(1, (hi - lo) // 20)
+    coarse = sweep(list(range(lo, hi + 1, step)))
+    if not coarse:
+        print("  no frames during sweep")
+        cap.release()
+        return 1
+    best = max(coarse, key=lambda r: r[2])
+    fine_lo = max(lo, best[0] - step)
+    fine_hi = min(hi, best[0] + step)
+    fine_step = max(1, (fine_hi - fine_lo) // 10)
+    fine = sweep(list(range(fine_lo, fine_hi + 1, fine_step)))
+    rows = sorted(coarse + fine, key=lambda r: r[0])
+    best = max(rows, key=lambda r: r[2])
+
+    print(f"\n  {'set':>6} {'readback':>9} {'sharpness':>11}")
+    peak = best[2]
+    for v, rb, s, _ in rows:
+        bar = "#" * int(40 * s / peak) if peak > 0 else ""
+        mark = "  <-- peak" if v == best[0] else ""
+        print(f"  {v:>6} {rb:>9.0f} {s:>11.1f}  {bar}{mark}")
+
+    # 4. Pin it, and verify it holds rather than assuming.
+    cap.set(cv2.CAP_PROP_FOCUS, best[0])
+    _settle(cap, 6)
+    held_f = cap.get(cv2.CAP_PROP_FOCUS)
+    held_af = cap.get(cv2.CAP_PROP_AUTOFOCUS)
+    print(f"\n  pinned FOCUS={best[0]} -> readback {held_f:.0f}, "
+          f"AUTOFOCUS={held_af}")
+
+    # 5. Does it DRIFT? An accepted set that a hunting lens overrides a second
+    #    later is the failure this whole command exists to prevent, so watch it.
+    drift, s_series = [], []
+    t0 = time.monotonic()
+    while time.monotonic() - t0 < args.hold:
+        frame = _settle(cap, 2)
+        drift.append(cap.get(cv2.CAP_PROP_FOCUS))
+        if frame is not None:
+            s_series.append(sharpness(frame))
+        time.sleep(0.1)
+    stable = len(set(round(d) for d in drift)) == 1
+    print(f"  held {args.hold:.0f}s: focus values seen = "
+          f"{sorted(set(round(d) for d in drift))}  -> "
+          + ("STABLE" if stable else "DRIFTING -- the lens is still hunting"))
+    if s_series:
+        print(f"  sharpness over that window: min {min(s_series):.1f}  "
+              f"max {max(s_series):.1f}")
+
+    if args.out:
+        os.makedirs(args.out, exist_ok=True)
+        p = os.path.join(args.out, f"cam{idx}_focus{best[0]}.png")
+        cv2.imwrite(p, best[3])
+        print(f"  saved {p}")
+
+    cap.release()
+
+    # The verdict rests on BEHAVIOUR, not on the AUTOFOCUS readback: the manual
+    # value was honoured on read-back, and it did not move while the lens was
+    # watched. What that does NOT prove is that autofocus stays disengaged when
+    # the SCENE changes -- a static bench is the easiest possible case, and the
+    # honest test is on a moving arm.
+    ok = stable and abs(held_f - best[0]) < 2
+    print(f"\n  VERDICT: manual focus {'HELD' if ok else 'DID NOT HOLD'}"
+          f" (readback {held_f:.0f}, no drift over {args.hold:.0f}s)")
+    print("  NOT PROVEN: that autofocus stays disengaged once the SCENE changes."
+          "\n  A static bench is the easy case. Re-check while the arm moves.")
+    print("\n  NOTE: this value is correct for the distance the camera is at"
+          " NOW.\n  Mounting it on the wrist changes that distance -- re-run"
+          " then, and\n  record the working distance next to the number.")
+    print("  DSHOW settings are per-open, not persistent: whatever opens this"
+          "\n  camera next must set AUTOFOCUS=0 and FOCUS again itself.")
+    return 0 if ok else 1
+
+
 def cmd_props(args) -> int:
     """Dump the properties this device will actually report, for tuning later."""
     idx = args.props
@@ -440,6 +631,12 @@ def main() -> int:
                    help="live window for aiming the camera by hand")
     g.add_argument("--props", type=int, metavar="IDX",
                    help="dump the device's adjustable properties")
+    g.add_argument("--focus", type=int, metavar="IDX",
+                   help="autofocus OFF, sweep, pin the sharpest focus")
+    p.add_argument("--settle", type=int, default=5,
+                   help="frames discarded after each focus step (default 5)")
+    p.add_argument("--hold", type=float, default=5.0,
+                   help="seconds to watch for focus drift after pinning")
     p.add_argument("--out", default="", help="output directory for frames")
     p.add_argument("--max-index", type=int, default=3,
                    help="highest OpenCV index to try (default 3)")
@@ -455,6 +652,8 @@ def main() -> int:
         return cmd_probe(args)
     if args.props is not None:
         return cmd_props(args)
+    if args.focus is not None:
+        return cmd_focus(args)
     if args.preview is not None:
         return cmd_preview(args)
     if args.grab is not None:
