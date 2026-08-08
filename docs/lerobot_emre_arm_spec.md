@@ -73,7 +73,7 @@ What is already here, and what each file means for the adapter.
 | `Software/arm-console/joint-limits.csv` | **The calibration data of record.** 106-line comment header, six data rows. | **Reuse verbatim.** This is `calibrate()`'s input. | No commas in any field. `#` and blank lines skipped, header required, columns looked up **by name**. A single malformed row rejects the whole file. No row for joint 2, deliberately. |
 | `Calibration_Notes/lock-artifacts/*.csv` | Eight raw LOCK artifacts, headerless, 11 columns, one per file. | **Data — and the schema to extend for markers.** | Three exist for J1 and two for J3; **newest wins**. The trailing disclaimer string is part of the schema, not decoration. |
 | `Calibration_Notes/calibration-log.csv` | Narrative, append-only, seven rows. | Provenance. **Not machine-read.** | Row 2 (2026-08-01) records the servo physically wired to D3 as the **gripper**, not the base. Row 4 flags it still open. |
-| `Software/wiring-map.csv` | `index,servo_name,uno_pin,servo_type,servo_type_source,…` | Data — but treat `servo_type` as **inferred**. | Six of seven types are `INFERRED` from the BOM. Only wrist roll (D10) is `DOC-CONFIRMED`. Nothing in the firmware varies by servo type and nothing should. |
+| `Software/wiring-map.csv` | `index,servo_name,uno_pin,servo_type,servo_type_source,…` | Data — but treat `servo_type` as **inferred**. | Six of seven types are `INFERRED` from the BOM. Only wrist roll (D9) is `DOC-CONFIRMED`. Nothing in the firmware varies by servo type and nothing should. |
 | `Documentation/SERIAL-PROTOCOL.md` | The wire spec. | **Read it first.** | §9 (connect handshake) is mandatory on both transports. §15 states the no-feedback rule the whole Option A contract rests on. Three of its statements are now stale relative to the firmware — see §7. |
 | `Documentation/specs/2026-08-04-envelope-joystick-design.md` | Design authority for the current firmware and console. | **Read §12 before any marker work.** | §3 is the source of the vocabulary rule. **§12 pre-authorises Option A** — it defers external camera + fiducial markers, states that "externally-observed is a different thing from servo-reported, and conflating them would be worse than the current ban", and leaves the calibration schema explicitly not frozen so observed values can sit beside commanded ones. §4 surveys and rejects ROS 2 + MoveIt; the LeRobot decision supersedes it and that needs saying in that file. |
 | `Software/tests/protocol_check.py` | Real-board harness. Default mode enables nothing. | **Reuse the shape.** `Board` (`:67-111`), `find_port()` (`:161-183`) and `sta()` are the adapter's transport skeleton. | Three outcomes — PASS / **PEND** / FAIL — exit 0/1/2. `BOOT_WAIT_S = 2.0`. |
@@ -460,9 +460,9 @@ RESERVED_JOINT_ID: int = 2
 JOINT_LABELS: dict[int, str] = {
     0: "Base (D3)",        # identity DISPUTED: calibration-log 2026-08-01 says gripper
     1: "Shoulder (D4+D5)",  # one logical joint, mirrored pair
-    3: "Elbow (D6)",
-    4: "Wrist pitch (D9)",
-    5: "Wrist roll (D10)",
+    3: "Elbow (D10)",
+    4: "Wrist pitch (D6)",
+    5: "Wrist roll (D9)",
     6: "Gripper (D11)",     # UNCALIBRATED -- limits are the full electrical range
 }
 ```

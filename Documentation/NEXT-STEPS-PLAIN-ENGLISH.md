@@ -118,7 +118,7 @@ The wiring rule, and this one really matters:
 Never run the 5-volt supply's positive wire into the board's `5V` pin, its `VIN` pin, or
 its round power socket. That is the mistake that kills boards.
 
-When you get there, start with the **wrist-roll motor on pin D10**, with the arm part
+When you get there, start with the **wrist-roll motor on pin D9**, with the arm part
 unbolted from it so it spins freely. Smallest motor, least to push against — the safest
 thing to get wrong first.
 

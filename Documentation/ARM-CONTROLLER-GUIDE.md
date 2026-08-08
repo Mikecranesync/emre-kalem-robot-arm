@@ -61,8 +61,8 @@ not notice until one starts misbehaving.
 
 | Motor type | Where it is | Safe voltage | On your 6.62 V supply |
 |---|---|---|---|
-| MG996R (the big ones) | Base D3, Shoulder D4, Shoulder D5, Elbow D6 | 4.8 – 7.2 V | **Fine** |
-| MG90S (the small ones) | Wrist pitch D9, Wrist roll D10, Gripper D11 | 4.8 – **6.0 V** | **Too high — do not use** |
+| MG996R (the big ones) | Base D3, Shoulder D4, Shoulder D5, Elbow D10 | 4.8 – 7.2 V | **Fine** |
+| MG90S (the small ones) | Wrist pitch D6, Wrist roll D9, Gripper D11 | 4.8 – **6.0 V** | **Too high — do not use** |
 
 6.62 is above 6.0. So the three small motors — wrist pitch, wrist roll and gripper —
 must not be run from that supply at all, not even for a quick single-motor test.
@@ -74,7 +74,7 @@ checked with a meter before anything is connected.
 ### One honest caveat about that table
 
 The motor types come from the **parts list**, not from anyone reading the label on
-each motor. Only one is confirmed by documentation: wrist roll on D10 is an MG90S.
+each motor. Only one is confirmed by documentation: wrist roll on D9 is an MG90S.
 The other six are educated guesses recorded as `INFERRED` in
 `Software\wiring-map.csv`, and there is already a warning about exactly this in
 `Calibration_Notes\calibration-log.csv`.
@@ -237,9 +237,9 @@ green here would be lying to you.
 |---|---|---|---|
 | **J0** | Base — turns left and right | D3 | MG996R |
 | **J1** | Shoulder — **both motors together** | D4 + D5 | two MG996R |
-| **J3** | Elbow | D6 | MG996R |
-| **J4** | Wrist pitch — tilts up and down | D9 | MG90S |
-| **J5** | Wrist roll — twists | D10 | MG90S |
+| **J3** | Elbow | D10 | MG996R |
+| **J4** | Wrist pitch — tilts up and down | D6 | MG90S |
+| **J5** | Wrist roll — twists | D9 | MG90S |
 | **J6** | Gripper / claw | D11 | MG90S |
 
 **There is no card number 2, and that is deliberate.** Number 2 is the shoulder's
@@ -746,8 +746,8 @@ Work down this list in order. It is roughly most-likely-first.
    supply's negative rail. **Without it a motor sits perfectly still and draws nothing,
    which looks exactly like a dead motor.** This exact fault cost this project most of a
    session. It is the first thing to check on any wiring you just changed.
-5. **Is the signal wire on the right pin?** J0 is D3, J1 is D4 and D5, J3 is D6, J4 is
-   D9, J5 is D10, J6 is D11.
+5. **Is the signal wire on the right pin?** J0 is D3, J1 is D4 and D5, J3 is D10, J4 is
+   D6, J5 is D9, J6 is D11.
 6. **Is the motor plug the right way round?** Yellow is signal, red is positive, brown
    or black is negative.
 7. **Is it mechanically jammed?** The screen will happily show a commanded angle while

@@ -159,9 +159,9 @@ move at all. Use this to *rule out* software, never to claim motion.
 |---|---|---|---|---|---|
 | 0 | base | D3 | 29–110 | 64 | **DEAD servo — deliberately excluded.** Replacement ordered. Re-measure J0 after the swap: an MG996R horn seats in ~18° spline steps, so 29–110 will not point where it used to. |
 | 1 | shoulder | D4+D5 | 0–91 | 1 | Two MG996R, `MIR=INV OFF=0`. **The offset is unmeasured — this is settled and not a blocker;** the operator has run this joint on exactly this configuration. |
-| 3 | elbow | D6 | 0–66 | 33 | MG996R, gravity-loaded through the whole forearm. |
-| 4 | wrist pitch | D9 | 0–180 | 90 | MG90S. **Ends UNCONFIRMED** — 0–180 is the entire electrical range and equals the placeholder width, so a mechanical stop may sit well inside it. Stay within ±15 of 90. |
-| 5 | wrist roll | D10 | 31–178 | 104 | MG90S. 31 looks like a real found end; 178 is 2° off the electrical ceiling. |
+| 3 | elbow | D10 | 0–66 | 33 | MG996R, gravity-loaded through the whole forearm. |
+| 4 | wrist pitch | D6 | 0–180 | 90 | MG90S. **Ends UNCONFIRMED** — 0–180 is the entire electrical range and equals the placeholder width, so a mechanical stop may sit well inside it. Stay within ±15 of 90. |
+| 5 | wrist roll | D9 | 31–178 | 104 | MG90S. 31 looks like a real found end; 178 is 2° off the electrical ceiling. |
 | 6 | gripper | D11 | 10–70 | 40 | **REGRESSED.** Acks and ramps correctly, fingers do not articulate. Operator's diagnosis after checking by hand: *the gear is slipping around the motor shaft.* Mechanical. Do not record it as controllable. |
 
 Canonical sources: `Software/wiring-map.csv`, `Calibration_Notes/calibration-log.csv`

@@ -46,9 +46,9 @@ manufacture that bug again.
 | 0 | Base | D3 | MG996R | INFERRED |
 | 1 | **Shoulder (PAIR)** | **D4 + D5** | 2× MG996R | INFERRED |
 | 2 | **RESERVED — never addressable** | — | — | — |
-| 3 | Elbow | D6 | MG996R | INFERRED |
-| 4 | Wrist pitch | D9 | MG90S | INFERRED |
-| 5 | Wrist roll | D10 | MG90S | **DOC-CONFIRMED** |
+| 3 | Elbow | D10 | MG996R | INFERRED |
+| 4 | Wrist pitch | D6 | MG90S | INFERRED |
+| 5 | Wrist roll | D9 | MG90S | **DOC-CONFIRMED** |
 | 6 | Gripper | D11 | MG90S | INFERRED |
 
 **Six addressable joints: 0, 1, 3, 4, 5, 6.** Seven physical servos.
@@ -393,7 +393,7 @@ sketch, because a blocking call is invisible right up until the moment it matter
 ## 6. Asynchronous lines
 
 ```
-RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0
+RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1
 EVT ESTOP SRC=CMD
 EVT ESTOP SRC=RT
 EVT WDOG MS=1043
@@ -657,9 +657,9 @@ step,label,base_deg,shoulder_deg,elbow_deg,wrist_pitch_deg,wrist_roll_deg,grippe
 | `label` | — | free text, no comma |
 | `base_deg` | J0 (D3) | integer degrees, or `-` |
 | `shoulder_deg` | J1 (D4+D5) | integer degrees, or `-` |
-| `elbow_deg` | J3 (D6) | integer degrees, or `-` |
-| `wrist_pitch_deg` | J4 (D9) | integer degrees, or `-` |
-| `wrist_roll_deg` | J5 (D10) | integer degrees, or `-` |
+| `elbow_deg` | J3 (D10) | integer degrees, or `-` |
+| `wrist_pitch_deg` | J4 (D6) | integer degrees, or `-` |
+| `wrist_roll_deg` | J5 (D9) | integer degrees, or `-` |
 | `gripper_deg` | J6 (D11) | integer degrees, or `-` |
 | `dwell_ms` | — | milliseconds to hold after the step completes |
 
@@ -694,7 +694,7 @@ expected.
 ```
 >  VER\n
       56 45 52 0A
-<  OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0 JOINTS=6 BUILD=20260808\n
+<  OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1 JOINTS=6 BUILD=20260808\n
 ```
 
 `NAME=FACTORYLM-ARM` present → proceed. Anything else → refuse to connect.
@@ -741,11 +741,11 @@ The operator looks at the arm, judges the elbow to be at about 95°, and types i
 ```
 
 The firmware **must** pre-load the adopt pulse width (~1524 µs here) *before* calling
-`attach()`, so D6 begins pulsing at exactly the adopted angle. Nothing jumps. A bare
+`attach()`, so D10 begins pulsing at exactly the adopted angle. Nothing jumps. A bare
 `attach()` would command ~1500 µs centre on the very next frame — that is the
 snap-to-centre this whole design exists to prevent, and it would fire on every enable, not
 just at boot. With servo power off nothing moves either way — but
-D6 is now emitting real pulses, which is what §13 measures.
+D10 is now emitting real pulses, which is what §13 measures.
 
 ### Step 4 — move it
 
@@ -868,21 +868,21 @@ A multimeter on DC volts.
 
 | # | Do this | Expect exactly |
 |---|---|---|
-| 1 | Upload `factorylm_arm_controller`. Open Serial Monitor at 115200. | The `;` banner, then `RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0` |
-| 2 | Probe D3, D4, D5, D6, D9, D10, D11 against GND | **~0 V on all seven.** Nothing is attached at boot. |
-| 3 | Type `VER` | `OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0 JOINTS=6 BUILD=20260808` |
+| 1 | Upload `factorylm_arm_controller`. Open Serial Monitor at 115200. | The `;` banner, then `RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1` |
+| 2 | Probe D3, D4, D5, D10, D6, D9, D11 against GND | **~0 V on all seven.** Nothing is attached at boot. |
+| 3 | Type `VER` | `OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1 JOINTS=6 BUILD=20260808` |
 | 4 | Type `STA` | 6 `STA` lines (no `J2`), one `SYS` line with `UNCAL=6`, then `OK STA N=6` |
 | 5 | Type `ENA 2 90` | `ERR E4 ENA JOINT=2 RESERVED=shoulder_pair` |
 | 6 | Type `ENA 1 90` | `ERR E13 ENA JOINT=1 MIR=UNKNOWN` |
 | 7 | Type `MOV 3 100` | `ERR E6 MOV JOINT=3` — disabled joints refuse to move |
 | 8 | Type `ENA 3 90` | `OK ENA J3 ADOPT=90` |
-| 9 | **Probe D6 against GND** | **~0.37 V.** Pulses are being generated. |
-| 10 | Probe D3, D4, D5, D9, D10, D11 | **still ~0 V.** Only the joint you enabled is driven. |
+| 9 | **Probe D10 against GND** | **~0.37 V.** Pulses are being generated. |
+| 10 | Probe D3, D4, D5, D6, D9, D11 | **still ~0 V.** Only the joint you enabled is driven. |
 | 11 | Type `MOV 3 110`, then `STA` a few times | `OK MOV J3 REQ=110 SET=110 CL=0`, then `SET` climbing 90→110 with `MOV=1`, settling at `MOV=0` |
 | 12 | Type `MOV 3 130` | `OK MOV J3 REQ=130 SET=110 CL=1` — **clamped and said so** |
 | 13 | Type `MOV 3 0` | `OK MOV J3 REQ=0 SET=70 CL=1` |
 | 14 | Type `!` (no Enter) | `EVT ESTOP SRC=RT` then `OK EST` |
-| 15 | **Probe D6 again** | **~0 V.** This is the detach-then-drive-LOW check — see below. |
+| 15 | **Probe D10 again** | **~0 V.** This is the detach-then-drive-LOW check — see below. |
 | 16 | Type `MOV 3 100` | `ERR E7 MOV JOINT=3` |
 | 17 | Type `CLR`, then `ENA 3 90`, then `DIS A` | `OK CLR` / `OK ENA J3 ADOPT=90` / `OK DIS ALL` |
 | 18 | Probe all seven pins | **~0 V.** |
@@ -1002,12 +1002,12 @@ a held-pose failsafe is the lesser evil.
 the port and DTR-resets the board — mid-move if there is a move in progress.** This will
 happen during debugging. Close the console first.
 
-**The present 6.62 V supply is out of spec for the three MG90S units** — wrist pitch (D9),
-wrist roll (D10), gripper (D11), all rated 4.8–6.0 V. Do not use it on those three even
+**The present 6.62 V supply is out of spec for the three MG90S units** — wrist pitch (D6),
+wrist roll (D9), gripper (D11), all rated 4.8–6.0 V. Do not use it on those three even
 for single-servo bring-up. It also cannot drive an assembled arm at all: a reassembled
 7-servo arm holding its own weight needs 3–5 A and this adapter supplies 700 mA.
 
-**Six of seven servo types are inferred from the BOM.** Only wrist roll (D10) is
+**Six of seven servo types are inferred from the BOM.** Only wrist roll (D9) is
 doc-confirmed. Nothing in the firmware varies by servo type, and nothing should until
 that is confirmed — if a channel assumed to be MG996R is actually an MG90S, the current
 supply is already over its rated maximum.

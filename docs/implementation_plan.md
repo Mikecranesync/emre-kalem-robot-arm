@@ -99,7 +99,7 @@ already did. Enable one calibrated joint with a human-supplied adopt angle, issu
 a small `MOV`, confirm `SET=`/`CL=` come back as expected, confirm `STP` holds and
 `DIS A` detaches.
 
-Start with **joint 5 (wrist roll, D10)** — it is the only joint whose servo type
+Start with **joint 5 (wrist roll, D9)** — it is the only joint whose servo type
 is `DOC-CONFIRMED` rather than inferred, and it carries the least mechanical load.
 Do **not** start with joint 0 (identity disputed) or joint 1 (mirrored pair,
 unmeasured offset).

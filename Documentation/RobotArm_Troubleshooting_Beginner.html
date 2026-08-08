@@ -73,8 +73,8 @@
 <thead><tr><th>What</th><th>Value</th><th>Source</th></tr></thead>
 <tbody>
 <tr><td>Servo supply — the new one</td><td><code>5.0 V regulated, 3–5 A</code></td><td><span class="pageref">[V2-SERVO-POWER-AND-WIRING &sect;7]</span></td></tr>
-<tr><td>MG996R safe voltage range<br/><span class="small">base D3, shoulders D4+D5, elbow D6</span></td><td><code>4.8 – 7.2 V</code></td><td><span class="pageref">[V2 &sect;7]</span></td></tr>
-<tr><td>MG90S safe voltage range<br/><span class="small">wrist pitch D9, wrist roll D10, gripper D11</span></td><td><code>4.8 – 6.0 V</code></td><td><span class="pageref">[V2 &sect;7]</span></td></tr>
+<tr><td>MG996R safe voltage range<br/><span class="small">base D3, shoulders D4+D5, elbow D10</span></td><td><code>4.8 – 7.2 V</code></td><td><span class="pageref">[V2 &sect;7]</span></td></tr>
+<tr><td>MG90S safe voltage range<br/><span class="small">wrist pitch D6, wrist roll D9, gripper D11</span></td><td><code>4.8 – 6.0 V</code></td><td><span class="pageref">[V2 &sect;7]</span></td></tr>
 <tr><td>The old adapter</td><td><code>6.62 V / 700 mA</code> — one MG996R, unloaded, only.<br/><strong>Out of spec for every MG90S.</strong></td><td><span class="pageref">[V2 &sect;7; measured, calibration-log 2026-08-01]</span></td></tr>
 <tr><td>Capacitor across the servo supply</td><td><code>470 – 1000 &micro;F</code> electrolytic, close to the servo, stripe = negative</td><td><span class="pageref">[V2 &sect;4a]</span></td></tr>
 <tr><td>Inline fuse</td><td><code>1 A</code>, in the supply positive leg</td><td><span class="pageref">[V2 &sect;3]</span></td></tr>
@@ -209,7 +209,7 @@ every servo on this arm in about a second.
 <div class="check">between <code>4.9</code> and <code>5.1 V DC</code>. If it reads 6.6&nbsp;V you are still on the old adapter. If it reads 12&nbsp;V, stop and adjust before going further.</div>
 <li><span class="checkbox"></span> <strong>Rocker ON, no servo connected yet.</strong> Meter at the far end of the servo power leads.</li>
 <div class="check">the same <code>~5 V</code> at the servo end. A big drop here means a bad crimp or a breadboard contact still in the path.</div>
-<li><span class="checkbox"></span> <strong>Rocker OFF. Connect exactly one servo</strong> — the wrist roll, D10, is the right first choice: it is an MG90S with the least mechanical load of all seven <span class="pageref">[wiring-map.csv, servo type DOC-CONFIRMED]</span>, and 5&nbsp;V is comfortably inside its 4.8–6.0&nbsp;V range.</li>
+<li><span class="checkbox"></span> <strong>Rocker OFF. Connect exactly one servo</strong> — the wrist roll, D9, is the right first choice: it is an MG90S with the least mechanical load of all seven <span class="pageref">[wiring-map.csv, servo type DOC-CONFIRMED]</span>, and 5&nbsp;V is comfortably inside its 4.8–6.0&nbsp;V range.</li>
 <li><span class="checkbox"></span> <strong>Horn off.</strong> Tape a toothpick or a paper flag to the spline so you can see small movements <span class="pageref">[V2 &sect;5]</span>.</li>
 <li><span class="checkbox"></span> <strong>Rocker ON, then enable that one joint in the console</strong> and nudge it.</li>
 <div class="check">the flag moves, the board does not reset, and the console stays connected. A reset here means a brownout — check the capacitor and the ground.</div>
@@ -467,7 +467,7 @@ A row still sitting at 70–110 with <code>calibrated=yes</code> is a lie the co
 and repeat, and the amber UNCALIBRATED badge is the only thing that would have warned you
 <span class="pageref">[joint-limits.csv header]</span>.
 </div>
-<p class="small">The elbow (D6) is the lightest of the four MG996R joints and a sensible one to
+<p class="small">The elbow (D10) is the lightest of the four MG996R joints and a sensible one to
 calibrate first <span class="pageref">[joint-limits.csv, joint_id=3 notes]</span>.</p>
 
 <h3>b. Which motor is physically on D3</h3>

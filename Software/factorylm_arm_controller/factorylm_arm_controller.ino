@@ -26,7 +26,7 @@
  *   no-motion episode.  One wire: any Arduino GND to the supply negative.
  *
  *   The present 6.62 V adapter is OUT OF SPEC for the three MG90S units
- *   (D9 wrist pitch, D10 wrist roll, D11 gripper - rated 4.8-6.0 V), and at
+ *   (D6 wrist pitch, D9 wrist roll, D11 gripper - rated 4.8-6.0 V), and at
  *   700 mA it cannot drive an assembled arm at all.  That needs 3-5 A.
  *
  * -----------------------------------------------------------------------------
@@ -49,9 +49,9 @@
  *     0  Base            D3        MG996R  (inferred)
  *     1  Shoulder PAIR   D4 + D5   2x MG996R (inferred) - ONE logical joint
  *     2  RESERVED        -         never addressable
- *     3  Elbow           D6        MG996R  (inferred)
- *     4  Wrist pitch     D9        MG90S   (inferred)
- *     5  Wrist roll      D10       MG90S   (DOC-CONFIRMED)
+ *     3  Elbow           D10        MG996R  (inferred)
+ *     4  Wrist pitch     D6        MG90S   (inferred)
+ *     5  Wrist roll      D9       MG90S   (DOC-CONFIRMED)
  *     6  Gripper         D11       MG90S   (inferred)
  *
  *   ID 2 is the shoulder pair's second servo (D5).  It is NOT commandable from
@@ -161,7 +161,13 @@ const uint8_t NO_PIN      = 255;   // sentinel; see the guard note below
 // than on "i == RESERVED_ID".  Making the guard structural means a future loop
 // that forgets to skip slot 2 still cannot drive anything.  Do not index
 // PIN_A / PIN_B anywhere except behind that guard.
-const uint8_t PIN_A[NJ] = {   3,   4, NO_PIN,      6,      9,     10,     11 };
+// 2026-08-08: the elbow / wrist-pitch / wrist-roll leads were rewired at the
+// header, so joints 3/4/5 no longer sit on Emre's original D6/D9/D10 order.
+// This arm is now:  elbow=D10, wrist pitch=D6, wrist roll=D9.
+// The JOINT IDS AND NAMES ARE UNCHANGED, so every recorded limit and every lock
+// artifact keyed to J3/J4/J5 still describes the same physical joint. Only the
+// pin each joint drives has moved. wiring-map.csv carries the same note.
+const uint8_t PIN_A[NJ] = {   3,   4, NO_PIN,     10,      6,      9,     11 };
 const uint8_t PIN_B[NJ] = { NO_PIN, 5, NO_PIN, NO_PIN, NO_PIN, NO_PIN, NO_PIN };
 
 // Boot defaults.  Deliberately narrow and deliberately flagged uncalibrated.
@@ -557,7 +563,7 @@ static void estopAll(const __FlashStringHelper* src, bool byWatchdog) {
 
 static void doVer() {
   okPre();
-  Serial.println(F(" NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0 JOINTS=6 BUILD=20260808"));
+  Serial.println(F(" NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1 JOINTS=6 BUILD=20260808"));
 }
 
 static void doPng() {
@@ -955,8 +961,8 @@ static void doWdg(int32_t ms) {
 // transmit, during which a queued '!' waits and the interpolator does not tick.
 static void doHlp() {
   Serial.println(F("; FACTORYLM-ARM protocol 1.0  115200 8N1  line ends CR or LF"));
-  Serial.println(F("; joints 0=base D3  1=shoulder D4+D5 pair  3=elbow D6"));
-  Serial.println(F(";        4=wristpitch D9  5=wristroll D10  6=gripper D11"));
+  Serial.println(F("; joints 0=base D3  1=shoulder D4+D5 pair  3=elbow D10"));
+  Serial.println(F(";        4=wristpitch D6  5=wristroll D9  6=gripper D11"));
   Serial.println(F(";        2 is RESERVED - the pair's 2nd servo, never addressable"));
   Serial.println(F("; VER / PNG / STA (or ?)   identify / ping / full status"));
   Serial.println(F("; LIM                      list limits"));
@@ -1203,7 +1209,7 @@ void setup() {
   Serial.println(F(";  THE ROCKER SWITCH AND THE INLINE FUSE ARE THE REAL E-STOP."));
   Serial.println(F(";  This firmware is NOT a safety device. Type HLP for commands."));
   Serial.println(F("; ==========================================================="));
-  Serial.println(F("RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0"));
+  Serial.println(F("RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1"));
 }
 
 void loop() {

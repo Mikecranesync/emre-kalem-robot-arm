@@ -14,9 +14,9 @@ One servo at a time, every time.
 | `0` | D3 | Base | MG996R |
 | `1` | D4 | Shoulder left | MG996R |
 | `2` | D5 | Shoulder right | MG996R |
-| `3` | D6 | Elbow | MG996R |
-| `4` | D9 | Wrist pitch | MG90S |
-| `5` | D10 | Wrist roll | MG90S |
+| `3` | D10 | Elbow | MG996R |
+| `4` | D6 | Wrist pitch | MG90S |
+| `5` | D9 | Wrist roll | MG90S |
 | `6` | D11 | Gripper / claw | MG90S |
 
 The sketch prints "Base" when you type `0` because that's what D3 is *supposed* to be.
@@ -34,8 +34,8 @@ Your supply measures **6.62 V**.
 
 | Servo | Safe range | On 6.62 V |
 |---|---|---|
-| MG996R — base, both shoulders, elbow (D3, D4, D5, D6) | 4.8 – 7.2 V | **fine, test these now** |
-| MG90S — wrist pitch, wrist roll, gripper (D9, D10, D11) | 4.8 – **6.0 V** | **over spec — wait** |
+| MG996R — base, both shoulders, elbow (D3, D4, D5, D10) | 4.8 – 7.2 V | **fine, test these now** |
+| MG90S — wrist pitch, wrist roll, gripper (D6, D9, D11) | 4.8 – **6.0 V** | **over spec — wait** |
 
 So right now you can properly test **four of the seven**. The three small ones need a
 buck converter set to 5.00 V, or a regulated 5 V supply, first.
@@ -171,15 +171,15 @@ you never lose the Serial Monitor.
 
 Lightest duty first, so mistakes are cheap:
 
-1. **Elbow — D6** (`3`)
+1. **Elbow — D10** (`3`)
 2. **Base — D3** (`0`)
 3. **Shoulder left — D4** (`1`)
 4. **Shoulder right — D5** (`2`)
 
 Then, **after** you have 5 V:
 
-5. Wrist roll — D10 (`5`)
-6. Wrist pitch — D9 (`4`)
+5. Wrist roll — D9 (`5`)
+6. Wrist pitch — D6 (`4`)
 7. Gripper — D11 (`6`)
 
 ### Shoulders: a hard rule
