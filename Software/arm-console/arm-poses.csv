@@ -1,0 +1,55 @@
+# arm-poses.csv - named whole-arm poses for the Emre Kalem arm
+#
+# WHAT THIS FILE IS. joint-limits.csv says how far each joint MAY go. This file
+# says where the arm should BE for a named purpose - storage- pick-approach- and
+# so on. Every row here was driven on the real arm and photographed- not planned
+# on paper.
+#
+# WHY THE ENTRY PATH IS A COLUMN AND NOT A COMMENT. The endpoint is not enough.
+# Two poses can both be safe while the straight line between them drives the claw
+# through the bench- the wire loom- or the base housing. entry_path records the
+# waypoint sequence that was actually driven and observed to be clear- joint by
+# joint- in order. TO LEAVE A POSE- REVERSE ITS OWN ENTRY PATH. Do not
+# interpolate between two poses in this file and assume the middle is clear.
+#
+# NO POSE HERE IS SELF-SUPPORTING. Every one is held by servo torque alone. The
+# instant the holder daemon stops or the rocker goes off- all five live joints
+# detach together and the arm falls from wherever it is. A pose can only be
+# chosen to make that fall SHORT and to keep it away from the loom and the bench
+# edge - it can never prevent it. Support the forearm by hand before switching
+# off. See .claude/skills/arm-bench-safety/SKILL.md.
+#
+# J0 IS ABSENT FROM EVERY ROW ON PURPOSE. Its servo is dead and the joint is
+# deliberately left detached- so no pose commands it. Its replacement was ordered
+# 2026-08-06 and J0 must be re-measured when fitted - a new horn seats on a
+# different spline tooth- so the old 29-110 will not point where it used to.
+#
+# J6 ANGLES ARE COMMANDED- NOT ACTUAL. As of 2026-08-06 evening the gripper does
+# not articulate: the firmware ramps D11 correctly and the fingers do not move.
+# Operator's diagnosis after checking it by hand - the gear is slipping on the
+# motor shaft. Any j6_deg below is what the joint was TOLD- and should not be
+# read as a finger position until the mechanical fault is fixed and re-verified.
+#
+# ANGLES ARE COMMANDED SOFT-LIMIT DEGREES- the same units as joint-limits.csv.
+# Nothing in this system observes an output shaft- so "verified" in this file
+# means a camera confirmed the arm MOVED and reached a photographed pose - never
+# that a shaft is at a measured angle. The camera is uncalibrated; no angle here
+# is derived from pixels.
+#
+# DIRECTION MAPPING - HARD-WON- AND ONE OF THEM I GOT BACKWARDS FIRST
+#   J1 shoulder  HIGHER = folds over ONTO THE BASE.  LOWER = reaches OUT.
+#                Read from pixel height alone this looks inverted- because the
+#                claw RISES in frame as the arm folds onto the base. A flat
+#                camera projection cannot tell rising from folding. The operator
+#                called it correctly from the 3D geometry and the projection did
+#                not. When the two disagree- the operator wins.
+#   J3 elbow     HIGHER = folded and tucked in.  LOWER = extended out.
+#                Re-test this after any large J1 change: with the shoulder laid
+#                over- the frame of reference has rotated ~87 degrees and the
+#                screen direction of an elbow move is not what it was.
+#
+# Do not put a comma inside any field. Use a semicolon or a dash.
+#
+pose_name,j1_deg,j3_deg,j4_deg,j5_deg,j6_deg,camera_verified,date_recorded,entry_path,notes
+storage,88,64,90,104,70,yes,2026-08-06,J1 1>22>34>46>58>70>80>88 at 5 deg/s then J3 52>60>64 at 20 deg/s,THE PARKING POSE. Shoulder folded over onto the base and elbow tucked- so the arm is collapsed against its own base rather than reaching out over the bench. Stopped deliberately 3 degrees short of J1 max 91 and 2 short of J3 max 66 - a joint parked hard against its own soft limit has nowhere to back off to and that is the mistake that cost J0 an afternoon. Driven in 8-12 degree steps with a camera frame after every step; every waypoint parked at the commanded angle with CL=0 and JTO=0- and the session logged ZERO watchdog latches. Wrist left at its home 90/104 untouched on purpose: J4's travel ends are still UNCONFIRMED - 0-180 is the whole electrical range - and the claw was inches off the bench during the fold- so driving the wrist blind is how the claw gets pushed into the mat. ON POWER-OFF the forearm swings down through the base area where the wire loom and the blue cable sit; hand under the forearm BEFORE the rocker. Evidence: Calibration_Notes/evidence/2026-08-06_motion-verify/
+pick,8,36,140,165,70,yes,2026-08-06,from storage in 3 phases - see Software/tests/cycle_poses.py: swing_out J1 88>40 while still tucked and high; aim J3>36 J4>140 J5>165 in free space; descend J1 40>8. REVERSE EXACTLY to go back: lift J1>40 FIRST to get the claw off the mat- then neutralise J3>64 J4>90 J5>104 while high- then fold J1>88,THE PICK POSITION - chosen by the operator from a hover montage. Claw hangs vertical directly over the mat with clearance to descend onto a box. Supersedes an earlier pick_approach attempt (J1 26 J3 18) that kept the forearm dead level; the operator picked this one instead - claw geometry over the work surface matters more than a level forearm- and he was right. The forearm here slopes rather than sitting on the horizontal. CYCLED PICK<>STORAGE 11 TIMES on 2026-08-06 at 12/15/25/40/60/90 deg/s - all clean- no clamp- no joint timeout- no watchdog latch- every joint reaching its commanded angle every time. Round trip fell from 30.2s at 12 deg/s to 10.2s at 90 deg/s which is the firmware ceiling (ERR E12 above 90). REPEATABILITY DOES NOT DEGRADE WITH SPEED - measured cycle-to-cycle at each speed rather than against an old reference: 60 and 90 deg/s were the TIGHTEST (2611/2395 and 2884/4002 changed px) and 15 deg/s was no better (5479/2089). An apparent rising drift across the whole run was the arm SAGGING over five minutes- not speed - the same frames-minutes-apart trap that has bitten this project repeatedly. NOTE these speeds exceed the max_deg_per_sec=30 recorded in joint-limits.csv - that column is recorded intent- and running above it is a deliberate act. J6 commanded open at 70; the gripper still does not articulate. Evidence: Calibration_Notes/evidence/2026-08-06_motion-verify/

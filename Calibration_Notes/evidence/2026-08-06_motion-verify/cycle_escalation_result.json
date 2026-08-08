@@ -1,0 +1,112 @@
+[
+  {
+    "dps": 15,
+    "cycle": 1,
+    "to_storage_s": 12.89,
+    "to_pick_s": 13.09,
+    "round_trip_s": 25.98,
+    "drift_storage_px": 0,
+    "drift_pick_px": 0,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 15,
+    "cycle": 2,
+    "to_storage_s": 12.55,
+    "to_pick_s": 13.08,
+    "round_trip_s": 25.63,
+    "drift_storage_px": 5479,
+    "drift_pick_px": 2089,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 25,
+    "cycle": 1,
+    "to_storage_s": 9.31,
+    "to_pick_s": 9.55,
+    "round_trip_s": 18.86,
+    "drift_storage_px": 3854,
+    "drift_pick_px": 3798,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 25,
+    "cycle": 2,
+    "to_storage_s": 9.91,
+    "to_pick_s": 9.7,
+    "round_trip_s": 19.61,
+    "drift_storage_px": 5254,
+    "drift_pick_px": 7144,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 40,
+    "cycle": 1,
+    "to_storage_s": 6.66,
+    "to_pick_s": 7.05,
+    "round_trip_s": 13.71,
+    "drift_storage_px": 5342,
+    "drift_pick_px": 6855,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 40,
+    "cycle": 2,
+    "to_storage_s": 7.05,
+    "to_pick_s": 7.25,
+    "round_trip_s": 14.3,
+    "drift_storage_px": 7534,
+    "drift_pick_px": 8740,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 60,
+    "cycle": 1,
+    "to_storage_s": 5.67,
+    "to_pick_s": 5.81,
+    "round_trip_s": 11.48,
+    "drift_storage_px": 6397,
+    "drift_pick_px": 8157,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 60,
+    "cycle": 2,
+    "to_storage_s": 5.66,
+    "to_pick_s": 5.36,
+    "round_trip_s": 11.02,
+    "drift_storage_px": 6392,
+    "drift_pick_px": 8587,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 90,
+    "cycle": 1,
+    "to_storage_s": 5.03,
+    "to_pick_s": 5.23,
+    "round_trip_s": 10.26,
+    "drift_storage_px": 6960,
+    "drift_pick_px": 9271,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 90,
+    "cycle": 2,
+    "to_storage_s": 5.02,
+    "to_pick_s": 5.22,
+    "round_trip_s": 10.24,
+    "drift_storage_px": 7690,
+    "drift_pick_px": 10972,
+    "notes": [],
+    "ok": true
+  }
+]

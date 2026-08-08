@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# UNDERSCORES, NOT HYPHENS -- load-bearing, not style.
+# LeRobot's register_third_party_plugins() (lerobot/utils/import_utils.py) tests
+#   dist.metadata.get("Name").startswith(("lerobot_robot_", ...))
+# against the DISTRIBUTION name. "lerobot-robot-emre-arm" fails that prefix test,
+# so the plugin installs cleanly, imports cleanly, and is then never discovered --
+# `lerobot-record --robot.type=emre_arm` reports an unknown robot type, and the
+# failure reads like a LeRobot bug rather than a naming one.
+name = "lerobot_robot_emre_arm"
+version = "0.1.0"
+description = "LeRobot plugin for the Emre Kalem 6-axis arm (no position feedback; Option A observation contract)"
+requires-python = ">=3.11"
+
+# LICENCE STATUS -- READ BEFORE PUBLISHING.
+#
+# The declared rule for this project is Apache-2.0 or MIT ONLY. Three things are
+# unresolved and none of them should be passed silently:
+#
+#   1. THE REPOSITORY ITSELF GRANTS NOTHING. There is no LICENSE file anywhere in
+#      emre-kalem-robot-arm. Declaring a licence in this table would be asserting
+#      terms nobody has actually granted, so the `license` key is deliberately
+#      LEFT OUT rather than filled in with a guess. This blocks publishing the
+#      package to any index. It does not block `pip install -e .` locally.
+#   2. pyserial is BSD-3-Clause -- NOT on the allow-list. Unavoidable: it is the
+#      only practical serial layer, and Software/arm-console/arm-bridge.py and
+#      Software/tests/protocol_check.py already depend on it.
+#   3. numpy is BSD-3-Clause -- NOT on the allow-list. Unavoidable: cv2 requires
+#      it, and LeRobot requires it.
+#
+# Both BSD deps are permissive and Apache-2.0 compatible in practice. They still
+# need a written exception recorded against the stated rule. FLAGGED, not passed.
+
+dependencies = [
+    # UNPINNABLE FLOOR. lerobot is not installed on the development host, so the
+    # real `Robot` ABC signature has never been read. `>=0.3` is a placeholder
+    # chosen to be obviously provisional; pin it properly the first time the
+    # package is installed and `connect(calibrate: bool = True)` is confirmed
+    # against the actual base class.
+    "lerobot>=0.3",
+    "pyserial>=3.5",   # BSD-3-Clause -- see the licence note above
+    "numpy>=1.26",     # BSD-3-Clause -- see the licence note above
+]
+
+[project.optional-dependencies]
+# Only needed once a marker observer exists. The adapter runs, records, and
+# teleoperates without a camera -- every observed_* column is simply NaN.
+cameras = ["opencv-python>=4.9"]   # Apache-2.0, on the allow-list
+
+# `pip install -e .[dev]` is NOT how you get a working test run -- it would drag
+# in `lerobot` via [project.dependencies], which is exactly what the tests are
+# built to run without. The suite needs pytest and nothing else:
+#     python -m pip install --user pytest
+#     cd Software/lerobot_robot_emre_arm && python -m pytest
+# This extra exists so the requirement is declared somewhere machine-readable,
+# not because it is the recommended install path.
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+# `tests/` sits beside `src/` and is NOT part of the distribution.
+testpaths = ["tests"]
+
+# NO --doctest-modules, deliberately. It collects modules through the normal
+# import machinery, which executes this package's `__init__.py`, which imports
+# lerobot eagerly and on purpose (see src/lerobot_robot_emre_arm/__init__.py).
+# The tests load observation.py and calibration.py from their file paths instead
+# -- tests/_repo_files.py explains why. The one docstring example that matters
+# (mirror_image) is asserted by hand in tests/test_calibration_validators.py.
+addopts = "-ra"

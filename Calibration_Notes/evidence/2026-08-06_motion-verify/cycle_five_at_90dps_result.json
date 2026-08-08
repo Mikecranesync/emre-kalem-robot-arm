@@ -1,0 +1,57 @@
+[
+  {
+    "dps": 90,
+    "cycle": 1,
+    "to_storage_s": 5.44,
+    "to_pick_s": 5.08,
+    "round_trip_s": 10.52,
+    "drift_storage_px": 0,
+    "drift_pick_px": 0,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 90,
+    "cycle": 2,
+    "to_storage_s": 4.83,
+    "to_pick_s": 5.03,
+    "round_trip_s": 9.86,
+    "drift_storage_px": 5979,
+    "drift_pick_px": 3563,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 90,
+    "cycle": 3,
+    "to_storage_s": 4.95,
+    "to_pick_s": 5.02,
+    "round_trip_s": 9.97,
+    "drift_storage_px": 5635,
+    "drift_pick_px": 7215,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 90,
+    "cycle": 4,
+    "to_storage_s": 4.92,
+    "to_pick_s": 5.09,
+    "round_trip_s": 10.01,
+    "drift_storage_px": 5378,
+    "drift_pick_px": 7091,
+    "notes": [],
+    "ok": true
+  },
+  {
+    "dps": 90,
+    "cycle": 5,
+    "to_storage_s": 4.88,
+    "to_pick_s": 4.91,
+    "round_trip_s": 9.79,
+    "drift_storage_px": 6204,
+    "drift_pick_px": 6279,
+    "notes": [],
+    "ok": true
+  }
+]

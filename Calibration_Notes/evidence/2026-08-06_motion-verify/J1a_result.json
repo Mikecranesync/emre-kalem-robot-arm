@@ -1,0 +1,92 @@
+{
+  "joint": 1,
+  "dps": 5.0,
+  "roi": [
+    300,
+    250,
+    770,
+    600
+  ],
+  "threshold": 25,
+  "pass_ratio": 4.0,
+  "waypoints": [
+    {
+      "label": "home",
+      "deg": 1,
+      "from": 1,
+      "reply": "OK MOV J1 REQ=1 SET=1 CL=0",
+      "sta": "STA J1 EN=1 SET=1 TGT=1 MIN=0 MAX=91 CAL=1 DPS=5 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "1",
+      "moving": "0",
+      "noise_floor_px": 7,
+      "signal_px": 0,
+      "in_travel_peak_px": 116,
+      "silhouette": {
+        "area": 8166,
+        "bbox_h": 123,
+        "bbox_w": 149,
+        "med_span": 57
+      },
+      "geometry_changed": null,
+      "ratio": null,
+      "global_shift_px": 0.0,
+      "daemon_intervened": false,
+      "vs": null,
+      "verdict": "baseline"
+    },
+    {
+      "label": "up5",
+      "deg": 6,
+      "from": 1,
+      "reply": "OK MOV J1 REQ=6 SET=6 CL=0",
+      "sta": "STA J1 EN=1 SET=6 TGT=6 MIN=0 MAX=91 CAL=1 DPS=5 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "6",
+      "moving": "0",
+      "noise_floor_px": 1467,
+      "signal_px": 24742,
+      "in_travel_peak_px": 20184,
+      "silhouette": {
+        "area": 6996,
+        "bbox_h": 131,
+        "bbox_w": 149,
+        "med_span": 50
+      },
+      "geometry_changed": true,
+      "ratio": 16.87,
+      "global_shift_px": 16.18,
+      "daemon_intervened": false,
+      "vs": "home:1",
+      "verdict": "MOVED"
+    },
+    {
+      "label": "home",
+      "deg": 1,
+      "from": 6,
+      "reply": "OK MOV J1 REQ=1 SET=1 CL=0",
+      "sta": "STA J1 EN=1 SET=1 TGT=1 MIN=0 MAX=91 CAL=1 DPS=5 MOV=0 JTO=0",
+      "clamped": false,
+      "jto": "0",
+      "parked_at": "1",
+      "moving": "0",
+      "noise_floor_px": 6,
+      "signal_px": 24707,
+      "in_travel_peak_px": 21746,
+      "silhouette": {
+        "area": 8173,
+        "bbox_h": 124,
+        "bbox_w": 149,
+        "med_span": 58
+      },
+      "geometry_changed": true,
+      "ratio": 4117.83,
+      "global_shift_px": 16.08,
+      "daemon_intervened": false,
+      "vs": "up5:6",
+      "verdict": "MOVED"
+    }
+  ]
+}

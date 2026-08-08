@@ -1,0 +1,80 @@
+# markers.csv - the fiducial sticker set for observing the Emre Kalem arm.
+#
+# WHAT THIS FILE IS. One row per printed sticker. Every size in it is DERIVED,
+# not guessed, and the derivation is auditable from the columns on the right:
+# measured_inscribed_square_mm comes from Software/vision/stl-face-survey.csv,
+# which comes from Software/vision/stl_face_survey.py run against the real STLs
+# in Backups/STL_parts/. Design rationale, the arithmetic, and every assumption
+# live in Documentation/MARKER-SYSTEM.md. Read that before changing a number.
+#
+# WHAT A MARKER OBSERVES - AND WHAT IT DOES NOT. These stickers let a camera
+# OBSERVE link orientation. They do NOT give joint angles on their own. The
+# STLs are individual parts in PRINT orientation with no assembly file, so
+# link-to-link transforms are UNKNOWN and no joint axis can be read off the
+# geometry. Absolute angles require the two calibration passes in
+# MARKER-SYSTEM.md (axis identification, then datum capture at commanded home).
+# Until those run, a marker yields a CHANGE in orientation, not an angle.
+#
+# VOCABULARY. Values recovered from these markers are OBSERVED - a camera
+# actually saw them. That is the one approved exception to the rule against
+# "measured". Nothing here observes a servo output shaft directly; it observes
+# the printed part the shaft is bolted to.
+#
+# SIZE COLUMNS.
+#   black_square_mm       edge of the ArUco black square - the number you pass
+#                         to cv2.aruco / solvePnP as the marker length.
+#   approximate_size_mm   edge of the whole printed sticker INCLUDING the white
+#                         quiet zone - the number you cut out. It is
+#                         black_square_mm * 8/6 for DICT_4X4_50 (6 modules of
+#                         marker + 1 module of quiet zone each side).
+#   Sizing rule actually applied:
+#       black_square_mm = floor((measured_inscribed_square_mm - 2.0) / 1.3333)
+#   The 2.0 mm is application margin for a hand-placed sticker.
+#
+# GRADE COLUMNS - READ THESE TOGETHER. grade_at_design_standoff is meaningless
+# without design_standoff_mm; a marker that is below-floor on the overview
+# camera can be pose-grade on the close camera. The grade vocabulary is exactly
+# three values and nothing else:
+#   pose         projected black square >= 36 px - stable 6-DOF pose
+#   detect       projected black square >= 24 px - detected; pose is unstable
+#   below-floor  projected black square <  24 px - NOT DETECTED at all
+# Grades are computed as projected_px = 1108 * black_square_mm * 0.7 /
+# design_standoff_mm, where 0.7 is the assumed cos of the view angle and 1108 px
+# is the ASSUMED focal length (HFOV 60 deg at 1280 px - unverified; see
+# MARKER-SYSTEM.md section 9 assumption A1). Every grade moves if that changes.
+#
+# pair_baseline_mm IS ONLY VALID WITHIN ONE PART. It comes from the disjoint
+# square pair found on a single planar patch of a single STL. Where a pair spans
+# two different parts the value is "unknown-cross-part": there is no assembly
+# file, so the installed distance between two parts is NOT derivable and must
+# come from Pass 1. Do not substitute a within-part number for a cross-part one.
+#
+# MARKER IDs ARE NOT JOINT IDs. The id space here is 0..12 and is deliberately
+# independent of the joint ids in Software/arm-console/joint-limits.csv. Joint
+# id 2 is reserved and unaddressable; a marker id of 2 does not refer to it and
+# no row in this file implies a joint 2 exists. J1 (shoulder) is ONE logical
+# joint across D4+D5 and gets ONE marker set.
+#
+# LINK NAMES ARE PHYSICAL - the joint they belong to is INFERRED. Part-to-link
+# assignment comes from the Turkish part names and the measured sizes, not from
+# an assembly file. Worse, the D3 motor identity is DISPUTED: the 2026-08-01 row
+# of Calibration_Notes/calibration-log.csv says the servo physically on D3 was
+# the GRIPPER, not the Base. This marker set is the instrument that settles it -
+# command J0 alone and observe which link moves.
+#
+# Do not put a comma inside any field. Use a semicolon or a dash.
+#
+marker_id,link_name,target_part_file,surface_description,approximate_size_mm,approximate_position_description,preferred_orientation,visibility_notes,human_label,black_square_mm,patch_normal,patch_fill_ratio,measured_inscribed_square_mm,pair_baseline_mm,camera,design_standoff_mm,grade_at_design_standoff
+0,GROUND,Alt_Kasa.stl,Outer side wall of the base case at y=+59.8 in part coords - the flat 69.8 x 145.2 mm panel. Highest quality surface on the whole arm: fill_ratio 1.00 means solid material with no cutouts anywhere in the patch.,48.0,Centred on the wall panel toward the x=-27 end - survey square centre (-27.1; +59.8; +38.4). Roughly mid-height of the 70 mm case.,Marker top edge toward +z (up). Both ground markers share one orientation so the world datum is unambiguous.,Never moves and never occluded - this is the fixed world datum and the camera extrinsic reference. Whichever of the two side walls faces the camera may be used; the y=-59.8 wall is equally good (fill 1.00; square 63.2). 50.8 px at the design standoff - the largest margin in the set.,BASE-1,36,(0.00;+1.00;0.00),1.00,62.8,83.2,CAM-A,550,pose
+1,GROUND,Alt_Kasa.stl,Same outer side wall as BASE-1 - second solid square on the same panel.,48.0,Offset 83.2 mm along the wall from BASE-1 toward the x=-101 end. Same height.,Same orientation as BASE-1 - top edge toward +z.,Pair gives the ground baseline used to solve camera pose and to scale-check every other marker. 83.2 mm is the greedy-disjoint baseline measured on this one part; the panel is 145.2 mm long so up to about 100 mm is achievable.,BASE-2,36,(0.00;+1.00;0.00),1.00,62.0,83.2,CAM-A,550,pose
+2,TURRET,Alt_Govde.stl,Outer cylindrical wall of the rotating body - radius 60 mm; 60 mm tall; faceted into 7.0 x 10.8 mm strips at fill 1.00. CURVED SURFACE - see visibility notes.,26.7,Wrapped on the cylindrical wall at about mid-height (z about -6 in part coords) facing the camera at commanded home 64 deg.,Marker top edge toward +z so the sticker wraps only about the vertical axis.,DEGRADED BY CONSTRUCTION. Alt_Govde has NO flat outward face: its top is open; its z=0 face is a recessed ledge with 50 mm of structure above it; only the faceted cylinder is outward-facing. A 20 mm sticker spans about 19 deg of arc - about 0.8 mm of bow - so use centroid and azimuth only; do NOT trust single-tag pose here. Preferred fix is a flat printed tab - MARKER-SYSTEM.md section 8.,TURRET-1,20,cylindrical (no planar patch),n/a,n/a,n/a,CAM-A,550,detect
+3,TURRET,Alt_Govde.stl,Same cylindrical wall as TURRET-1 - placed 90 deg around in azimuth.,26.7,Same height as TURRET-1; 90 deg around the cylinder so one of the pair always faces the camera across the 81 deg J0 sweep (29-110).,Same as TURRET-1 - top edge toward +z.,Second marker exists for COVERAGE not for baseline: across an 81 deg yaw sweep a single wrapped marker rotates out of view. At least one of the pair stays within about 45 deg of facing the camera at all times.,TURRET-2,20,cylindrical (no planar patch),n/a,n/a,n/a,CAM-A,550,detect
+4,UPPER_ARM,Alt_Kol.stl,Outer broad side face of the lower arm at y=+15 - the 231.8 x 85.0 mm side. fill_ratio is only 0.22 (the link is skeletal) so the sticker must sit on the one verified solid patch.,22.7,Survey square centre on the y=+15 face - the largest solid island on that side.,Marker top edge toward the shoulder end (-z in part coords) so the residual sign convention stays fixed.,J1 pitches about a horizontal sideways axis; this face normal is PARALLEL to that axis so the marker rotates IN-PLANE across the whole 0-91 deg range and never tilts away. 23.99 px at the design standoff - it MISSES the 24 px detection floor by a hundredth of a pixel. That is not a margin in either direction: it crosses at about 549 mm. Treat the shoulder as unobservable on CAM-A and fix it properly via MARKER-SYSTEM.md section 8. Do NOT use the x=-22.5 or x=+22.5 rails: they look ideal at fill 1.00 but they are inner walls of a channel with material outboard of them.,SHOULDER-1,17,(0.00;+1.00;0.00),0.22,25.6,176.6,CAM-A,550,below-floor
+5,UPPER_ARM,Alt_Kol.stl,Same y=+15 broad side face - the second solid island 176.6 mm away along the link.,10.7,Survey second-square centre - near the far end of the 231.8 mm face from SHOULDER-1.,Same orientation as SHOULDER-1.,BASELINE MARKER - 176.6 mm is the longest baseline anywhere on this arm and gives the best angle resolution in the set (about 0.035 deg at 0.2 px centroid noise and 600 mm standoff). Both markers are on ONE part so that baseline is real and not an assembly guess. But the solid island here is only 13.6 mm so the marker is 8 mm and it is BELOW the detection floor on the overview camera. Usable only closer than about 260 mm or with the flat-tab upgrade.,SHOULDER-2,8,(0.00;+1.00;0.00),0.22,13.6,176.6,CAM-A,550,below-floor
+6,FOREARM,On_Kol.stl,Outer large face of the forearm at z=+19.6 - the 46.0 x 143.1 mm face. fill_ratio 0.32; the verified solid square is 20.4 mm.,17.3,Survey square centre (-40.5; 0.0; +19.6) - toward the elbow end of the long face.,Marker top edge toward the wrist end (+x in part coords).,Same in-plane argument as SHOULDER-1: J3 bends about a sideways axis and this face turns with it rather than away from it across 0-66 deg. Below the detection floor on CAM-A (18.3 px). It would reach pose grade on CAM-B (40.3 px at 250 mm) but the forearm is only sometimes inside CAM-B's field so that is not a design guarantee. Do NOT use the x=-30.5 face (fill 0.81; square 25.2) - it is an INNER face with material outboard of it; and do NOT use y=-15.2 for the same reason.,ELBOW-1,13,(-0.04;0.00;+1.00),0.32,20.4,22.2,CAM-A,550,below-floor
+7,FOREARM,On_Kol.stl,Same z=+19.6 outer face - second solid island.,8.0,About 22 mm from ELBOW-1 along the same face - the greedy-disjoint second square.,Same orientation as ELBOW-1.,SHORT BASELINE - 22.2 mm within this one part gives only about 0.28 deg angle resolution; the forearm face is 143.1 mm long but fill is 0.32 so the solid islands are not far apart. Treat the forearm pair as redundancy against occlusion rather than as a precision baseline.,ELBOW-2,6,(-0.04;0.00;+1.00),0.32,10.4,22.2,CAM-A,550,below-floor
+8,WRIST,Bilek.stl,Outer face of the wrist block at x=-21.5 - the 17.0 x 32.0 mm face; fill 0.87. The best face on this part by a wide margin.,14.7,Survey square centre (-21.5; -4.6; -0.1) - essentially centred on the small outer face.,Marker top edge toward +z.,SINGLE MARKER - Bilek is 43 x 40 x 25 mm and simply has no second usable island (next best square on any outer face is 8.0 mm). Wrist-pitch observation is therefore single-tag pose and degrades faster than the two-marker links. 34.1 px on CAM-B at 250 mm - detected but just under the 36 px pose floor; move CAM-B to about 230 mm for pose grade. J4 is also the joint whose 0-180 limits are flagged SUSPECT in joint-limits.csv - the travel this marker must cover may not all be physically reachable.,WRIST-1,11,(-1.00;0.00;0.00),0.87,17.2,n/a,CAM-B,250,detect
+9,HAND,El.stl,Flat face of the hand plate - 48.3 x 50.0 mm at fill 0.88. Whichever of the two faces (z=0 or z=3) ends up outward when assembled; both measure 36.0 mm square.,33.3,Centred on the plate face.,Marker top edge toward the finger end of the plate.,BEST SMALL-LINK SURFACE ON THE ARM. J5 is a ROLL joint and this plate is perpendicular to the roll axis - so the marker spins IN-PLANE across the whole 31-178 range and never foreshortens. That is exactly the case a single tag measures well; no second marker needed for J5. Only one 36 mm square fits (second square 0.0) so a pair on this part is not possible anyway. DUAL-VISIBLE: also seen by CAM-A but only at 35.3 px there - detect grade - so J5 pose is carried by CAM-B and CAM-A is a fallback.,HAND-1,25,(0.00;0.00;+1.00),0.88,36.0,n/a,CAM-B,250,pose
+10,HAND,El_Ust.stl,Flat face of the upper hand piece at z=0 - 48.3 x 50.0 mm at fill 0.77. Second solid island on that face.,10.7,Survey second-square centre on the z=0 face.,Same orientation as HAND-1.,OPTIONAL REDUNDANCY. HAND-1 already carries J5. Include only if the hand assembly can occlude HAND-1 at some roll angles. The HAND-1 to HAND-2 distance is unknown-cross-part: they sit on two different STLs and no assembly file gives the offset - Pass 1 must observe it. El_Ust is assumed rigid with El - INFERRED from the shared 50 x 48.3 mm footprint and not verified.,HAND-2,8,(0.00;0.00;-1.00),0.77,13.2,unknown-cross-part,CAM-B,250,detect
+11,FINGER_A,Parmak_2 X 2.stl,Flat outer face of the first finger at z=+5 - 26.2 x 59.9 mm at fill 0.38; verified solid square 10.4 mm.,8.0,Survey square centre on the z=+5 face - on the wide part of the finger nearest the pivot.,Marker top edge toward the fingertip.,SMALLEST AND LEAST CERTAIN MARKERS IN THE SET. J6 is UNCALIBRATED - joint-limits.csv row 6 is the servo full electrical range and not measured travel - so there is no trustworthy range to design occlusion against. 18.6 px on CAM-B at 250 mm is BELOW the detection floor; a 6 mm black square needs the camera closer than about 190 mm merely to be detected. Unless a dedicated close camera exists- J6 stays commanded-only and the observed field reports invalid.,FINGER-A,6,(0.00;0.00;+1.00),0.38,10.4,unknown-cross-part,CAM-B,250,below-floor
+12,FINGER_B,Parmak_2 X 2.stl,Flat outer face of the second finger at z=+5 - the mirror of FINGER-A. Same STL; the part is printed twice.,8.0,Same placement as FINGER-A on the opposing finger.,Mirror of FINGER-A so the two labels read the same way when the gripper is closed.,The PAIR is the point: gripper opening is observed as the SEPARATION between FINGER-A and FINGER-B; neither marker alone means anything for J6. That separation is unknown-cross-part - the two fingers are two printed copies with no assembly file - so it must be observed in Pass 1 and cannot be predicted from the STL. Same close-range limitation as FINGER-A.,FINGER-B,6,(0.00;0.00;+1.00),0.38,10.4,unknown-cross-part,CAM-B,250,below-floor

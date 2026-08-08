@@ -612,6 +612,32 @@ function el(id){ return document.getElementById(id); }
 function sleep(ms){ return new Promise(function (r){ setTimeout(r, ms); }); }
 function clampi(v,lo,hi){ return v<lo?lo:(v>hi?hi:v); }
 
+/* A number box must NEVER change on the scroll wheel.
+   A focused <input type="number"> steps its own value when the wheel turns over
+   it. There is no click, no keystroke and no visible cause, and the number that
+   changed is one you already read and believed. That is how J0's speed became
+   DPS=1 for an afternoon: a three-second jog moved three degrees, and the joint
+   read as dead when nothing was wrong with it.
+   All three number boxes on a joint card are blocked, and the speed one is the
+   least dangerous of them:
+     .js-adoptval  is FOCUSED AND SELECTED the instant the ENABLE dialog opens,
+                   so a page scroll lands straight in it. Its value is the pulse
+                   the firmware pre-loads BEFORE attaching the servo, which is
+                   exactly the mechanism that makes a wrong one snap the joint.
+     .js-target    is the angle SEND transmits. It does not transmit on input,
+                   so a wheel edit sits there looking like what you typed until
+                   you press the button.
+     .js-dps       transmits SPD on change, which is the DPS=1 path above.
+   Gated on focus because that is the only state a browser steps in, so scrolling
+   the page past an unfocused box still works normally. passive:false is
+   required: wheel listeners are passive by default and a passive listener
+   cannot preventDefault. */
+function noWheel(input){
+  input.addEventListener("wheel", function(e){
+    if (document.activeElement === input) e.preventDefault();
+  }, { passive: false });
+}
+
 /* ==========================================================================
    ENVELOPE + JOYSTICK MATHS
    Pure functions, no DOM and no transport, so ?selftest=1 can prove them from
@@ -1953,6 +1979,10 @@ function buildCards(){
     j.dom.adopt.querySelector(".js-confirm").onclick = function(){ confirmAdopt(d.id); };
     j.dom.adopt.querySelector(".js-cancel").onclick  = function(){ closeAdopt(d.id); };
     j.dom.adoptVal.addEventListener("keydown", function(e){ if (e.key === "Enter") confirmAdopt(d.id); });
+
+    /* Every number box on this card, for the reasons at noWheel(). */
+    noWheel(j.dom.adoptVal); noWheel(j.dom.target); noWheel(j.dom.dps);
+
     j.dom.dps.onchange = function(){
       var v = clampi(Math.round(Number(j.dom.dps.value) || DEF_DPS), 1, 90);
       j.dom.dps.value = v; j.dps = v;
