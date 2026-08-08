@@ -557,7 +557,7 @@ static void estopAll(const __FlashStringHelper* src, bool byWatchdog) {
 
 static void doVer() {
   okPre();
-  Serial.println(F(" NAME=FACTORYLM-ARM PROTO=1.0 FW=1.0.0 JOINTS=6 BUILD=20260801"));
+  Serial.println(F(" NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0 JOINTS=6 BUILD=20260808"));
 }
 
 static void doPng() {
@@ -1203,7 +1203,7 @@ void setup() {
   Serial.println(F(";  THE ROCKER SWITCH AND THE INLINE FUSE ARE THE REAL E-STOP."));
   Serial.println(F(";  This firmware is NOT a safety device. Type HLP for commands."));
   Serial.println(F("; ==========================================================="));
-  Serial.println(F("RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.0.0"));
+  Serial.println(F("RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0"));
 }
 
 void loop() {

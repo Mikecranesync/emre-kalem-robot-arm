@@ -393,7 +393,7 @@ sketch, because a blocking call is invisible right up until the moment it matter
 ## 6. Asynchronous lines
 
 ```
-RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.0.0
+RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0
 EVT ESTOP SRC=CMD
 EVT ESTOP SRC=RT
 EVT WDOG MS=1043
@@ -694,7 +694,7 @@ expected.
 ```
 >  VER\n
       56 45 52 0A
-<  OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.0.0 JOINTS=6 BUILD=20260801\n
+<  OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0 JOINTS=6 BUILD=20260808\n
 ```
 
 `NAME=FACTORYLM-ARM` present → proceed. Anything else → refuse to connect.
@@ -868,9 +868,9 @@ A multimeter on DC volts.
 
 | # | Do this | Expect exactly |
 |---|---|---|
-| 1 | Upload `factorylm_arm_controller`. Open Serial Monitor at 115200. | The `;` banner, then `RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.0.0` |
+| 1 | Upload `factorylm_arm_controller`. Open Serial Monitor at 115200. | The `;` banner, then `RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0` |
 | 2 | Probe D3, D4, D5, D6, D9, D10, D11 against GND | **~0 V on all seven.** Nothing is attached at boot. |
-| 3 | Type `VER` | `OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.0.0 JOINTS=6 BUILD=20260801` |
+| 3 | Type `VER` | `OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.0 JOINTS=6 BUILD=20260808` |
 | 4 | Type `STA` | 6 `STA` lines (no `J2`), one `SYS` line with `UNCAL=6`, then `OK STA N=6` |
 | 5 | Type `ENA 2 90` | `ERR E4 ENA JOINT=2 RESERVED=shoulder_pair` |
 | 6 | Type `ENA 1 90` | `ERR E13 ENA JOINT=1 MIR=UNKNOWN` |
