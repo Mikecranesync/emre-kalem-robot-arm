@@ -172,8 +172,27 @@ const uint8_t DEF_MAX_DEG = 110;
 const int16_t DEF_SET_C   = 9000;  // 90.00 degrees, in centidegrees
 const uint8_t DEF_DPS     =  30;   // degrees per second
 
+// A soft-limit span narrower than this is refused.  Below about 5 degrees the
+// envelope is too tight to jog inside usefully, and a slipped handle would pin a
+// joint against its own limits with no room to back off.
+const uint8_t  LIM_MIN_SPAN_DEG = 5;
+
 const uint8_t  SPD_MIN_DPS =  1,     SPD_MAX_DPS  = 90;
 const uint16_t WDG_MIN_MS  = 200,    WDG_MAX_MS   = 10000;
+
+// Jog heartbeat.  The host re-sends JOG every JOG_BEAT_MS while the operator
+// holds the control; four consecutive misses abort that joint's motion and hold.
+//
+// Derived from the MEASURED command path, not guessed.  The console is a strict
+// one-command-in-flight FIFO; with routine PNG/STA polling paused during a jog a
+// round trip is ~60-120 ms, and with it running it is 180-300 ms.  A 600 ms
+// timeout would have left only 2-3 beats of margin in the good case, so a single
+// queue hiccup could false-trip a jog still being held.
+//
+// 1000 ms is still 4x tighter than the WDG serial watchdog, and at the default
+// 30 deg/s a 1000 ms overrun is 30 degrees - bounded by the envelope regardless.
+const uint16_t JOG_BEAT_MS    = 250;
+const uint16_t JOG_TIMEOUT_MS = 1000;
 const uint8_t  TICK_MS     = 20;     // interpolator period
 const uint8_t  TICK_CAP_MS = 200;    // largest elapsed slice honoured after a stall
 
@@ -216,6 +235,13 @@ struct Joint {
   uint8_t dps;    // slew rate, degrees per second
   bool    en;     // true only between ENA and DIS
   bool    cal;    // false = these limits are a placeholder, not a measurement
+
+  // Jog state.  jogActive is the ONLY thing that says a jog is running - never
+  // "jogMs != 0", because millis() is exactly 0 once every ~49.7 days and a jog
+  // armed on that tick would never time out.
+  bool     jogActive;
+  bool     jogTimedOut;  // LATCH: the last jog ended because the host went quiet
+  uint32_t jogMs;        // millis() of the last refresh; valid only when jogActive
 };
 Joint j[NJ];
 
@@ -461,6 +487,11 @@ static void disableJoint(uint8_t i) {
 
   j[i].en   = false;
   j[i].tgtC = j[i].setC;   // no stale target survives to the next enable
+
+  // The single choke point for DIS, DIS A, EST, '!' and the watchdog, so the jog
+  // state is cleared for all five here rather than in each caller.
+  j[i].jogActive   = false;
+  j[i].jogTimedOut = false;
 }
 
 // Adopt-before-drive.  adoptDeg is the operator's by-eye estimate of where the
@@ -477,6 +508,13 @@ static void enableJoint(uint8_t i, int16_t adoptDeg) {
   int16_t c = clampToLimits(i, (int16_t)(adoptDeg * 100));
   j[i].setC = c;
   j[i].tgtC = c;
+
+  // A freshly enabled joint is never mid-jog.  That is already true by
+  // construction - doEna refuses an enabled joint, and every route to disabled
+  // runs through disableJoint() which clears these - but stating it here makes
+  // the invariant structural instead of something a reader has to re-derive.
+  j[i].jogActive   = false;
+  j[i].jogTimedOut = false;
 
   if (i == 1 && PIN_B[1] < NUM_DIGITAL_PINS) {
     int16_t r = mirrorC(c);
@@ -541,7 +579,11 @@ static void doSta() {
     Serial.print(F(" MAX="));      Serial.print(j[i].maxD);
     Serial.print(F(" CAL="));      Serial.print(j[i].cal ? 1 : 0);
     Serial.print(F(" DPS="));      Serial.print(j[i].dps);
-    Serial.print(F(" MOV="));      Serial.println((j[i].en && j[i].setC != j[i].tgtC) ? 1 : 0);
+    Serial.print(F(" MOV="));      Serial.print((j[i].en && j[i].setC != j[i].tgtC) ? 1 : 0);
+    // JTO=1: this joint's last jog ended because the controller stopped hearing
+    // from the host, NOT because the operator let go.  Latched - the timeout
+    // itself is silent on the wire, so this field is the only way to find out.
+    Serial.print(F(" JTO="));      Serial.println(j[i].jogTimedOut ? 1 : 0);
   }
   Serial.print(F("SYS ES="));   Serial.print(estopLatched ? 1 : 0);
   Serial.print(F(" WD="));      Serial.print(wdgTripped ? 1 : 0);
@@ -565,22 +607,43 @@ static void doLimList() {
   Serial.println(F(" N=6"));
 }
 
-// LIM j min max cal.  Rejected unless the joint is DISABLED - you cannot move
-// the goalposts under a live joint.  CAL is set explicitly from the argument,
-// never inferred: a file that still holds the defaults must stay flagged
-// uncalibrated.
+// LIM j min max cal - ATOMIC.  Every check runs before ANY field is written, so
+// a rejected LIM leaves the previous envelope exactly as it was.  There is no
+// reachable state in which min has been updated and max has not.
+//
+// Rejected unless the joint is DISABLED - you cannot move the goalposts under a
+// live joint.  CAL is set explicitly from the argument, never inferred: a file
+// that still holds the defaults must stay flagged uncalibrated.
+//
+// Limits are enforced in LOGICAL joint space.  The physical write path
+// (clampToLimits -> mirrorC) applies them before any mirroring or pulse-width
+// conversion, so nothing here needs to know about D5.
 //
 // E10, not E5.  E5 is documented as "adopt angle outside this joint's MIN..MAX";
 // a bad min/max pair or a bad cal flag is a different failure with a different
 // remedy, and sharing the code made the GUI's plain-English message wrong.
 static void doLimSet(uint8_t i, int32_t mn, int32_t mx, int32_t cal) {
-  if (j[i].en) { errJPre(F("E9"), i); Serial.println(F(" STATE=enabled")); return; }
+  // A joint the operator is physically holding does not get its envelope moved
+  // underneath it.  Refusing costs one action - let go, then drag - and avoids a
+  // state where the limits and the control are both changing at once.
+  //
+  // Same E9 code, a DIFFERENT detail key: STATE=jogging, not STATE=enabled.  The
+  // remedies differ ("let go" vs "disable the joint"), so the host must be able
+  // to tell them apart without the error space growing.
+  if (j[i].jogActive) { errJPre(F("E9"), i); Serial.println(F(" STATE=jogging")); return; }
 
   if (mn < 0 || mx > 180 || mn >= mx) {
     errJPre(F("E10"), i);
     Serial.print(F(" REQMIN="));  Serial.print(mn);
     Serial.print(F(" REQMAX="));  Serial.print(mx);
     Serial.println(F(" LIMIT=0..180 MIN<MAX"));
+    return;
+  }
+  if ((mx - mn) < (int32_t)LIM_MIN_SPAN_DEG) {
+    errJPre(F("E10"), i);
+    Serial.print(F(" REQMIN="));  Serial.print(mn);
+    Serial.print(F(" REQMAX="));  Serial.print(mx);
+    Serial.print(F(" MINSPAN=")); Serial.println(LIM_MIN_SPAN_DEG);
     return;
   }
   if (cal != 0 && cal != 1) {
@@ -590,17 +653,39 @@ static void doLimSet(uint8_t i, int32_t mn, int32_t mx, int32_t cal) {
     return;
   }
 
+  // Centidegrees, because setC/tgtC are centidegrees and mn/mx are whole
+  // degrees.  Same *100 conversion clampToLimits and enableJoint already use.
+  int16_t lo = (int16_t)mn * 100, hi = (int16_t)mx * 100;
+
+  // On a DRIVEN joint the new range is accepted only if it still contains that
+  // joint's own commanded value.  A range that would EXCLUDE it is refused,
+  // because applying it would turn a limit edit into an unrequested move - the
+  // operator tidies a number and a loaded arm swings.  That is exactly what E9
+  // was written to prevent; this narrows the refusal rather than removing it.
+  if (j[i].en && (j[i].setC < lo || j[i].setC > hi)) {
+    errJPre(F("E9"), i);
+    Serial.println(F(" STATE=enabled"));
+    return;
+  }
+
+  // ---- every check has passed; only now is anything written ----
   j[i].minD = (uint8_t)mn;
   j[i].maxD = (uint8_t)mx;
   j[i].cal  = (cal == 1);
 
-  // Keep the reported commanded angle inside the new envelope.  The joint is
-  // disabled, so this only tidies what STA displays; ENA overwrites setC with
-  // the operator's adopt angle anyway.
-  int16_t lo = (int16_t)mn * 100, hi = (int16_t)mx * 100;
-  if (j[i].setC < lo) j[i].setC = lo;
-  if (j[i].setC > hi) j[i].setC = hi;
-  j[i].tgtC = j[i].setC;
+  if (j[i].en) {
+    // Driven: setC is already inside the new range (checked above).  A pending
+    // target outside it is clamped INWARD - clamping can only make a move
+    // SHORTER, so a limit edit can never create travel.
+    if (j[i].tgtC < lo) j[i].tgtC = lo;
+    if (j[i].tgtC > hi) j[i].tgtC = hi;
+  } else {
+    // Disabled: tidy the reported commanded angle into the new envelope.  ENA
+    // overwrites setC with the operator's adopt angle anyway.
+    if (j[i].setC < lo) j[i].setC = lo;
+    if (j[i].setC > hi) j[i].setC = hi;
+    j[i].tgtC = j[i].setC;
+  }
 
   okPre();
   Serial.print(F(" J"));      Serial.print(i);
@@ -735,6 +820,11 @@ static void doMov(uint8_t i, int32_t deg) {
   if (applied > (int32_t)j[i].maxD) { applied = (int32_t)j[i].maxD; cl = 1; }
   j[i].tgtC = (int16_t)(applied * 100);
 
+  // A finite move ENDS the jog and does not inherit its timeout.  Whatever the
+  // operator is doing now, it is not holding a joystick toward the envelope.
+  j[i].jogActive   = false;
+  j[i].jogTimedOut = false;
+
   okPre();
   Serial.print(F(" J"));     Serial.print(i);
   Serial.print(F(" REQ="));  Serial.print(deg);
@@ -764,11 +854,75 @@ static void doSpd(uint8_t i, int32_t dps) {
   Serial.print(F(" DPS="));  Serial.println(j[i].dps);
 }
 
-// Freeze every target at its current commanded angle.  Joints stay ATTACHED and
-// holding.  NOT latching - a following MOV works immediately.
+// STP aborts motion.  It is NOT an emergency stop: it cancels the remaining
+// interpolation and holds the last COMMANDED value, with the channel still
+// driven.  It does not remove power and it cannot know the shaft angle - the
+// rocker switch and the inline fuse are the emergency stop.  NOT latching - a
+// following MOV works immediately.
+//
+// Bare STP keeps its original meaning: abort every enabled joint.
 static void doStp() {
-  for (uint8_t i = 0; i < NJ; i++) if (j[i].en) j[i].tgtC = j[i].setC;
+  for (uint8_t i = 0; i < NJ; i++) {
+    if (!j[i].en) continue;
+    j[i].tgtC        = j[i].setC;
+    j[i].jogActive   = false;
+    j[i].jogTimedOut = false;
+  }
   okDone();
+}
+
+// STP <j> aborts ONE joint, so releasing one joystick cannot freeze a joint the
+// operator is not touching.  With a single joint enabled the two forms are
+// indistinguishable; with several live, the difference is the whole point.
+static void doStpJoint(uint8_t i) {
+  if (!j[i].en) { errJ(F("E6"), i); return; }
+  j[i].tgtC        = j[i].setC;
+  j[i].jogActive   = false;   // an operator stop also disarms the jog timer
+  j[i].jogTimedOut = false;   // ...and retires the fault it may have recorded
+  okPre();
+  Serial.print(F(" J"));
+  Serial.println(i);
+}
+
+// JOG j dir.  dir is -1, 0 or +1.  Sets the target to the envelope edge in that
+// direction and ARMS a per-joint command-age timer.  dir 0 aborts the jog and
+// holds, exactly like STP <j>.
+//
+// JOG is a separate verb from MOV on purpose: a finite move - the host's exact
+// angle entry, a waypoint - must run to completion and must never be cut short
+// by a timeout it did not ask for.  Only JOG arms the timer; MOV clears it.
+//
+// ANY accepted JOG also clears that joint's JTO latch: reaching here at all
+// means the host is talking again, which is what the latch recorded the absence
+// of.
+static void doJog(uint8_t i, int32_t dir) {
+  // Order mirrors doEna: latch first, then the ARGUMENT, then joint state.  A
+  // direction outside -1..+1 is malformed whatever the joint is doing, and
+  // reporting E6 for it would send the operator to look at the wrong thing.
+  if (estopLatched) { errJ(F("E7"), i); return; }
+  if (dir < -1 || dir > 1) {
+    errJPre(F("E14"), i);
+    Serial.print(F(" REQDIR="));
+    Serial.println(dir);
+    return;
+  }
+  if (!j[i].en) { errJ(F("E6"), i); return; }
+
+  j[i].jogTimedOut = false;
+
+  if (dir == 0) {
+    j[i].tgtC      = j[i].setC;
+    j[i].jogActive = false;
+  } else {
+    // Centidegrees: minD/maxD are whole degrees, tgtC is centidegrees.
+    j[i].tgtC      = (int16_t)(dir > 0 ? j[i].maxD : j[i].minD) * 100;
+    j[i].jogActive = true;
+    j[i].jogMs     = millis();
+  }
+
+  okPre();
+  Serial.print(F(" J"));    Serial.print(i);
+  Serial.print(F(" DIR=")); Serial.println(dir);
 }
 
 static void doEst(const __FlashStringHelper* src) {
@@ -782,6 +936,7 @@ static void doClr() {
   // joint without a deliberate operator action.
   estopLatched = false;
   wdgTripped   = false;
+  for (uint8_t i = 0; i < NJ; i++) j[i].jogTimedOut = false;
   okDone();
 }
 
@@ -812,7 +967,10 @@ static void doHlp() {
   Serial.println(F("; DIS j   |   DIS A        detach one / detach all"));
   Serial.println(F("; MOV j deg                set target; clamped, reply shows CL=1"));
   Serial.println(F("; SPD j dps                1..90 deg/s"));
-  Serial.println(F("; STP                      freeze targets, stay attached"));
+  Serial.println(F("; STP [j]                  abort motion, hold, stay attached"));
+  Serial.print  (F("; JOG j -1|0|1             jog to envelope edge; resend every "));
+  Serial.print(JOG_BEAT_MS);
+  Serial.println(F(" ms"));
   Serial.println(F("; EST (or !)               E-STOP: detach all + latch.  CLR clears"));
   Serial.println(F("; WDG ms                   0=off else 200..10000; host silence=stop"));
   Serial.println(F("; SYS WD=1 means the latch came from the watchdog, not the operator"));
@@ -860,7 +1018,14 @@ static void dispatch() {
   if (VIS('V','E','R')) { if (tokc != 0) { badArgc(); return; } doVer(); return; }
   if (VIS('P','N','G')) { if (tokc != 0) { badArgc(); return; } doPng(); return; }
   if (VIS('S','T','A')) { if (tokc != 0) { badArgc(); return; } doSta(); return; }
-  if (VIS('S','T','P')) { if (tokc != 0) { badArgc(); return; } doStp(); return; }
+  if (VIS('S','T','P')) {
+    if (tokc == 0) { doStp(); return; }
+    if (tokc != 1) { badArgc(); return; }
+    if (!intArg(0, &a0)) return;
+    if (!jointArg(a0, &id)) return;
+    doStpJoint(id);
+    return;
+  }
   if (VIS('H','L','P')) { if (tokc != 0) { badArgc(); return; } doHlp(); return; }
   if (VIS('C','L','R')) { if (tokc != 0) { badArgc(); return; } doClr(); return; }
   if (VIS('E','S','T')) { if (tokc != 0) { badArgc(); return; } doEst(F("CMD")); return; }
@@ -899,6 +1064,14 @@ static void dispatch() {
     if (!intArg(0, &a0)) return;
     if (!jointArg(a0, &id)) return;
     doDis(id);
+    return;
+  }
+
+  if (VIS('J','O','G')) {
+    if (tokc != 2) { badArgc(); return; }
+    if (!intArg(0, &a0) || !intArg(1, &a1)) return;
+    if (!jointArg(a0, &id)) return;
+    doJog(id, a1);
     return;
   }
 
@@ -1006,6 +1179,9 @@ void setup() {
     j[i].dps  = DEF_DPS;
     j[i].en   = false;
     j[i].cal  = false;
+    j[i].jogActive   = false;
+    j[i].jogTimedOut = false;
+    j[i].jogMs       = 0;
   }
 
   lastRxMs   = millis();
@@ -1095,6 +1271,28 @@ void loop() {
         j[i].setC += (int16_t)d;
         writeJoint(i);
       }
+    }
+  }
+
+  // ---- jog command-age timeout --------------------------------------------
+  // SILENT ON PURPOSE.  Nothing is printed here.  The condition that fires this
+  // is, by definition, "the host stopped talking to us", so writing into that
+  // channel buys nothing and adds an unsolicited line to a reader that is a
+  // strict accumulate-until-terminator FIFO.  The state is LATCHED instead and
+  // surfaced on STA as JTO=1, so a host that was away still learns what happened
+  // when it comes back.
+  //
+  // Holds rather than detaches: a detached gravity-loaded arm sags, which is
+  // worse than holding.  Deliberately gentler than the WDG watchdog below, which
+  // is the coarse net for a dead host.
+  //
+  // Rollover-safe unsigned subtraction, the same idiom as the tick and the
+  // watchdog.  jogActive - never "jogMs != 0" - is what says a jog is running.
+  for (uint8_t i = 0; i < NJ; i++) {
+    if (j[i].en && j[i].jogActive && (uint32_t)(now - j[i].jogMs) > JOG_TIMEOUT_MS) {
+      j[i].tgtC        = j[i].setC;
+      j[i].jogActive   = false;
+      j[i].jogTimedOut = true;
     }
   }
 

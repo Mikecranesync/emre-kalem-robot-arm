@@ -12,8 +12,9 @@ Part of the Emre Kalem 6-axis arm project. Companion files:
 WHAT THIS IS
     A dumb pipe. It serves arm-console.html on http://127.0.0.1:8770 and forwards
     bytes to and from the Arduino over USB serial at 115200 8N1. That is the whole
-    job. Double-click "START ARM GUI.bat" in C:\\RobotArm and leave the window open
-    while you use the arm.
+    job. Start the platform launcher ("START ARM GUI.bat" on Windows or
+    "START ARM GUI.command" on macOS) and leave its terminal window open while
+    you use the arm.
 
 WHAT THIS IS NOT
     It is NOT a safety device. Neither is the Arduino, the firmware, the browser
@@ -127,14 +128,15 @@ except ImportError:
         "\n"
         "  This bridge needs the 'pyserial' package and it is not installed.\n"
         "\n"
-        "  Install it by running this one line in a Command Prompt:\n"
+        "  Install it by running the matching line in a terminal:\n"
         "\n"
-        "      python -m pip install --user pyserial\n"
+        "      macOS/Linux: python3 -m pip install --user pyserial\n"
+        "      Windows:     py -3 -m pip install --user pyserial\n"
         "\n"
-        "  Then double-click START ARM GUI.bat again.\n"
+        "  Then run the platform launcher again.\n"
         "\n"
         "  No Python at all? You can skip this bridge entirely: open\n"
-        "  Software\\arm-console\\arm-console.html directly in Google Chrome\n"
+        "  Software/arm-console/arm-console.html directly in Google Chrome\n"
         "  or Microsoft Edge and use the built-in Web Serial path instead.\n"
         "\n"
     )
@@ -154,6 +156,13 @@ BODY_MAX = 65536            # largest POST body worth reading; real ones are tin
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 HTML_PATH = os.path.join(HERE, "arm-console.html")
+# Served so the console can re-apply the envelope automatically after a connect.
+# Opening the port RESETS the Arduino, and the firmware keeps NOTHING across a
+# reset - so without this the operator must re-pick the same file by hand every
+# single time, and a reset they cannot see reads as "the shoulder stopped
+# working". Read-only, and only ever this one fixed filename beside the bridge:
+# no part of the request names it, so no request can reach any other file.
+LIMITS_PATH = os.path.join(HERE, "joint-limits.csv")
 
 # ---------------------------------------------------------------------------
 # THE PER-LAUNCH ACCESS CODE
@@ -248,17 +257,19 @@ def auto_pick(ports):
 def friendly_open_error(port, exc):
     text = str(exc)
     low = text.lower()
-    if isinstance(exc, PermissionError) or "access is denied" in low or "permissionerror" in low:
+    if (isinstance(exc, PermissionError) or "access is denied" in low
+            or "permission denied" in low or "permissionerror" in low):
         return ("Could not open %s. Almost always this means the Arduino IDE Serial "
                 "Monitor is still open and is holding the port. Close it (or close the "
                 "whole IDE) and try again. Only one program can hold the port at a time."
                 % port)
     if (isinstance(exc, FileNotFoundError) or "filenotfounderror" in low
-            or "cannot find the file" in low or "does not exist" in low):
-        return ("Could not open %s. Windows says there is no such port right now. "
+            or "cannot find the file" in low or "does not exist" in low
+            or "no such file" in low):
+        return ("Could not open %s. The operating system says there is no such port right now. "
                 "Unplug and replug the USB cable, then press Refresh - the port number "
                 "changes when the board is replugged." % port)
-    return "Could not open %s. Windows said: %s" % (port, text)
+    return "Could not open %s. The operating system said: %s" % (port, text)
 
 
 LOST_PORT_MSG = ("The board stopped responding and the port was closed. Usually the USB "
@@ -709,6 +720,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ports": list_ports()})
             except Exception as exc:
                 self._json({"ports": [], "error": "Could not list serial ports: %s" % exc})
+            return
+
+        if path == "/limits":
+            # Text, not a file download: the console runs it through exactly the
+            # same parser and validator as the LOAD LIMITS FILE picker, so an
+            # edited row is refused here for the same reasons and with the same
+            # words. Missing file is reported, never silently treated as empty.
+            try:
+                with open(LIMITS_PATH, "r", encoding="utf-8") as fh:
+                    self._json({"ok": True,
+                                "name": os.path.basename(LIMITS_PATH),
+                                "csv": fh.read()})
+            except OSError as exc:
+                self._json({"ok": False,
+                            "error": "Could not read %s: %s" % (LIMITS_PATH, exc)})
             return
 
         if path == "/rx":

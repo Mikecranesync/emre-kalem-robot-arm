@@ -336,6 +336,48 @@ details.log summary{
 .l-sys{color:var(--move)}
 
 .footnote{color:var(--dimmer);font-size:13px;margin-top:22px;max-width:80ch}
+
+.targetrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 2px 0;font-size:12px;
+           letter-spacing:.6px;color:var(--dimmer)}
+.targetrow input{width:92px;text-align:right;background:var(--panel-2);border:1px solid var(--line);
+                 border-radius:6px;padding:9px;min-height:40px;color:var(--text);font-family:var(--mono)}
+.tack{font-family:var(--mono);font-size:12px;color:var(--dim)}
+
+/* ---- joystick --------------------------------------------------------- */
+.joy{position:relative;height:44px;margin:0 2px;touch-action:none;cursor:grab}
+.joy.dead{opacity:.45;cursor:not-allowed}
+.joytrack{position:absolute;top:17px;left:0;right:0;height:8px;background:var(--panel-3);border-radius:4px}
+.joydead{position:absolute;top:17px;height:8px;background:var(--line);border-radius:4px}
+.joyfill{position:absolute;top:17px;height:8px;background:var(--move);border-radius:4px}
+.joycentre{position:absolute;top:11px;left:50%;width:1px;height:20px;background:var(--dimmer)}
+.joyh{position:absolute;top:7px;left:50%;width:34px;height:28px;margin-left:-17px;background:var(--panel-2);
+      border:2px solid var(--dim);border-radius:6px;display:flex;align-items:center;justify-content:center}
+.joyh span{width:14px;height:2px;background:var(--dim);box-shadow:0 -4px 0 var(--dim),0 4px 0 var(--dim)}
+.joyh.live{border-color:var(--move);background:var(--move-bg)}
+.joyh.live span{background:var(--move);box-shadow:0 -4px 0 var(--move),0 4px 0 var(--move)}
+.stale{color:var(--warn) !important}
+.jtoflag{border:1px solid var(--fault);background:var(--fault-bg);color:var(--fault);border-radius:var(--radius);
+         padding:6px 9px;margin:6px 2px 0;font-size:12px}
+
+/* ---- envelope + joystick ---------------------------------------------- */
+.lbl{font-size:11px;letter-spacing:1.2px;color:var(--dimmer);margin:14px 2px 4px}
+.env{position:relative;height:38px;margin:0 2px;touch-action:none}
+.envtrack{position:absolute;top:14px;left:0;right:0;height:6px;background:var(--panel-3);border-radius:3px}
+.envband{position:absolute;top:14px;height:6px;background:var(--move);opacity:.55;border-radius:3px}
+.envjoint{position:absolute;top:6px;width:2px;height:22px;background:var(--ok)}
+.envh{position:absolute;top:4px;width:14px;height:26px;margin-left:-7px;background:var(--panel-2);
+      border:2px solid var(--move);border-radius:4px;cursor:ew-resize;touch-action:none}
+.envh.blocked{border-color:var(--fault);background:var(--fault-bg)}
+.envh.locked{border-color:var(--grey);cursor:not-allowed;opacity:.5}
+.envnums{display:flex;justify-content:space-between;font-family:var(--mono);font-size:12px;
+         color:var(--move);margin:2px 2px 0}
+.envmsg{color:var(--warn);font-size:12px;min-height:16px;margin:2px 2px 0}
+.ackpill{font-size:10px;letter-spacing:.6px;border-radius:999px;padding:2px 8px;margin-left:8px;
+         border:1px solid var(--grey);background:var(--grey-bg);color:var(--dim)}
+.ackpill.pending{border-color:var(--warn);background:var(--warn-bg);color:var(--warn)}
+.ackpill.acked{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
+.gatebar{background:var(--warn-bg);border:1px solid var(--warn);color:#ffd591;border-radius:var(--radius);
+         padding:9px 12px;margin:0 0 12px;font-size:13px}
 </style>
 
 
@@ -390,6 +432,7 @@ details.log summary{
 
 <main>
   <div class="notices" id="notices"></div>
+  <div class="gatebar hidden" id="gateBar"></div>
 
   <section class="block">
     <h2>Joints</h2>
@@ -535,7 +578,10 @@ JOINT_DEFS.forEach(function (d) {
     def:d, min:DEF_MIN, max:DEF_MAX, home:DEF_HOME, dps:DEF_DPS,
     cal:false, notes:"",
     en:false, set:DEF_HOME, tgt:DEF_HOME, mov:false,
-    dom:null, dragging:false, wantMove:null, adoptOpen:false
+    dom:null, dragging:false, wantMove:null, adoptOpen:false, envDragging:false,
+    /* envelope acknowledgment: the firmware keeps NOTHING across a reset, so
+       the console must never assume its own limits are live on the board. */
+    envTouched:false, ackMin:null, ackMax:null, ackPending:false, jogTimedOut:false
   };
 });
 
@@ -555,6 +601,8 @@ var mirrorOffset = 0;
 var sys        = { es:0, wd:0, mir:"UNKNOWN", uncal:JOINT_DEFS.length };
 var connState  = "off";         // off | busy | on
 var fwText     = "";
+var fwVersion  = "";              /* FW= from the VER handshake; "" until connected */
+var CONSOLE_VERSION = "1.2.0";    /* recorded in every lock row */
 var waypoints  = [];            // {label, deg:{id->int|null}, dwell}
 var playing    = false, playAbort = false;
 var tabHidden  = false;         // this tab is in the background — see WATCHDOG_MS
@@ -563,6 +611,92 @@ var resyncing  = false;         // a link resync is already in flight
 function el(id){ return document.getElementById(id); }
 function sleep(ms){ return new Promise(function (r){ setTimeout(r, ms); }); }
 function clampi(v,lo,hi){ return v<lo?lo:(v>hi?hi:v); }
+
+/* ==========================================================================
+   ENVELOPE + JOYSTICK MATHS
+   Pure functions, no DOM and no transport, so ?selftest=1 can prove them from
+   file:// with no board and no bridge. Everything that decides how far a joint
+   may travel or how fast lives here, where it is testable.
+   ========================================================================== */
+
+var JOY_DEAD     = 0.14;   /* dead zone, fraction of half travel */
+var LIM_MIN_SPAN = 5;      /* MUST match LIM_MIN_SPAN_DEG in the firmware */
+var JOG_BEAT_MS  = 250;    /* MUST match JOG_BEAT_MS in the firmware */
+
+/* Joystick deflection -> speed. u is -1..+1. Inside the dead zone the joint is
+   still, so a resting hand cannot creep it. Beyond it, deflection maps linearly
+   from 1 deg/s up to this joint's own max_deg_per_sec — never past it. */
+function joySpeed(u, dpsMax){
+  var mag = Math.abs(u);
+  if (mag <= JOY_DEAD) return { dir:0, dps:0 };
+  var k = (mag - JOY_DEAD) / (1 - JOY_DEAD);
+  return { dir: u > 0 ? 1 : -1, dps: clampi(Math.round(1 + k * (dpsMax - 1)), 1, dpsMax) };
+}
+
+/* An envelope handle may never be dragged past the joint's own commanded value
+   while that joint is driven. Squeezing the envelope past the joint would make
+   the arm move because someone tidied a number — the firmware refuses such a LIM
+   with E9, and this stops it ever being sent. */
+function envClampHandle(which, want, j){
+  var v = Math.round(want), blocked = false;
+  if (which === "min") {
+    v = clampi(v, 0, j.max - LIM_MIN_SPAN);
+    if (j.en && v > j.set) { v = Math.floor(j.set); blocked = true; }
+  } else {
+    v = clampi(v, j.min + LIM_MIN_SPAN, 180);
+    if (j.en && v < j.set) { v = Math.ceil(j.set); blocked = true; }
+  }
+  return { value: v, blocked: blocked };
+}
+
+/* Under mirror_mode=inverted the firmware drives the pair's second servo to
+   (180 + 2*offset) - angle. If any part of joint 1's travel maps outside 0–180,
+   two MG996Rs would fight through one link. Same arithmetic the firmware's
+   doMir() runs, so the console refuses the range before it reaches the wire. */
+function mirrorImageOk(mn, mx, mode, off){
+  if (mode !== "inverted") return { ok:true, lo:mn, hi:mx };
+  var lo = (180 + 2*off) - mx, hi = (180 + 2*off) - mn;
+  return { ok: (lo >= 0 && hi <= 180), lo:lo, hi:hi };
+}
+
+/* A saved CSV row is untrusted input. Same rules the firmware enforces, checked
+   before anything is sent, so a hand-edited file cannot put the board in a state
+   the console then misrenders. */
+function limRowOk(r){
+  var mn = Number(r.min), mx = Number(r.max);
+  if (!isFinite(mn) || !isFinite(mx)) return false;
+  if (mn < 0 || mx > 180) return false;
+  if (mn >= mx) return false;
+  return (mx - mn) >= LIM_MIN_SPAN;
+}
+
+/* STA is the board's truth for every field EXCEPT the two numbers the operator
+   currently has under their finger.
+   -----------------------------------------------------------------------
+   The status poll runs at 4 Hz and used to write MIN/MAX unconditionally. An
+   envelope drag only sends its LIM on pointerup, so for the whole drag the
+   board still reports the OLD envelope — and every poll overwrote the handle
+   the operator was holding and repainted it back to the old value. Pause the
+   mouse for a quarter second and the handle jumped home; release right after a
+   poll and pointerup sent the OLD numbers, so the drag was silently discarded.
+   That is the "it will not stay where I put it" fault.
+   Guarding the ABSORB rather than pausing the poll is deliberate: the poll is
+   also what feeds the firmware's 4000 ms serial watchdog, and a slow drag with
+   the poll paused would let the board detach every joint mid-drag. It also
+   covers a reply that was already in flight when the drag began, which pausing
+   the timer cannot. */
+function absorbEnvelope(j, v){
+  if (j.envDragging) return;
+  if ("MIN" in v) j.min = Number(v.MIN);
+  if ("MAX" in v) j.max = Number(v.MAX);
+}
+
+/* Command formatting lives in one place so the self-test can check the exact
+   bytes that go on the wire, not an approximation of them. */
+function fmtJog(id, dir){ return "JOG " + id + " " + dir; }
+function fmtLim(id, mn, mx, cal){ return "LIM " + id + " " + mn + " " + mx + " " + (cal ? 1 : 0); }
+function fmtMov(id, deg){ return "MOV " + id + " " + deg; }
+function fmtStp(id){ return "STP " + id; }
 
 
 /* ==========================================================================
@@ -804,6 +938,41 @@ function trimOutbox(){
    about. It still pushes an awaiter through the normal FIFO — writing straight
    to the transport would mis-file every later reply by one, which is the exact
    bug this section exists to prevent. */
+/* A heartbeat must be FRESH or not sent at all, so the jog beat asks whether
+   the channel is completely clear -- nothing in flight AND nothing queued. */
+function channelFree(){ return liveAwaiters() === 0 && outbox.length === 0; }
+
+/* Routine polling stops for the duration of a hold, so the heartbeat has a
+   channel it does not share. The firmware's serial watchdog is NOT endangered:
+   lastRxMs is fed by any fully-parsed line reaching a handler, and JOG is one,
+   so a 250 ms beat feeds the 4000 ms WDG exactly as PNG did.
+   A counter, not a bool: a second joint's joystick must not resume polling
+   while the first is still held. */
+var jogHolds = 0;
+function jogPollPause(){
+  if (jogHolds++ === 0) {
+    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+    if (staTimer)  { clearInterval(staTimer);  staTimer  = null; }
+  }
+}
+function jogPollResume(){
+  if (jogHolds > 0) jogHolds--;
+  if (jogHolds === 0 && connState === "on") {
+    if (!pingTimer) pingTimer = setInterval(function(){ send("PNG").catch(function(){}); }, PING_MS);
+    if (!staTimer)  staTimer  = setInterval(function(){ if (!playing) statusPoll(); }, STATUS_MS);
+    statusPoll();   /* the readout has been stale since the hold began */
+  }
+}
+
+/* Letting go, losing the pointer, losing the window, the tab going to the
+   background and the transport failing are all the same event: stop. The
+   firmware's jog timeout is the backstop for the cases the browser never gets
+   to report at all. */
+function joyRelease(id){ if (J[id] && J[id].releaseJoy) J[id].releaseJoy(); }
+function joyReleaseAll(){ JOINT_DEFS.forEach(function(d){ joyRelease(d.id); }); }
+window.addEventListener("blur", joyReleaseAll);
+document.addEventListener("visibilitychange", function(){ if (document.hidden) joyReleaseAll(); });
+
 function send(line, timeoutMs, priority){
   if (connState === "off") return Promise.reject(new Error("Not connected."));
   return new Promise(function(resolve, reject){
@@ -902,11 +1071,27 @@ function absorbData(line){
     if ("EN"  in v) j.en  = v.EN === "1";
     if ("SET" in v) j.set = Number(v.SET);
     if ("TGT" in v) j.tgt = Number(v.TGT);
-    if ("MIN" in v) j.min = Number(v.MIN);
-    if ("MAX" in v) j.max = Number(v.MAX);
+    absorbEnvelope(j, v);
     if ("CAL" in v) j.cal = v.CAL === "1";
     if ("DPS" in v) j.dps = Number(v.DPS);
     if ("MOV" in v) j.mov = v.MOV === "1";
+
+    /* JTO=1: this joint's last jog ended because the controller stopped hearing
+       from us, NOT because the operator let go. The firmware is SILENT when a
+       jog times out -- it latches this flag and we find out here, which is why
+       there is no EVT to listen for.
+       Edge-triggered: the latch persists until a deliberate command clears it,
+       so re-notifying on every poll would bury the operator in toasts. */
+    if ("JTO" in v) {
+      var jto = (v.JTO === "1");
+      if (jto && !j.jogTimedOut) {
+        joyRelease(id);
+        notice("bad", "J" + id + " stopped on its own. The controller did not hear from this page " +
+                      "for a second and ended the move. The joint is holding, still powered. " +
+                      "Check the USB cable and the bridge window before jogging again.", 12000);
+      }
+      j.jogTimedOut = jto;
+    }
     paintJoint(id);
   } else if (t[0] === "SYS") {
     var s = kv(t.slice(1));
@@ -967,6 +1152,10 @@ function stopTimers(){
   stopRx();
   [pingTimer, staTimer, moveTimer].forEach(function(t){ if (t) clearInterval(t); });
   pingTimer = staTimer = moveTimer = null;
+  /* A link dropped mid-hold would otherwise leave the counter above zero and
+     polling permanently off after the next reconnect. */
+  jogHolds = 0;
+  JOINT_DEFS.forEach(function(d){ J[d.id].jogging = false; });
 }
 
 function startTimers(){
@@ -980,7 +1169,7 @@ function teardown(){
   flushPending("Disconnected.");
   playAbort = true; playing = false;
   resyncing = false; timeoutRun = 0; staFreshMs = 0;
-  connState = "off"; fwText = "";
+  connState = "off"; fwText = ""; fwVersion = "";
   JOINT_DEFS.forEach(function(d){ J[d.id].en = false; J[d.id].mov = false; });
   /* The background banner is about unsupervised MOTION. With no link there is
      nothing being commanded, and leaving it up would compete with the more
@@ -1090,6 +1279,13 @@ function connect(){
                         ". Flash Software/factorylm_arm_controller and try again.");
       }
       fwText = "FW " + (v.FW || "?") + " · protocol " + (v.PROTO || "?") + " · " + (v.JOINTS || "?") + " joints";
+      fwVersion = v.FW || "";
+      /* Stage the limits file BEFORE the push, so the one pushState below
+         carries the operator's envelope and mirror rather than the firmware
+         defaults the reset just restored. */
+      return autoLoadLimits();
+    })
+    .then(function(){
       return pushState();
     })
     .then(function(){
@@ -1125,6 +1321,101 @@ function verHandshake(){
 
 /* The firmware keeps NOTHING across a reset, by design. Opening the port reset
    it, so everything this page knows has to be pushed back every single time. */
+/* ==========================================================================
+   THE ACKNOWLEDGMENT GATE
+   Opening the port RESETS the board and the firmware keeps nothing, so the
+   console must never assume its own limits are live. A joystick driving against
+   limits the board never confirmed is the failure this exists to prevent.
+   ========================================================================== */
+function envState(id){
+  var j = J[id];
+  if (j.ackPending) return "PENDING";
+  if (j.ackMin === j.min && j.ackMax === j.max) return "ACKNOWLEDGED";
+  return "DEFAULT";
+}
+
+function allEnvelopesAcked(){
+  for (var k = 0; k < JOINT_DEFS.length; k++) {
+    if (envState(JOINT_DEFS[k].id) !== "ACKNOWLEDGED") return false;
+  }
+  return true;
+}
+
+/* One LIM for one joint, and the acknowledgment recorded. cal is passed through
+   unchanged: dragging an envelope handle is not a measurement, so it must never
+   set the flag. Only LOCK does that. */
+function sendLim(id){
+  var j = J[id];
+  if (connState !== "on") return Promise.resolve(false);
+  if (!limRowOk({ min:j.min, max:j.max })) {
+    notice("bad", "J" + id + ": " + j.min + "–" + j.max + "° is not a legal envelope. " +
+                  "Limits sit inside 0–180 and must be at least " + LIM_MIN_SPAN + "° apart.");
+    return Promise.resolve(false);
+  }
+  j.ackPending = true; paintJoint(id);
+  return send(fmtLim(id, j.min, j.max, j.cal))
+    .then(function(){
+      j.ackMin = j.min; j.ackMax = j.max; j.ackPending = false;
+      paintAll();
+      return true;
+    })
+    .catch(function(e){
+      j.ackPending = false; paintAll();
+      notice("warn", plainErr(e.message, J[id].def));
+      return false;
+    });
+}
+
+/* ==========================================================================
+   LOCK THIS AXIS
+   The ONLY code path permitted to set the calibrated flag. Nothing infers it.
+   The amber UNCALIBRATED badge is the only warning that a joint's range is a
+   placeholder, so a system that could clear it on its own would be lying.
+
+   What this records is the ACCEPTED COMMANDED soft limits -- the handle values
+   the firmware acknowledged. It is NOT a claim about the joint's mechanical
+   extremes; nothing in this system can observe those.
+   ========================================================================== */
+function pad2(n){ return (n < 10 ? "0" : "") + n; }
+
+function lockAxis(id){
+  var j = J[id];
+  if (!j.en) {
+    notice("warn", "Enable J" + id + " and settle it where you want its centre first."); return;
+  }
+  if (!j.envTouched) {
+    notice("warn", "Move J" + id + "'s envelope handles first. Locking the placeholder would record " +
+                   "a range nobody chose."); return;
+  }
+  var prevCal = j.cal, prevHome = j.home;
+  j.cal  = true;
+  j.home = Math.round(j.set);
+  sendLim(id).then(function(ok){
+    if (!ok) { j.cal = prevCal; j.home = prevHome; paintJoint(id); return; }
+    notice("ok", "J" + id + " " + j.def.name + " locked at " + j.min + "–" + j.max + "°, centre " +
+                 j.home + "° — accepted by the controller. Save the limits file to keep it past a reset.", 9000);
+    downloadCalibrationRow(id);
+    paintAll();
+  });
+}
+
+/* One row per lock. COMMANDED values only -- there is no observation of where
+   the joint actually is, and there will not be until something external watches
+   the arm. The schema is append-only for exactly that reason. */
+function downloadCalibrationRow(id){
+  var j = J[id], d = j.def, now = new Date();
+  var stamp = now.getFullYear() + "-" + pad2(now.getMonth()+1) + "-" + pad2(now.getDate()) +
+              " " + pad2(now.getHours()) + ":" + pad2(now.getMinutes());
+  var row = [stamp, id, d.name, d.pins, j.min, j.max, j.home,
+             '"OK LIM J' + id + ' MIN=' + j.min + ' MAX=' + j.max + ' CAL=1"',
+             fwVersion || "unknown", CONSOLE_VERSION,
+             '"accepted commanded soft limits - not mechanical extremes"'].join(",");
+  var url = URL.createObjectURL(new Blob([row + "\n"], { type:"text/csv" }));
+  var a = document.createElement("a");
+  a.href = url; a.download = "calibration-row-J" + id + ".csv"; a.click();
+  URL.revokeObjectURL(url);
+}
+
 function pushState(){
   /* WDG GOES FIRST, BEFORE THE TWELVE LIM/SPD ROUND-TRIPS.
      The firmware boots with wdgMs = 0, i.e. the watchdog DISABLED. The LIM/SPD
@@ -1134,10 +1425,14 @@ function pushState(){
      nothing to be dropped by a watchdog that trips during the push. */
   var chain = Promise.resolve().then(function(){ return send("WDG " + WATCHDOG_MS); });
 
+  /* A reconnect RESETS the board, so every envelope starts unacknowledged again.
+     Clearing these first is what makes the gate honest rather than decorative. */
+  JOINT_DEFS.forEach(function(d){ J[d.id].ackMin = null; J[d.id].ackMax = null; });
+
   JOINT_DEFS.forEach(function(d){
     var j = J[d.id];
     chain = chain
-      .then(function(){ return send("LIM " + d.id + " " + j.min + " " + j.max + " " + (j.cal ? 1 : 0)); })
+      .then(function(){ return sendLim(d.id); })
       .then(function(){ return send("SPD " + d.id + " " + j.dps); });
   });
 
@@ -1417,12 +1712,31 @@ function buildCards(){
       '<div class="badges"><span class="pill uncal js-cal"></span><span class="pill off js-state"></span></div>' +
       '<div class="mirrorrow js-mirror hidden"></div>' +
       '<div class="cardnote js-note hidden"></div>' +
+      '<div class="jtoflag js-jto hidden">This joint stopped on its own: the controller lost contact ' +
+        'with this page mid-move. It is holding, still powered. Any command clears this.</div>' +
       '<div class="readout">' +
         '<div class="deg off"><span class="js-deg">90</span><span class="u">&deg;</span></div>' +
         '<div class="deg-sub">commanded &mdash; the servo sends nothing back to confirm it</div>' +
         '<div class="tgt js-tgt"></div>' +
       '</div>' +
-      '<input type="range" class="js-slider" min="70" max="110" step="1" value="90" disabled>' +
+      '<div class="lbl">ENVELOPE &mdash; the soft stops<span class="ackpill js-ack">DEFAULT</span></div>' +
+      '<div class="env js-env">' +
+        '<div class="envtrack"></div>' +
+        '<div class="envband js-envband"></div>' +
+        '<div class="envjoint js-envjoint"></div>' +
+        '<div class="envh js-hmin"></div>' +
+        '<div class="envh js-hmax"></div>' +
+      '</div>' +
+      '<div class="envnums"><span class="js-envmin">70&deg;</span><span class="js-envmax">110&deg;</span></div>' +
+      '<div class="envmsg js-envmsg"></div>' +
+      '<div class="lbl">JOYSTICK &mdash; hold to move, let go to stop</div>' +
+      '<div class="joy js-joy">' +
+        '<div class="joytrack"></div>' +
+        '<div class="joydead js-joydead"></div>' +
+        '<div class="joyfill js-joyfill"></div>' +
+        '<div class="joycentre"></div>' +
+        '<div class="joyh js-joyh"><span></span></div>' +
+      '</div>' +
       '<div class="scale"><span class="js-lo">70&deg;</span><span class="js-hi">110&deg;</span></div>' +
       '<div class="clampmsg js-clamp"></div>' +
       '<div class="adopt hidden js-adopt">' +
@@ -1435,9 +1749,14 @@ function buildCards(){
         '</div>' +
         '<div class="adopterr js-adopterr"></div>' +
       '</div>' +
+      '<div class="targetrow">TARGET ANGLE ' +
+        '<input type="number" class="js-target" step="1">' +
+        '<button class="btn small js-send">SEND</button>' +
+        '<span class="tack js-tack"></span></div>' +
       '<div class="cardactions">' +
         '<button class="btn go js-enable">ENABLE</button>' +
         '<button class="btn js-dis">DISABLE</button>' +
+        '<button class="btn small js-lock" disabled>LOCK THIS AXIS</button>' +
         '<label class="spd">deg/s <input type="number" class="js-dps" min="1" max="90" step="1" value="30"></label>' +
       '</div>';
     grid.appendChild(c);
@@ -1446,26 +1765,188 @@ function buildCards(){
     j.dom = {
       card:c, cal:q(".js-cal"), state:q(".js-state"), mirror:q(".js-mirror"),
       deg:q(".js-deg"), degBox:c.querySelector(".deg"), tgt:q(".js-tgt"),
-      slider:q(".js-slider"), lo:q(".js-lo"), hi:q(".js-hi"), clamp:q(".js-clamp"),
+      lo:q(".js-lo"), hi:q(".js-hi"), clamp:q(".js-clamp"),
+      joy:q(".js-joy"), joyH:q(".js-joyh"), joyFill:q(".js-joyfill"), joyDead:q(".js-joydead"),
+      jto:q(".js-jto"), target:q(".js-target"), sendBtn:q(".js-send"), tack:q(".js-tack"),
+      lock:q(".js-lock"),
+      env:q(".js-env"), envBand:q(".js-envband"), envJoint:q(".js-envjoint"),
+      hmin:q(".js-hmin"), hmax:q(".js-hmax"), ack:q(".js-ack"),
+      envMin:q(".js-envmin"), envMax:q(".js-envmax"), envMsg:q(".js-envmsg"),
       adopt:q(".js-adopt"), adoptVal:q(".js-adoptval"), adoptErr:q(".js-adopterr"),
       enable:q(".js-enable"), dis:q(".js-dis"), dps:q(".js-dps"), note:q(".js-note")
     };
 
-    j.dom.slider.addEventListener("pointerdown", function(){ j.dragging = true; });
-    ["pointerup","pointercancel","blur"].forEach(function(ev){
-      j.dom.slider.addEventListener(ev, function(){ j.dragging = false; });
-    });
-    j.dom.slider.addEventListener("input", function(){
-      var v = Number(j.dom.slider.value);
-      /* The slider sets the TARGET, never the commanded angle. Writing j.set
-         here made the big readout show an angle nothing had been told to go to
-         yet — an uncommanded number presented as fact. j.set is fed by STA and
-         by nothing else. */
-      j.tgt = v; j.wantMove = v; paintJoint(d.id);
-    });
-    j.dom.slider.addEventListener("change", function(){
-      j.dragging = false; j.wantMove = Number(j.dom.slider.value);
-    });
+    /* ---- joystick --------------------------------------------------------
+       Speed, not position. Deflection maps to deg/s, capped at this joint's own
+       max_deg_per_sec. Holding sends SPD once and then a JOG heartbeat; the
+       firmware's interpolator does the walking. */
+    var joyHeld = false, joyLastDps = 0, joyLastDir = 0, joyBeat = null;
+
+    function joyU(clientX){
+      var r = j.dom.joy.getBoundingClientRect();
+      return clampi(((clientX - r.left) / r.width - 0.5) * 2, -1, 1);
+    }
+    function joyPaintHandle(u, s2){
+      j.dom.joyH.style.left = (50 + u * 50) + "%";
+      if (s2.dps) {
+        j.dom.joyFill.style.left  = (u > 0 ? 50 : 50 + u * 50) + "%";
+        j.dom.joyFill.style.width = (Math.abs(u) * 50) + "%";
+      } else {
+        j.dom.joyFill.style.width = "0%";
+      }
+    }
+    function joyApply(u){
+      var s2 = joySpeed(u, j.dps);
+      joyPaintHandle(u, s2);
+      if (connState !== "on" || !j.en) return;
+      if (s2.dps && s2.dps !== joyLastDps) { joyLastDps = s2.dps; send("SPD " + d.id + " " + s2.dps); }
+      if (s2.dir !== joyLastDir) { joyLastDir = s2.dir; send(fmtJog(d.id, s2.dir)); }
+    }
+    /* A heartbeat is only meaningful if it is FRESH. A queued one asserts, on
+       arrival, that a hand was on the control at a moment that has already
+       passed. So it is DROPPED when the channel is busy -- never buffered,
+       never coalesced, never retried. Four dropped beats means the firmware
+       times out, which is correct: a channel that cannot pass one short line in
+       a second IS a stalled host. */
+    function joyBeatTick(){
+      if (!joyHeld || !joyLastDir) return;
+      if (!channelFree()) return;
+      if (connState === "on" && j.en) send(fmtJog(d.id, joyLastDir));
+    }
+    function joyDown(e){
+      if (!allEnvelopesAcked()) { notice("warn", "Wait for the controller to confirm every envelope."); return; }
+      if (!j.en) { notice("warn", "Enable J" + d.id + " before moving it."); return; }
+      if (sys.es) { notice("warn", "The e-stop is latched. Press CLEAR E-STOP first."); return; }
+      e.preventDefault();
+      joyHeld = true; joyLastDps = 0; joyLastDir = 0;
+      j.jogging = true;
+      j.dom.joyH.classList.add("live");
+      window.addEventListener("pointermove", joyMove);
+      window.addEventListener("pointerup", joyReleaseLocal);
+      window.addEventListener("pointercancel", joyReleaseLocal);
+      joyBeat = setInterval(joyBeatTick, JOG_BEAT_MS);
+      jogPollPause();
+      joyApply(joyU(e.clientX));
+      paintJoint(d.id);
+    }
+    function joyMove(e){ if (joyHeld) joyApply(joyU(e.clientX)); }
+    function joyReleaseLocal(){
+      if (!joyHeld) return;
+      joyHeld = false;
+      j.jogging = false;
+      if (joyBeat) { clearInterval(joyBeat); joyBeat = null; }
+      window.removeEventListener("pointermove", joyMove);
+      window.removeEventListener("pointerup", joyReleaseLocal);
+      window.removeEventListener("pointercancel", joyReleaseLocal);
+      j.dom.joyH.classList.remove("live");
+      j.dom.joyH.style.left = "50%";
+      j.dom.joyFill.style.width = "0%";
+      joyLastDps = 0; joyLastDir = 0;
+      if (connState === "on" && j.en) send(fmtJog(d.id, 0));
+      jogPollResume();
+      paintJoint(d.id);
+    }
+    j.releaseJoy = joyReleaseLocal;
+    j.dom.joy.addEventListener("pointerdown", joyDown);
+    j.dom.joyDead.style.left  = (50 - JOY_DEAD * 50) + "%";
+    j.dom.joyDead.style.width = (JOY_DEAD * 100) + "%";
+
+    /* ---- envelope drag ---------------------------------------------------
+       A handle can never be pulled past the joint's own commanded value while
+       that joint is driven: squeezing the envelope past the joint would make the
+       arm move because someone tidied a number. The firmware refuses such a LIM
+       with E9; this stops it ever being sent. */
+    var envDrag = null;
+    function envDegFromX(clientX){
+      var r = j.dom.env.getBoundingClientRect();
+      return (clientX - r.left) / r.width * 180;
+    }
+    function envMove(e){
+      var res = envClampHandle(envDrag, envDegFromX(e.clientX), j);
+      if (d.id === 1) {
+        var chk = mirrorImageOk(envDrag === "min" ? res.value : j.min,
+                                envDrag === "max" ? res.value : j.max,
+                                mirrorMode, mirrorOffset);
+        if (!chk.ok) {
+          j.dom.envMsg.textContent =
+            "That range would drive the shoulder's second servo to " + chk.lo + "–" + chk.hi +
+            "°, outside 0–180. Two servos would fight through one link.";
+          return;
+        }
+      }
+      if (envDrag === "min") j.min = res.value; else j.max = res.value;
+      j.dom[envDrag === "min" ? "hmin" : "hmax"].classList.toggle("blocked", res.blocked);
+      j.dom.envMsg.textContent = res.blocked
+        ? "The joint is here. Disable it to bring the envelope in further."
+        : "";
+      paintJoint(d.id);
+    }
+    function envUp(){
+      window.removeEventListener("pointermove", envMove);
+      window.removeEventListener("pointerup", envUp);
+      window.removeEventListener("pointercancel", envUp);
+      j.dom.hmin.classList.remove("blocked");
+      j.dom.hmax.classList.remove("blocked");
+      j.dom.envMsg.textContent = "";
+      envDrag = null;
+      j.envTouched = true;
+      /* The guard stays up until the controller has answered. Dropping it at
+         pointerup would let a poll that is already in flight overwrite the
+         handles between the release and the acknowledgment — the same fault,
+         just a narrower window. sendLim swallows its own errors and always
+         resolves, so this runs on a refusal too, and the DEFAULT pill is then
+         the honest report that the board did not take the range. */
+      sendLim(d.id).then(function(){
+        j.envDragging = false;
+        paintJoint(d.id);
+      });
+    }
+    function envDown(which){
+      return function(e){
+        /* The firmware refuses LIM on a jogging joint (E9 STATE=jogging). Not
+           offering the drag at all is the normal path; that refusal is the
+           backstop. */
+        if (j.jogging) { notice("warn", "Let go of J" + d.id + "'s joystick before changing its envelope."); return; }
+        e.preventDefault();
+        envDrag = which;
+        j.envDragging = true;
+        window.addEventListener("pointermove", envMove);
+        window.addEventListener("pointerup", envUp);
+        window.addEventListener("pointercancel", envUp);
+      };
+    }
+    j.dom.hmin.addEventListener("pointerdown", envDown("min"));
+    j.dom.hmax.addEventListener("pointerdown", envDown("max"));
+
+    /* ---- exact angle -----------------------------------------------------
+       Sends on Enter or the button ONLY, never on input. A box that transmits
+       while you type turns a three-digit number into three moves, the first two
+       of them wrong. */
+    function sendTarget(){
+      if (!allEnvelopesAcked()) { notice("warn", "Wait for the controller to confirm every envelope."); return; }
+      if (!j.en)  { notice("warn", "Enable J" + d.id + " first."); return; }
+      if (sys.es) { notice("warn", "The e-stop is latched. Press CLEAR E-STOP first."); return; }
+      var raw = Number(j.dom.target.value);
+      if (j.dom.target.value === "" || !isFinite(raw)) { j.dom.tack.textContent = "not a number"; return; }
+      var v = clampi(Math.round(raw), j.min, j.max);
+      j.dom.target.value = v;
+      j.dom.tack.textContent = "sending " + v + "°…";
+      send(fmtMov(d.id, v)).then(function(res){
+        /* Show what the controller ACCEPTED, not what was typed. */
+        var vv = kv(res.tokens.slice(2));
+        if ("SET" in vv) { j.tgt = Number(vv.SET); j.dom.target.value = vv.SET; }
+        j.dom.tack.textContent = "accepted " + (vv.SET !== undefined ? vv.SET : v) + "°" +
+                                 (vv.CL === "1" ? " (clamped)" : "");
+        paintJoint(d.id);
+      }).catch(function(e){
+        j.dom.tack.textContent = "refused";
+        notice("warn", plainErr(e.message, d));
+      });
+    }
+    j.dom.sendBtn.onclick = sendTarget;
+    j.dom.target.addEventListener("keydown", function(e){ if (e.key === "Enter") sendTarget(); });
+
+    j.dom.lock.onclick = function(){ lockAxis(d.id); };
 
     j.dom.enable.onclick = function(){ openAdopt(d.id); };
     j.dom.dis.onclick    = function(){ doDisable(d.id); };
@@ -1546,7 +2027,14 @@ function paintJoint(id){
      has not reached. */
   D.deg.textContent = String(Math.round(j.set));
   D.degBox.classList.toggle("off", !j.en);
-  D.tgt.textContent = (j.en && j.tgt !== j.set) ? ("→ target " + Math.round(j.tgt) + "°") : "";
+  /* STA is the only writer of j.set, and routine polling is PAUSED while a
+     joystick is held -- so during a hold this number stops updating even though
+     the joint is moving. Saying so is the point: showing a frozen number as if
+     it were current is the same class of lie as the word "position". */
+  D.tgt.classList.toggle("stale", !!j.jogging);
+  D.tgt.textContent = j.jogging
+    ? "moving — angle updates when you let go"
+    : ((j.en && j.tgt !== j.set) ? ("→ target " + Math.round(j.tgt) + "°") : "");
 
   /* Notes from joint-limits.csv, plus any pin-provenance hint, shown on the
      card rather than hidden in a tooltip. */
@@ -1554,16 +2042,40 @@ function paintJoint(id){
   D.note.textContent = noteText;
   D.note.classList.toggle("hidden", !noteText);
 
-  D.slider.min = j.min; D.slider.max = j.max;
+  /* envelope */
+  var a = clampi(j.min, 0, 180) / 180 * 100, b = clampi(j.max, 0, 180) / 180 * 100;
+  D.hmin.style.left      = a + "%";
+  D.hmax.style.left      = b + "%";
+  D.envBand.style.left   = a + "%";
+  D.envBand.style.width  = (b - a) + "%";
+  D.envJoint.style.left  = (clampi(j.set, 0, 180) / 180 * 100) + "%";
+  D.envJoint.style.display = j.en ? "block" : "none";
+  D.envMin.textContent   = j.min + "°";
+  D.envMax.textContent   = j.max + "°";
+  D.jto.classList.toggle("hidden", !j.jogTimedOut);
+  D.lock.disabled = !(live && j.en && j.envTouched && envState(id) === "ACKNOWLEDGED");
+  D.target.disabled  = !(live && j.en && allEnvelopesAcked());
+  D.sendBtn.disabled = D.target.disabled;
+  var estt = envState(id);
+  D.ack.textContent = estt;
+  D.ack.className   = "ackpill js-ack" +
+    (estt === "ACKNOWLEDGED" ? " acked" : estt === "PENDING" ? " pending" : "");
+  var envLocked = !!j.jogging || connState !== "on";
+  D.hmin.classList.toggle("locked", envLocked);
+  D.hmax.classList.toggle("locked", envLocked);
+
   D.lo.textContent = j.min + "°";
   D.hi.textContent = j.max + "°";
-  if (!j.dragging) D.slider.value = clampi(Math.round(j.set), j.min, j.max);
-  D.slider.disabled = !(live && j.en);
 
   if (Number(D.dps.value) !== j.dps && document.activeElement !== D.dps) D.dps.value = j.dps;
 
+  /* THE GATE. Motion controls stay dead until the firmware has acknowledged
+     every envelope. Opening the port reset the board; until each LIM comes back
+     OK, the console does not know what the limits actually are. */
+  var gate = allEnvelopesAcked();
   var mirrorBlocked = (id === 1 && mirrorMode === "unknown");
-  D.enable.disabled = !(connState === "on") || sys.es || j.en || mirrorBlocked;
+  D.enable.disabled = !(connState === "on") || sys.es || j.en || mirrorBlocked || !gate;
+  D.joy.classList.toggle("dead", !(live && j.en && gate));
   D.dis.disabled    = !(connState === "on") || !j.en;
   D.dps.disabled    = (connState !== "on");
   if (!live || j.en) { closeAdoptIfOpen(j, id); }
@@ -1601,6 +2113,20 @@ function paintTop(){
 
   el("hdr").classList.toggle("estopped", !!sys.es);
   el("estopStrip").classList.toggle("hidden", !sys.es);
+
+  /* One banner, not six toasts: the operator needs to know WHY every ENABLE is
+     dead, and a per-joint notice would bury it. */
+  var gateBar = el("gateBar");
+  if (gateBar) {
+    var gated = (connState === "on") && !allEnvelopesAcked();
+    gateBar.classList.toggle("hidden", !gated);
+    if (gated) {
+      var waiting = JOINT_DEFS.filter(function(d){ return envState(d.id) !== "ACKNOWLEDGED"; })
+                              .map(function(d){ return "J" + d.id; }).join(", ");
+      gateBar.textContent = "Motion is disabled until the controller confirms every joint's " +
+        "envelope. Waiting on: " + waiting + ".";
+    }
+  }
 
   var anyEnabled = JOINT_DEFS.some(function(d){ return J[d.id].en; });
   el("btnRecord").disabled = !(connState === "on") || sys.es || !anyEnabled;
@@ -1876,7 +2402,13 @@ function tableFrom(text){
 
 function isInt(s){ return /^-?\d+$/.test(String(s).trim()); }
 
-function loadLimitsCsv(text, fname){
+/* skipPush is for the connect path ONLY. loadLimitsCsv normally pushes what it
+   staged, but connect() pushes anyway two lines later, and two pushes means the
+   board is told the same thing twice and a refusal is reported twice. The
+   connect path stages here and lets its own pushState carry it - so a rejected
+   row still tears the connection down, which is the behaviour that already
+   existed. */
+function loadLimitsCsv(text, fname, skipPush){
   var anyEnabled = JOINT_DEFS.some(function(d){ return J[d.id].en; });
   if (anyEnabled) {
     notice("warn","Disable every joint before loading a limits file. The controller will not move a joint's " +
@@ -1937,13 +2469,24 @@ function loadLimitsCsv(text, fname){
          than to have the firmware refuse the MIR and leave the shoulder
          un-enableable with no explanation. */
       if (mirOff !== 0 && m === "inverted") {
-        var loImg = (180 + 2*mirOff) - mx, hiImg = (180 + 2*mirOff) - mn;
-        if (loImg < 0 || hiImg > 180) {
+        /* One implementation, shared with the envelope drag. This arithmetic
+           used to live only here, so dragging J1's handles could stage a range
+           the loader would have refused. */
+        var img = mirrorImageOk(mn, mx, "inverted", mirOff);
+        if (!img.ok) {
           bad("mirror_offset_deg " + mirOff + " would drive the shoulder's second servo to " +
-              loImg + "–" + hiImg + "°, which is outside 0–180. Reduce the offset or narrow min_deg/max_deg.");
+              img.lo + "–" + img.hi + "°, which is outside 0–180. Reduce the offset or narrow min_deg/max_deg.");
           return;
         }
       }
+    }
+
+    /* Same rules the firmware enforces and the drag path uses, so a hand-edited
+       file cannot stage a row the board will reject. */
+    if (!limRowOk({ min:mn, max:mx })) {
+      bad("min_deg " + mn + " / max_deg " + mx + " is not a legal envelope. Limits sit inside " +
+          "0–180 and must be at least " + LIM_MIN_SPAN + "° apart.");
+      return;
     }
 
     if (cal && mn === DEF_MIN && mx === DEF_MAX) {
@@ -1972,8 +2515,36 @@ function loadLimitsCsv(text, fname){
   warns.forEach(function(w){ notice("warn", w); });
   notice("ok","Loaded " + got.length + " joint row(s) from " + fname + ".", 6000);
 
+  if (skipPush) return;
   if (connState === "on") pushState().catch(function(e){ notice("bad","The controller rejected the new limits: " + plainErr(e.message)); });
   else notice("warn","Not connected, so the controller has not been told yet. These limits are pushed to it the moment you connect.", 8000);
+}
+
+/* Re-apply joint-limits.csv on every connect.
+   ------------------------------------------
+   Opening the port RESETS the Arduino (Optiboot, on DTR) and the firmware keeps
+   NOTHING across a reset: every joint goes back to 70–110 and the shoulder
+   mirror back to UNKNOWN, which makes ENA J1 refuse with E13. Before this the
+   operator had to re-pick the same file by hand after every connect, and when
+   they did not, a joint that had worked a minute earlier was simply dead with
+   no visible cause.
+   Bridge only. The no-install Web Serial route runs from file:// with no
+   filesystem access, so it keeps the picker; saying so is better than a silent
+   difference in behaviour between the two transports. */
+function autoLoadLimits(){
+  if (!USE_BRIDGE) return Promise.resolve();
+  return httpJson("GET","/limits").then(function(r){
+    if (!r || !r.ok || typeof r.csv !== "string") {
+      notice("warn","Could not read joint-limits.csv automatically" +
+                    (r && r.error ? " (" + r.error + ")" : "") +
+                    ". Use LOAD LIMITS FILE — until you do, every joint is at the " +
+                    "firmware default of 70–110° and the shoulder cannot be enabled.", 12000);
+      return;
+    }
+    loadLimitsCsv(r.csv, r.name || "joint-limits.csv", true);
+  }).catch(function(){
+    notice("warn","Could not read joint-limits.csv automatically. Use LOAD LIMITS FILE.", 10000);
+  });
 }
 
 function loadWaypointCsv(text, fname){
@@ -2225,4 +2796,118 @@ notice("warn",
   "Every joint below is UNCALIBRATED until someone bench-tests it. 70–110° is a placeholder, " +
   "not this arm's travel. Nothing is driven until you enable a joint and tell it the angle it is sitting at.",
   15000);
+
+/* ==========================================================================
+   ?selftest=1 — the maths, proved with no board and no bridge
+   Runs from file://, writes exactly ONE terminal sentinel (SELFTEST_PASS or
+   SELFTEST_FAIL) plus a line per failure. Verified by Software/tests/selftest.sh;
+   Chrome's exit code is NOT evidence, because a page that throws before
+   rendering still exits 0.
+   ========================================================================== */
+function runSelfTest(){
+  var fails = [];
+  function eq(name, got, want){
+    if (JSON.stringify(got) !== JSON.stringify(want)) {
+      fails.push(name + "\n    expected " + JSON.stringify(want) +
+                        "\n    observed " + JSON.stringify(got));
+    }
+  }
+  var jOn  = { min:70, max:110, set:90, en:true };
+  var jOff = { min:70, max:110, set:90, en:false };
+
+  /* -- joystick speed mapping -- */
+  eq("centre is dead",              joySpeed(0, 30),      { dir:0, dps:0 });
+  eq("inside dead zone is dead",    joySpeed(0.10, 30),   { dir:0, dps:0 });
+  eq("dead zone edge is still dead",joySpeed(0.14, 30),   { dir:0, dps:0 });
+  eq("just past dead zone crawls",  joySpeed(0.15, 30),   { dir:1, dps:1 });
+  eq("full right is max dps",       joySpeed(1, 30),      { dir:1, dps:30 });
+  eq("full left is max dps",        joySpeed(-1, 30),     { dir:-1, dps:30 });
+  eq("left of dead zone crawls",    joySpeed(-0.15, 30),  { dir:-1, dps:1 });
+  eq("dps ceiling is per joint",    joySpeed(1, 12),      { dir:1, dps:12 });
+  eq("a slow joint never exceeds 1",joySpeed(0.5, 1),     { dir:1, dps:1 });
+
+  /* -- envelope handles: a drag must never cause motion -- */
+  eq("min handle free below joint",   envClampHandle("min", 80, jOn),   { value:80,  blocked:false });
+  eq("min handle blocked at joint",   envClampHandle("min", 95, jOn),   { value:90,  blocked:true  });
+  eq("max handle free above joint",   envClampHandle("max", 130, jOn),  { value:130, blocked:false });
+  eq("max handle blocked at joint",   envClampHandle("max", 85, jOn),   { value:90,  blocked:true  });
+  eq("min handle floors at 0",        envClampHandle("min", -20, jOn),  { value:0,   blocked:false });
+  eq("max handle ceils at 180",       envClampHandle("max", 200, jOn),  { value:180, blocked:false });
+  eq("disabled joint does not block", envClampHandle("min", 95, jOff),  { value:95,  blocked:false });
+  /* the minimum span is enforced from BOTH handles, not just one */
+  eq("min handle keeps the 5 deg span", envClampHandle("min", 109, jOff), { value:105, blocked:false });
+  eq("max handle keeps the 5 deg span", envClampHandle("max", 71, jOff),  { value:75,  blocked:false });
+
+  /* -- the 4 Hz status poll must not overwrite a handle being dragged --
+     Without the guard the poll wrote the board's OLD envelope back over the
+     operator's drag four times a second, and pointerup then sent those old
+     numbers. These three cases are that fault. */
+  var jIdle = { min:70, max:110, envDragging:false };
+  absorbEnvelope(jIdle, { MIN:"20", MAX:"160" });
+  eq("STA sets the envelope when idle",        [jIdle.min, jIdle.max], [20, 160]);
+  var jHeld = { min:40, max:150, envDragging:true };
+  absorbEnvelope(jHeld, { MIN:"70", MAX:"110" });
+  eq("STA cannot move a handle under a finger", [jHeld.min, jHeld.max], [40, 150]);
+  var jPart = { min:70, max:110, envDragging:false };
+  absorbEnvelope(jPart, { MAX:"120" });
+  eq("STA carrying only MAX leaves min alone",  [jPart.min, jPart.max], [70, 120]);
+
+  /* -- shoulder mirror -- */
+  eq("mirror legal at offset 0",  mirrorImageOk(70, 110, "inverted", 0),  { ok:true,  lo:70,   hi:110 });
+  /* axis = 180 + 2*20 = 220; image of 10..170 is 50..210, and 210 > 180.
+     Same arithmetic as the firmware's doMir(): imgLo = axis - max, imgHi = axis - min. */
+  eq("mirror illegal when wide",  mirrorImageOk(10, 170, "inverted", 20), { ok:false, lo:50, hi:210 });
+  eq("mirror irrelevant if same", mirrorImageOk(0, 180, "same", 0),       { ok:true,  lo:0,    hi:180 });
+  /* The shipped shoulder row is inverted across the FULL 0-180 at offset 0,
+     which lands exactly on the boundary. Pinned because the config depends on
+     it: at any non-zero offset this same range goes illegal. */
+  eq("inverted full travel legal at offset 0",
+                                  mirrorImageOk(0, 180, "inverted", 0),   { ok:true,  lo:0,    hi:180 });
+  eq("inverted full travel illegal off axis",
+                                  mirrorImageOk(0, 180, "inverted", 5),   { ok:false, lo:10,   hi:190 });
+  eq("mirror ignored if unknown", mirrorImageOk(0, 180, "unknown", 40),   { ok:true,  lo:0,    hi:180 });
+
+  /* -- untrusted saved rows never reach the board -- */
+  eq("reversed saved row rejected",     limRowOk({min:120, max:40}),  false);
+  eq("equal saved row rejected",        limRowOk({min:90,  max:90}),  false);
+  eq("too narrow saved row rejected",   limRowOk({min:90,  max:93}),  false);
+  eq("exactly 5 deg span accepted",     limRowOk({min:90,  max:95}),  true);
+  eq("out of range saved row rejected", limRowOk({min:-5,  max:110}), false);
+  eq("above 180 saved row rejected",    limRowOk({min:70,  max:181}), false);
+  eq("non-numeric saved row rejected",  limRowOk({min:"x", max:110}), false);
+  eq("sane saved row accepted",         limRowOk({min:60,  max:120}), true);
+
+  /* -- the exact bytes that go on the wire -- */
+  eq("jog command formatting",   fmtJog(3, 1),              "JOG 3 1");
+  eq("jog left formatting",      fmtJog(3, -1),             "JOG 3 -1");
+  eq("jog stop formatting",      fmtJog(3, 0),              "JOG 3 0");
+  eq("lim command formatting",   fmtLim(3, 60, 120, false), "LIM 3 60 120 0");
+  eq("lim carries the cal flag", fmtLim(3, 60, 120, true),  "LIM 3 60 120 1");
+  eq("mov command formatting",   fmtMov(3, 95),             "MOV 3 95");
+  eq("per-joint stop formatting",fmtStp(3),                 "STP 3");
+
+  /* -- the console's constants must not drift from the firmware's -- */
+  eq("minimum span matches the firmware", LIM_MIN_SPAN, 5);
+  eq("jog heartbeat matches the firmware", JOG_BEAT_MS, 250);
+
+  /* -- pointer cancellation lands in the same state as letting go -- */
+  var released = [];
+  var fake = { releaseJoy: function(){ released.push("released"); } };
+  simulatePointerCancel(fake);
+  simulatePointerCancel({});                 /* a joint with no joystick must not throw */
+  eq("pointer cancel releases the joystick", released, ["released"]);
+
+  var out = document.createElement("pre");
+  out.id = "selftest";
+  out.textContent = fails.length
+    ? ("SELFTEST_FAIL (" + fails.length + ")\n" + fails.join("\n"))
+    : "SELFTEST_PASS";
+  document.body.appendChild(out);
+}
+
+/* Pointer cancellation, window blur and tab-hide all land here, so the
+   self-test can exercise the same path the browser uses. */
+function simulatePointerCancel(j){ if (j && j.releaseJoy) j.releaseJoy(); }
+
+if (/[?&]selftest=1/.test(location.search)) runSelfTest();
 </script>

@@ -1,9 +1,43 @@
 # joint-limits.csv - per-joint travel limits for factorylm_arm_controller
 #
-# EVERY NUMBER IN THIS FILE IS A PLACEHOLDER. Nobody has measured this arm.
-# 70-110 is the same conservative default the single-servo bench sketch uses.
-# It is NOT the mechanical travel of any joint here. Exactly one provisional
-# unloaded calibration row exists in this whole project.
+# STATUS as of 2026-08-06: FIVE of the six joints have been measured and locked
+# at the console. Only joint 6 (gripper) is still a placeholder. This file used
+# to say every number in it was a placeholder; that is no longer true, and each
+# row now says for itself which it is.
+#
+#   0 Base        29-110  home  64   locked 2026-08-05 15:36
+#   1 Shoulder     0- 91  home   1   locked 2026-08-05 19:04  (3rd lock; newest wins)
+#   3 Elbow        0- 66  home  33   locked 2026-08-06 04:43  (2nd lock; widened from 0-46)
+#   4 Wrist pitch  0-180  home  90   locked 2026-08-06 04:44  <- SUSPECT, see the row
+#   5 Wrist roll  31-178  home 104   locked 2026-08-06 04:47
+#   6 Gripper      0-180  home  90   NEVER MEASURED - placeholder
+#
+# WHAT A LOCK IS AND IS NOT. LOCK THIS AXIS records the ACCEPTED COMMANDED SOFT
+# LIMITS - the angles the operator drove to and chose, and the controller
+# acknowledged. Nothing in this system observes the output shaft, so a lock is
+# NOT a measurement of mechanical travel. It is a record of a decision.
+#
+# home_deg IS EDITORIAL. Several locks landed home at 0 or 180 - the operator
+# happened to be sitting at an end of travel when they pressed LOCK. A home at a
+# hard end leaves nowhere to back off to, so home has been moved inside the
+# range on those rows. min/max are always exactly as locked; home is not.
+#
+# 0-180 is the WIDEST range that exists: it is the SERVO's electrical range, and
+# the firmware rejects anything outside it (LIM replies E.. LIMIT=0..180). Any
+# row still sitting at exactly 0-180 has probably not been driven to a real
+# mechanical stop at either end - that is why row 4 is flagged suspect. Near a
+# real end a joint will buzz, strain, or hit a hard stop; that is expected, not
+# a fault. It is the edge you are meant to find and back off from.
+#
+# RAW EVIDENCE: every lock artifact the console downloaded is kept in
+# Calibration_Notes/lock-artifacts/, named by joint and timestamp, alongside the
+# narrative rows in Calibration_Notes/calibration-log.csv. A lock that lives
+# only in a Downloads folder is invisible to anything that edits this file -
+# which is exactly how the Base row got silently widened on 2026-08-05.
+#
+# The FIRMWARE still boots at 70-110 (DEF_MIN_DEG / DEF_MAX_DEG). That is
+# deliberate: after any board reset the tight envelope is back until someone
+# presses LOAD LIMITS FILE. Reset = safe default; loading this file = wide open.
 #
 # HOW TO FILL THIS IN - ONE JOINT AT A TIME:
 #   1. Bench-test that joint on its own with
@@ -17,12 +51,15 @@
 #   5. Write the same numbers into Calibration_Notes/calibration-log.csv.
 #   6. In the arm console press LOAD LIMITS FILE and pick this file again.
 #
-# Only ever set calibrated=yes for a joint YOU measured. A row still sitting at
-# 70-110 with calibrated=yes is a lie the console will believe and repeat, and
-# the amber UNCALIBRATED badge is the only thing that would have warned you.
+# Only ever set calibrated=yes for a joint YOU measured. A row sitting at the
+# full 0-180 with calibrated=yes is a lie the console will believe and repeat,
+# and the amber UNCALIBRATED badge is the only thing that would have warned you.
+# Row 4 is the live example: it IS locked, so calibrated=yes is honest about
+# what happened, but 0-180 is the whole electrical range and its note says to
+# treat it as unconfirmed until it is re-driven to real ends.
 #
 # Row joint_id=1 (shoulder) also needs mirror_mode before it can be enabled at
-# all. See that row's notes.
+# all. It is set to inverted - see that row's notes and the offset block below.
 #
 # ABOUT mirror_offset_deg - THE LAST COLUMN, AND WHY IT IS 0 EVERYWHERE
 #   It only means anything on the joint_id=1 row, and only when
@@ -38,8 +75,9 @@
 #   fighting each other by 12 degrees the whole time joint 1 is enabled. They
 #   will hold, get hot, and eventually strip a gear.
 #
-#   0 IS A PLACEHOLDER, EXACTLY LIKE 70-110. Nobody has measured this arm, so
-#   nobody knows the real number. MEASURE IT, DO NOT GUESS IT:
+#   0 IS A PLACEHOLDER, EXACTLY LIKE THE 0-180 TRAVEL NUMBERS. Nobody has
+#   measured this arm, so nobody knows the real number. MEASURE IT, DO NOT
+#   GUESS IT:
 #     1. Do the mirror_mode test first (see the joint_id=1 row). You need to
 #        know it is inverted before an offset means anything.
 #     2. With the shoulder linkage UNBOLTED and the horns off, use the
@@ -53,6 +91,14 @@
 #   Whole signed degrees only. Leave it at 0 until you have actually measured
 #   it - a wrong offset is worse than none, because it looks deliberate.
 #
+#   HOW THE LOCKED SHOULDER RANGE INTERACTS WITH THE OFFSET: joint 1 is locked
+#   at 0-91. The mirrored servo is driven to (180 + 2*offset) - angle, so at
+#   offset 0 that range maps to 89-180 - legal, with 0 degrees to spare at the
+#   top. It would be accepted whether or not the true axis is really 90, so the
+#   lock is NOT evidence about the offset. And because the image already touches
+#   180, ANY positive offset pushes it outside 0-180 and the console will refuse
+#   the row: measure a non-zero offset and joint 1's min/max MUST narrow.
+#
 # There is deliberately NO row for joint_id 2. D5 is the second servo of the
 # shoulder pair and is never commanded on its own. The gap is not a mistake.
 #
@@ -60,9 +106,9 @@
 # Do not put a comma inside any field. Use a semicolon or a dash.
 #
 joint_id,joint_name,uno_pins,min_deg,max_deg,home_deg,max_deg_per_sec,calibrated,mirror_mode,notes,mirror_offset_deg
-0,Base,D3,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG996R (type INFERRED from the BOM). Support the arm against rotation while testing.,0
-1,Shoulder,D4+D5,70,110,90,30,no,unknown,UNCALIBRATED and mirror_mode=unknown - this joint CANNOT be enabled until both are fixed. Determine the mirror at the bench with the single-servo sketch: centre D4 and D5 separately and never paired; note whether they must be given the same angle or mirrored about 90; then set mirror_mode to same or inverted. Guessing it makes two MG996Rs fight through one link and strip gears. Two MG996R (type INFERRED from the BOM). If it turns out to be inverted then also measure mirror_offset_deg - see the header block.,0
-3,Elbow,D6,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG996R (type INFERRED from the BOM). Lightest of the four MG996R joints - a sensible one to calibrate first.,0
-4,Wrist pitch,D9,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter.,0
-5,Wrist roll,D10,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (DOC-CONFIRMED; the only confirmed servo type on the arm) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. Least mechanical load of all seven.,0
-6,Gripper,D11,70,110,90,30,no,,UNCALIBRATED - 70-110 is a placeholder. Bench-test this joint then set min_deg / max_deg / calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. The useful range here is open-to-closed rather than a mechanical travel limit; the linkage may be loose. This is the servo that was actually on D3 in the one existing calibration-log row.,0
+0,Base,D3,29,110,64,30,yes,,MEASURED 2026-08-05 15:36 by LOCK THIS AXIS at the console. The controller accepted it: OK LIM J0 MIN=29 MAX=110 CAL=1 (FW 1.0.0 console 1.2.0). Evidence: Downloads/calibration-row-J0.csv. RESTORED 2026-08-06 after being overwritten: the 0-180 sweep earlier that day widened this row to the servo's full electrical range without checking for an existing lock - one existed and this file did not know about it. Widening min from 29 to 0 handed back 29 degrees the operator had already measured as unreachable; commanding into that region drives the joint against a mechanical stop and the servo stalls there. Do not widen this row again without a new measurement. These are ACCEPTED COMMANDED SOFT LIMITS - angles the operator drove to and chose - NOT mechanical extremes. MG996R (type INFERRED from the BOM). Support the arm against rotation while testing. STILL OPEN: the 2026-08-01 calibration-log row says the servo physically wired to D3 was the GRIPPER not the Base; the limits follow the PIN so they hold either way but the joint_name may be wrong.,0
+1,Shoulder,D4+D5,0,91,1,30,yes,inverted,MEASURED 2026-08-05 19:04 by LOCK THIS AXIS - OK LIM J1 MIN=0 MAX=91 CAL=1 (FW 1.0.0 console 1.2.0). Evidence: Calibration_Notes/lock-artifacts/calibration-row-J1_2026-08-05_19-04.csv. SUPERSEDES the 18:05 lock (0-84 home 1) and the 18:47 lock (0-91 home 85) - three locks exist for this joint and the newest wins. home_deg is 1 not the locked 0: 0 is the very bottom of travel and a home at a hard end leaves no room to back off. These are ACCEPTED COMMANDED SOFT LIMITS - angles the operator drove to and chose - NOT mechanical extremes; nothing in this system observes the shaft. mirror_mode=inverted drives D5 to 180 - D4; 0-91 mirrors to 89-180 which is inside 0-180 so the range is legal - but mirror_offset_deg is STILL 0 and STILL unmeasured. Two MG996R (type INFERRED from the BOM) - in spec on the 6.62V supply.,0
+3,Elbow,D6,0,66,33,30,yes,,MEASURED 2026-08-06 04:43 by LOCK THIS AXIS - OK LIM J3 MIN=0 MAX=66 CAL=1 (FW 1.0.0 console 1.2.0). Evidence: Calibration_Notes/lock-artifacts/calibration-row-J3_2026-08-06_04-43.csv. SUPERSEDES the 2026-08-05 19:04 lock of 0-46; the joint was re-driven and the range widened. NOTE FOR THE RECORD: this lock proves D6 was driving at 04:43 - it contradicts the earlier no-motion report for the elbow. These are ACCEPTED COMMANDED SOFT LIMITS - angles the operator drove to and chose - NOT mechanical extremes; nothing in this system observes the shaft. home_deg is 33 not the locked 0 for the same reason as J1: a home at a hard end leaves nowhere to back off to. MG996R (type INFERRED from the BOM) - in spec on the 6.62V supply.,0
+4,Wrist pitch,D9,0,180,90,30,yes,,MEASURED 2026-08-06 04:44 by LOCK THIS AXIS - OK LIM J4 MIN=0 MAX=180 CAL=1 (FW 1.0.0 console 1.2.0). Evidence: Calibration_Notes/lock-artifacts/calibration-row-J4_2026-08-06_04-44.csv. TREAT THIS ONE WITH SUSPICION: 0-180 is the servo's entire electrical range; a joint that locks at exactly the placeholder width has most likely not been driven to a real mechanical limit at either end. These are ACCEPTED COMMANDED SOFT LIMITS - angles the operator drove to and chose - NOT mechanical extremes; nothing in this system observes the shaft. home_deg is 90 not the locked 180 - 180 is the extreme end of travel and an unsafe resting angle. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V and the bench supply measures 6.62V. This joint has been driven OVER SPEC; see Documentation/V2-SERVO-POWER-AND-WIRING.md.,0
+5,Wrist roll,D10,31,178,104,30,yes,,MEASURED 2026-08-06 04:47 by LOCK THIS AXIS - OK LIM J5 MIN=31 MAX=178 CAL=1 (FW 1.0.0 console 1.2.0). Evidence: Calibration_Notes/lock-artifacts/calibration-row-J5_2026-08-06_04-47.csv. The 31 is a real found end; 178 is 2 degrees off the electrical ceiling so the upper end may be electrical rather than mechanical. These are ACCEPTED COMMANDED SOFT LIMITS - angles the operator drove to and chose - NOT mechanical extremes; nothing in this system observes the shaft. home_deg is 104 not the locked 178 - 178 is at the top of travel. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V and the bench supply measures 6.62V. This joint has been driven OVER SPEC; see Documentation/V2-SERVO-POWER-AND-WIRING.md.,0
+6,Gripper,D11,0,180,90,30,no,,UNCALIBRATED - 0-180 is the servo's full electrical range and NOT measured travel. Bench-test this joint then narrow min_deg / max_deg to what it really reaches and set calibrated=yes. MG90S (type INFERRED from the BOM) - rated 4.8-6.0V so do NOT test it on the 6.62V adapter. A gripper hits its own linkage long before 0 or 180 - open-to-closed is the useful range here and the linkage may be loose. This is the servo that was actually on D3 in the one existing calibration-log row.,0

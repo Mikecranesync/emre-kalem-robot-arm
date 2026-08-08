@@ -138,13 +138,29 @@ miss an e-stop it did not initiate.
 | `DIS` | `A` | `OK DIS ALL` | Same, every joint. Not a latch. |
 | `MOV` | `<j> <deg>` | `OK MOV J<j> REQ=… SET=… CL=…` | Set the target. Non-blocking. |
 | `SPD` | `<j> <dps>` | `OK SPD J<j> DPS=…` | Slew rate, 1–90 degrees per second. |
-| `STP` | — | `OK STP` | Freeze every target where it is. Joints stay driven. |
+| `STP` | — | `OK STP` | Abort motion on every enabled joint; hold the last commanded value. Joints stay driven. **Not an emergency stop.** |
+| `STP` | `<j>` | `OK STP J<j>` | Abort motion on one joint only. `E4` bad/reserved id, `E6` not enabled. |
+| `JOG` | `<j> <-1\|0\|1>` | `OK JOG J<j> DIR=<d>` | Jog toward the envelope edge and arm the command-age timer. `0` aborts and holds. **Must be refreshed every 250 ms.** |
 | `EST` | — | `OK EST` | E-STOP: detach everything, drive all pins LOW, **latch**. |
 | `CLR` | — | `OK CLR` | Clear the e-stop / watchdog latch. |
 | `WDG` | `<ms>` | `OK WDG MS=…` | Serial watchdog timeout. `0` = off (the boot default). |
 | `HLP` | — | `OK HLP` | Help, as `;` comment lines. |
 
 ### The commands that need more than a table row
+
+#### `STP` is a motion abort, not an emergency stop
+
+`STP` cancels the remaining interpolation and holds the last **commanded** value. The channel
+stays driven. It does not remove power, does not detach, and cannot know the shaft angle — these
+servos report nothing.
+
+`EST` and the serial watchdog are a different thing: they detach every channel and **latch**, and
+a de-energised gravity-loaded arm sags. **The rocker switch and the inline fuse are the only
+emergency stop.**
+
+Bare `STP` aborts every enabled joint. `STP <j>` aborts one — so a host that releases one control
+cannot freeze a joint the operator is not touching. With a single joint enabled the two forms are
+indistinguishable; with several live, the difference is the whole point.
 
 #### `ENA <j> <adopt_deg>` — adopt-before-drive
 
@@ -159,6 +175,65 @@ highest-risk event in this project — and it would fire on every enable, not ju
 
 Rejections: `E4` (bad or reserved id), `E7` (latched), `E5` (adopt outside this joint's
 MIN..MAX), `E6` (already enabled), `E13` (joint 1 while `MIR=UNKNOWN`).
+
+#### `LIM <j> <min> <max> <cal>` — atomic, and span-checked
+
+Every argument is validated **before any field is written**, so a rejected `LIM` leaves the
+previous envelope exactly as it was. There is no reachable state in which `min` has been updated
+and `max` has not.
+
+The minimum accepted span is **5°** — `ERR E10 … MINSPAN=5`. Below that the envelope is too tight
+to jog inside usefully, and a slipped handle would pin a joint against its own limits with no room
+to back off.
+
+Limits are enforced in **logical joint space**. The physical write path applies them before any
+mirroring or pulse-width conversion, so the shoulder's second servo is derived from an
+already-clamped logical command and is never commanded directly.
+
+#### `LIM` on a joint that is already driven
+
+Accepted, **provided the new range still contains that joint's own commanded value.** A range
+that would exclude it is refused with `ERR E9 … STATE=enabled` — applying it would turn a limit
+edit into an unrequested move, which is precisely what `E9` was written to prevent. This narrows
+the refusal rather than removing it.
+
+A pending target outside the new range is **clamped inward**. Clamping can only make a move
+*shorter*, so **a limit edit can never create travel.**
+
+A joint that is currently **jogging** refuses `LIM` outright with `ERR E9 … STATE=jogging` and
+changes nothing at all. A joint the operator is physically holding does not get its envelope
+moved underneath it. The two `STATE=` values have different remedies — *let go of the control*
+versus *disable the joint* — so a host must render them differently.
+
+#### `JOG <j> <dir>` — held motion, with a command-age timeout
+
+`JOG` sets the joint's target to the envelope edge in `dir` and **arms a per-joint command-age
+timer**. `JOG <j> 0` aborts the jog and holds, exactly like `STP <j>`.
+
+**The host must re-send `JOG` every 250 ms while the operator holds the control.** Four
+consecutive misses — **1000 ms** — abort that joint's motion and hold the last commanded value.
+
+`MOV` deliberately does **not** arm the timer. A finite move must run to completion and must never
+be cut short by a timeout it did not ask for. `MOV`, `STP`, `DIS`, `EST` and `CLR` all clear it.
+
+##### The timeout is silent, and latches instead
+
+**Nothing is emitted when a jog times out.** No `EVT`, no unsolicited line of any kind. The
+condition that fires it is, by definition, the host having stopped listening — writing into that
+channel buys nothing and adds an unsolicited line to a strict accumulate-until-terminator reader.
+
+Instead the firmware latches a per-joint flag, surfaced as `JTO=<0|1>` on every `STA` joint line:
+
+> `JTO=1` — this joint's last jog ended because the controller stopped hearing from the host, not
+> because the operator let go.
+
+It is cleared by any accepted `JOG`, `STP`, `MOV`, `DIS`, `CLR`, or a board reset — any deliberate
+operator action addressed to that joint. **Never by the passage of time.** A host should render it
+as a fault, not as a normal stop: a hold nobody asked for is a symptom.
+
+The jog timeout **holds**; it does not detach and does not latch the machine. `EST` and the `WDG`
+watchdog do detach and latch, and a de-energised gravity-loaded arm sags. The jog timer is the
+fine net for a stalled control; `WDG` is the coarse net for a dead host.
 
 #### `MOV <j> <deg>` — clamps and reports; never silently
 
@@ -354,10 +429,11 @@ uppercased three-letter verb that caused it.
 | `E6` | `STATE` | `ERR E6 <VERB> JOINT=<j>` | `MOV` on a disabled joint, or `ENA` on an enabled one |
 | `E7` | `ESTOP` | `ERR E7 <VERB> JOINT=<j>` | the e-stop / watchdog latch is set — send `CLR` first |
 | `E8` | `LINE` | `ERR E8 LINE` | inbound line exceeded 48 chars; discarded, not acted on |
-| `E9` | `MODE` | `ERR E9 <VERB> JOINT=<j> STATE=enabled` | `LIM` or `MIR` while that joint is enabled |
+| `E9` | `MODE` | `ERR E9 <VERB> JOINT=<j> STATE=enabled\|jogging` | `MIR` while joint 1 is enabled; a `LIM` whose new range would not contain that joint's own commanded value (`STATE=enabled`); or any `LIM` on a joint that is currently jogging (`STATE=jogging`) |
 | `E10` | `LIMITS` | `ERR E10 LIM JOINT=<j> …` | the `LIM` operands themselves are illegal |
 | `E11` | `MIRARG` | `ERR E11 MIR …` | the `MIR` mode word or offset is illegal |
 | `E12` | `SPEED` | `ERR E12 SPD JOINT=<j> REQ=… MIN=1 MAX=90` | slew rate outside 1–90 °/s |
+| `E14` | `JOGDIR` | `ERR E14 JOG JOINT=<j> REQDIR=<d>` | jog direction outside `-1..+1` |
 | `E13` | `MIRROR` | `ERR E13 ENA JOINT=1 MIR=UNKNOWN` | tried to enable joint 1 while the mirror is unknown |
 
 `E8` is the one error that does **not** echo a verb: the line was refused *before* it was
