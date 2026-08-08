@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Emre Kalem Robot Arm — Troubleshooting Guide</title>
+<style>
+  @page { size: Letter; margin: 0.45in 0.55in; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10.5pt; color: #111; line-height: 1.42; }
+  h1 { font-size: 19pt; margin: 0 0 4pt 0; border-bottom: 2pt solid #111; padding-bottom: 6pt; }
+  h2 { font-size: 14pt; margin: 18pt 0 6pt 0; padding: 6pt 10pt; background: #1f3a5f; color: #fff; }
+  h3 { font-size: 12pt; margin: 14pt 0 4pt 0; color: #1f3a5f; }
+  h4 { font-size: 11pt; margin: 10pt 0 2pt 0; color: #333; }
+  .meta { font-size: 9.5pt; color: #555; margin-bottom: 10pt; }
+  .meta strong { color: #111; }
+  ol, ul { margin: 4pt 0 6pt 22pt; }
+  li { margin-bottom: 4pt; }
+  code, pre { font-family: 'Consolas', 'Courier New', monospace; }
+  pre { background: #f4f5f7; border: 1pt solid #d0d5dc; border-radius: 3pt; padding: 8pt; font-size: 9pt; white-space: pre; overflow-x: auto; tab-size: 2; -webkit-tab-size: 2; line-height: 1.25; }
+  pre.ladder { background: #fafbfd; border: 1pt solid #1f3a5f; font-size: 9pt; line-height: 1.15; padding: 10pt 12pt; }
+  pre.wiring { background: #fff8e8; border: 1pt solid #b9882a; padding: 10pt; font-size: 9.5pt; }
+  pre.bits { background: #f0f4fa; border: 1pt solid #1f3a5f; padding: 10pt; font-size: 9.5pt; }
+  code { background: #f4f5f7; padding: 1pt 3pt; border-radius: 2pt; font-size: 10pt; }
+  table { border-collapse: collapse; width: 100%; margin: 4pt 0 8pt 0; font-size: 9.5pt; }
+  th, td { border: 1pt solid #b5bcc4; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background: #e8edf3; }
+  .callout { border-left: 4pt solid #d9822b; background: #fff7eb; padding: 8pt 12pt; margin: 8pt 0; }
+  .callout-title { font-weight: bold; color: #a55a14; display: block; margin-bottom: 2pt; }
+  .danger { border-left: 4pt solid #c5392c; background: #fdecea; padding: 8pt 12pt; margin: 8pt 0; }
+  .danger-title { font-weight: bold; color: #8a1a10; display: block; margin-bottom: 2pt; }
+  .ok { border-left: 4pt solid #2f8f3a; background: #ecf6ee; padding: 8pt 12pt; margin: 8pt 0; }
+  .ok-title { font-weight: bold; color: #1f5f24; display: block; margin-bottom: 2pt; }
+  .bug { border-left: 4pt solid #8a1a10; background: #fff5f3; padding: 10pt 12pt; margin: 10pt 0; }
+  .bug-title { font-weight: bold; color: #8a1a10; display: block; margin-bottom: 3pt; font-size: 11pt; }
+  .why { background: #eef2f9; padding: 6pt 10pt; margin: 4pt 0 6pt 0; border-radius: 3pt; font-size: 10pt; }
+  .why::before { content: 'Why this matters: '; font-weight: bold; color: #1f3a5f; }
+  .check { background: #f7fff8; border: 1pt dashed #2f8f3a; padding: 5pt 9pt; border-radius: 3pt; margin: 4pt 0; font-size: 10pt; }
+  .check::before { content: '\2713 You should see: '; font-weight: bold; color: #2f8f3a; }
+  .pageref { font-size: 8.5pt; color: #888; font-style: italic; }
+  hr { border: 0; border-top: 1pt solid #b5bcc4; margin: 12pt 0; }
+  .step { background: #1f3a5f; color: #fff; border-radius: 50%; display: inline-block; width: 20pt; height: 20pt; line-height: 20pt; text-align: center; font-weight: bold; margin-right: 7pt; }
+  .checkbox { display: inline-block; width: 11pt; height: 11pt; border: 1.5pt solid #111; margin-right: 6pt; vertical-align: middle; }
+  .small { font-size: 9.5pt; color: #555; }
+  .page-break { page-break-before: always; }
+  .compact td, .compact th { padding: 3pt 6pt; font-size: 9.5pt; }
+  .rung-caption { font-style: italic; color: #555; font-size: 9.5pt; margin: 2pt 0 6pt 0; }
+  .cheatsheet { background: #fffaf0; border: 2pt solid #1f3a5f; padding: 12pt 14pt; margin: 10pt 0; }
+  .cheatsheet h3 { margin-top: 8pt; color: #1f3a5f; }
+  .cheatsheet table { margin: 4pt 0; }
+  .cheatsheet th { background: #1f3a5f; color: #fff; }
+  .bit-fixed { font-family: 'Consolas', monospace; font-size: 11pt; letter-spacing: 1pt; color: #1f3a5f; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Emre Kalem Robot Arm — Troubleshooting Guide<br/><span style="font-size:13pt;font-weight:normal;color:#555;">When it will not connect, will not move, or refuses a command</span></h1>
+<div class="meta">
+  <strong>Audience:</strong> the person at the bench — knows what a wire is, does not need to know any programming &nbsp;|&nbsp;
+  <strong>Controller:</strong> genuine Arduino Uno R3, <code>VID:PID 2341:0043</code>, currently <code>COM5</code><br/>
+  <strong>Servos:</strong> 4&times; MG996R (base, both shoulders, elbow) + 3&times; MG90S (wrist pitch, wrist roll, gripper) &nbsp;|&nbsp;
+  <strong>Firmware on the board:</strong> <code>factorylm_arm_controller</code> v1.0.0, build 20260801<br/>
+  <strong>Project:</strong> <code>C:\RobotArm</code> &nbsp;|&nbsp;
+  <strong>Toolchain:</strong> Arduino IDE 2.3.10 / arduino-cli 1.5.1 / AVR core 1.8.8 / Servo 1.3.0<br/>
+  <strong>Primary references:</strong> <em>Documentation/SERIAL-PROTOCOL.md</em> and <em>Documentation/V2-SERVO-POWER-AND-WIRING.md</em><br/>
+  <strong>Written:</strong> 2026-08-02, the day before the regulated 5&nbsp;V / 5&nbsp;A supply arrives
+</div>
+
+<!-- =========================================================== -->
+<!-- CHEATSHEET                                                  -->
+<!-- =========================================================== -->
+<div class="cheatsheet">
+<h3 style="margin-top:0;">&#128712; One-page cheat sheet (the values that absolutely must be right)</h3>
+<table class="compact">
+<thead><tr><th>What</th><th>Value</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td>Servo supply — the new one</td><td><code>5.0 V regulated, 3–5 A</code></td><td><span class="pageref">[V2-SERVO-POWER-AND-WIRING &sect;7]</span></td></tr>
+<tr><td>MG996R safe voltage range<br/><span class="small">base D3, shoulders D4+D5, elbow D6</span></td><td><code>4.8 – 7.2 V</code></td><td><span class="pageref">[V2 &sect;7]</span></td></tr>
+<tr><td>MG90S safe voltage range<br/><span class="small">wrist pitch D9, wrist roll D10, gripper D11</span></td><td><code>4.8 – 6.0 V</code></td><td><span class="pageref">[V2 &sect;7]</span></td></tr>
+<tr><td>The old adapter</td><td><code>6.62 V / 700 mA</code> — one MG996R, unloaded, only.<br/><strong>Out of spec for every MG90S.</strong></td><td><span class="pageref">[V2 &sect;7; measured, calibration-log 2026-08-01]</span></td></tr>
+<tr><td>Capacitor across the servo supply</td><td><code>470 – 1000 &micro;F</code> electrolytic, close to the servo, stripe = negative</td><td><span class="pageref">[V2 &sect;4a]</span></td></tr>
+<tr><td>Inline fuse</td><td><code>1 A</code>, in the supply positive leg</td><td><span class="pageref">[V2 &sect;3]</span></td></tr>
+<tr><td><strong>Common ground — mandatory</strong></td><td>one wire: any Uno <code>GND</code> pin &rarr; supply negative rail</td><td><span class="pageref">[V2, RESOLVED banner 2026-08-01]</span></td></tr>
+<tr><td>What must NEVER be connected</td><td>supply <code>+</code> to Uno <code>5V</code>, <code>VIN</code>, or barrel jack</td><td><span class="pageref">[V2 &sect;3 rule 3]</span></td></tr>
+<tr><td>Serial settings</td><td><code>115200 baud, 8N1</code>, lines end CR or LF</td><td><span class="pageref">[SERIAL-PROTOCOL &sect;0]</span></td></tr>
+<tr><td>Proof the right firmware is loaded</td><td><code>OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.0.0</code></td><td><span class="pageref">[verified on bench 2026-08-01]</span></td></tr>
+<tr><td>Every joint's limits today</td><td><code>70–110&deg;</code>, <code>CAL=0</code> — <strong>placeholders, not this arm's travel</strong></td><td><span class="pageref">[joint-limits.csv header]</span></td></tr>
+<tr><td>Watchdog legal values</td><td><code>0</code> (off, the boot default) or <code>200 – 10000</code> ms</td><td><span class="pageref">[factorylm_arm_controller.ino line 176]</span></td></tr>
+<tr><td>Meter on the signal pin while pulsing</td><td><code>~0.37 V DC</code> (a 1472 &micro;s pulse every 20 ms = 7.4% of 5 V)</td><td><span class="pageref">[V2 &sect;6; arithmetic shown there]</span></td></tr>
+<tr><td>Meter across the servo plug, red &harr; brown</td><td><code>~5 V DC</code></td><td><span class="pageref">[V2 &sect;6]</span></td></tr>
+<tr><td>The real emergency stop</td><td>the KCD1 rocker switch and the inline fuse</td><td><span class="pageref">[SERIAL-PROTOCOL &sect;0]</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="danger">
+<span class="danger-title">The on-screen E-STOP is not a safety device</span>
+Neither is the Arduino, nor the firmware, nor the browser. A USB cable, a browser tab and a
+Python program can all die in the middle of a move. The only stop you can rely on is
+removing servo power at the rocker switch. This is a supervised hobby bench procedure.
+</div>
+
+<!-- =========================================================== -->
+<!-- KNOWN DEFECT BLOCK                                          -->
+<!-- =========================================================== -->
+<div class="bug">
+  <span class="bug-title">&#9888; 1 known defect in the shipped console — it will lie to you in exactly one place</span>
+  <ol style="margin: 4pt 0 0 22pt;">
+    <li><strong>A bad watchdog value is reported as a bad joint angle.</strong>
+    If a watchdog timeout outside the legal range is sent, the firmware answers with a bare
+    <code>ERR E5</code> carrying no detail
+    <span class="pageref">[factorylm_arm_controller.ino line 790, <code>errPlain(F("E5"))</code>]</span>.
+    The console's <code>E5</code> handler is written for a rejected <em>joint angle</em>, so it
+    prints <em>&ldquo;that starting angle is outside its limits&rdquo;</em>
+    <span class="pageref">[arm-console.html, <code>ERR_TEXT.E5</code>]</span>. That sentence is
+    wrong for this case. <strong>Correct meaning:</strong> the watchdog value must be
+    <code>0</code>, or between <code>200</code> and <code>10000</code> ms
+    <span class="pageref">[.ino line 176]</span>. If you were not touching a joint angle when
+    you saw that message, this is what happened.</li>
+  </ol>
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">1</span> The 60-second mental model</h2>
+
+<p>There are <strong>two separate electrical circuits</strong> and <strong>one wire that ties
+them together</strong>. Nearly every fault on this bench is one of those three things.</p>
+
+<pre class="wiring">
+   USB  ─────────────────────────►  ARDUINO         (logic only — the brain)
+                                       │
+                                       ├── D3 ──────► servo YELLOW   (signal)
+                                       │
+                                       └── GND ──┐
+                                                 │   ← THE ONLY LINK
+   5 V SUPPLY  ── + ──[ FUSE 1A ]──[ ROCKER ]────┼──► servo RED      (muscle power)
+                ── − ─────────────────────────────┴──► servo BROWN
+                        │        │
+                        └─[ 470-1000 uF ]─┘       ← across + and −, near the servo
+</pre>
+<p class="rung-caption">The corrected power architecture. <span class="pageref">[V2 &sect;3]</span></p>
+
+<p><strong>Circuit one: the USB cable powers the Arduino.</strong> That is the thinking part.
+It is tiny — the Uno's own 5&nbsp;V pin can supply roughly 500&nbsp;mA total
+<span class="pageref">[V2 &sect;3]</span>.</p>
+
+<p><strong>Circuit two: the wall supply powers the servos.</strong> That is the muscle. One
+MG996R can pull up to 2500&nbsp;mA when stalled <span class="pageref">[V2 &sect;2]</span> — five
+times what the whole Arduino can give. This is why the two circuits are kept apart.</p>
+
+<p><strong>The link: one ground wire.</strong> Arduino <code>GND</code> to the supply's negative
+rail, and nothing else crosses between them.</p>
+
+<div class="why">
+A servo signal is not a thing on its own — it is a voltage <em>measured against ground</em>.
+If the Arduino and the supply do not share a ground, the servo has no reference to measure
+against, so it cannot read the signal at all. It sits perfectly still and draws nothing. That
+looks identical to a dead servo, a wrong pin, or bad code — and it cost this project a full
+session before it was found <span class="pageref">[V2, RESOLVED banner 2026-08-01]</span>.
+</div>
+
+<h3>And on top of that, a chain of five software links</h3>
+
+<p>When the arm console says it cannot connect, the failure is in one of these five, and they
+fail in this order:</p>
+
+<pre class="bits">
+  browser tab  ──►  bridge  ──►  USB port  ──►  bootloader  ──►  firmware
+   (the page)     (the black    (COM5, one    (~1 second      (must answer
+                   window)       program at    after reset)    NAME=FACTORYLM-ARM)
+                                 a time)
+</pre>
+
+<p>The console deliberately refuses to talk to a board that does not identify itself correctly.
+It opens the port, waits two seconds for the bootloader to finish, then asks <code>VER</code> up
+to three times. Unless the answer contains exactly <code>NAME=FACTORYLM-ARM</code>, it stops and
+tells you what it actually found <span class="pageref">[SERIAL-PROTOCOL &sect;6]</span>.</p>
+
+<div class="why">
+That refusal is a feature. Silently talking to the wrong program on the board is how you end
+up sending a joint command to a sketch that interprets it as something else entirely.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">2</span> First power-up with the new 5 V / 5 A supply</h2>
+
+<p>Do this once, in this order, the first time the new supply is used. It takes about fifteen
+minutes and it is the difference between finding a wiring error with a meter and finding it
+with smoke.</p>
+
+<div class="danger">
+<span class="danger-title">Before anything is switched on</span>
+Set the supply to <strong>5.0 V</strong> if it is adjustable, and confirm it with a meter
+<em>before</em> a servo is connected to it. An adjustable supply left at 12&nbsp;V destroys
+every servo on this arm in about a second.
+</div>
+
+<h3>Step by step</h3>
+<ol>
+<li><span class="checkbox"></span> <strong>Rocker OFF. Supply unplugged from the wall.</strong> Nothing energised.</li>
+<li><span class="checkbox"></span> <strong>Wire the supply into the barrel jack adapter</strong> — the 5.5 &times; 2.1&nbsp;mm screw-terminal type. Centre pin is <code>+</code> on virtually every one of these; confirm with a meter rather than assuming.</li>
+<li><span class="checkbox"></span> <strong>Fit the 1 A fuse holder in the positive leg</strong>, between the supply and the rocker <span class="pageref">[V2 &sect;3]</span>.</li>
+<li><span class="checkbox"></span> <strong>Fit the 470–1000 &micro;F capacitor across + and &minus;</strong>, physically close to the servo. The stripe on the capacitor body is the negative side. Backwards is a bang <span class="pageref">[V2 &sect;4a]</span>.</li>
+<li><span class="checkbox"></span> <strong>Run servo power off the breadboard.</strong> Servo <code>+</code> and <code>&minus;</code> go from the screw terminals straight to the servo. Breadboard spring contacts are rated about 1&nbsp;A at best and degrade with use; a poor contact there produces intermittent faults that look exactly like a failing servo <span class="pageref">[V2 &sect;4b]</span>. Signal wires through the breadboard are fine.</li>
+<li><span class="checkbox"></span> <strong>Fit the common ground</strong> — any Uno <code>GND</code> pin to the supply negative rail.</li>
+<li><span class="checkbox"></span> <strong>Plug in the supply, rocker still OFF. Meter across the supply output.</strong></li>
+<div class="check">between <code>4.9</code> and <code>5.1 V DC</code>. If it reads 6.6&nbsp;V you are still on the old adapter. If it reads 12&nbsp;V, stop and adjust before going further.</div>
+<li><span class="checkbox"></span> <strong>Rocker ON, no servo connected yet.</strong> Meter at the far end of the servo power leads.</li>
+<div class="check">the same <code>~5 V</code> at the servo end. A big drop here means a bad crimp or a breadboard contact still in the path.</div>
+<li><span class="checkbox"></span> <strong>Rocker OFF. Connect exactly one servo</strong> — the wrist roll, D10, is the right first choice: it is an MG90S with the least mechanical load of all seven <span class="pageref">[wiring-map.csv, servo type DOC-CONFIRMED]</span>, and 5&nbsp;V is comfortably inside its 4.8–6.0&nbsp;V range.</li>
+<li><span class="checkbox"></span> <strong>Horn off.</strong> Tape a toothpick or a paper flag to the spline so you can see small movements <span class="pageref">[V2 &sect;5]</span>.</li>
+<li><span class="checkbox"></span> <strong>Rocker ON, then enable that one joint in the console</strong> and nudge it.</li>
+<div class="check">the flag moves, the board does not reset, and the console stays connected. A reset here means a brownout — check the capacitor and the ground.</div>
+</ol>
+
+<div class="callout">
+<span class="callout-title">One joint at a time, even on 5 A</span>
+5&nbsp;A is enough for several servos in normal motion, but the arm is being reassembled with
+joints at unknown angles and no measured limits. The reason to go one at a time now is
+mechanical, not electrical: a joint driven into a hard stop stalls, and a stalled MG996R pulls
+about 2.5&nbsp;A on its own <span class="pageref">[V2 &sect;2]</span>.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">3</span> &ldquo;It will not connect&rdquo; — work down this list</h2>
+
+<table class="compact">
+<thead><tr><th>What you see</th><th>What it means</th><th>Fix</th></tr></thead>
+<tbody>
+<tr>
+  <td>The dropdown has no COM port in it</td>
+  <td>Windows cannot see the board at all</td>
+  <td>Check the USB cable is a <strong>data</strong> cable, not charge-only. Try a different socket. The genuine Uno shows as <code>USB Serial Device</code> with hardware id <code>2341:0043</code>.</td>
+</tr>
+<tr>
+  <td>&ldquo;Port is blocked&rdquo; / access denied</td>
+  <td>Another program already holds the port. Only one can</td>
+  <td>Close the Arduino IDE Serial Monitor, <code>SERVO CONSOLE.bat</code>, and <strong>any browser tab</strong> that has ever connected. A tab using Web Serial keeps the port until the <strong>tab</strong> is closed — minimising it is not enough <span class="pageref">[verified on bench 2026-08-01]</span>.</td>
+</tr>
+<tr>
+  <td>It connects, then reports the board is not the arm controller, quoting something odd</td>
+  <td><strong>The wrong program is on the board</strong></td>
+  <td>See &sect;4 below. This is what happened on 2026-08-01 and it is the single most likely cause.</td>
+</tr>
+<tr>
+  <td>The black console window flashes and vanishes</td>
+  <td>The bridge could not start</td>
+  <td>Read what it printed. Usually it is Python: only Python 3.11 on this laptop has <code>pyserial</code> installed. <code>py -3</code> points at 3.14, which does not <span class="pageref">[START ARM GUI.bat, header comment]</span>.</td>
+</tr>
+<tr>
+  <td>The page loads but every button does nothing</td>
+  <td>The bridge behind it has stopped</td>
+  <td>The black window must stay open the whole time. Closing it disconnects the board.</td>
+</tr>
+<tr>
+  <td>No Python at all</td>
+  <td>—</td>
+  <td>You do not need it. Open <code>Software\arm-console\arm-console.html</code> directly in Chrome or Edge and use CHOOSE PORT. Firefox will not work — it has no Web Serial.</td>
+</tr>
+</tbody>
+</table>
+
+<h3>Prove where the block is, in one command</h3>
+<p>Double-clicking <code>START ARM GUI.bat</code> runs a preflight first. It clears any leftover
+bridge and then <em>names</em> whatever else is holding the port, instead of leaving you to
+guess.</p>
+
+<div class="check"><code>COM5 is free.</code> — anything else, it will tell you which program to close.</div>
+
+<div class="callout">
+<span class="callout-title">A trap for anyone scripting this later</span>
+The file is called <code>START ARM GUI.bat</code>, and Windows' command processor reads a leading
+<code>START</code> as its own built-in command. Launching it from a script therefore does
+nothing at all, silently. The desktop icon is unaffected. Any launcher must use PowerShell's
+<code>Start-Process</code> <span class="pageref">[verified on bench 2026-08-02]</span>.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">4</span> The wrong program on the board — how to tell, how to fix</h2>
+
+<p>Two different programs get loaded onto this Uno, and only one of them can talk to the arm
+console.</p>
+
+<table class="compact">
+<thead><tr><th>Program</th><th>What it is for</th><th>How it announces itself</th></tr></thead>
+<tbody>
+<tr><td><code>factorylm_arm_controller</code></td><td>The real one. Six joints, the arm console, the whole protocol</td><td><code>RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.0.0</code></td></tr>
+<tr><td><code>emre_kalem_single_servo_bench_test</code></td><td>The one-servo keyboard tester, used for calibrating a joint on its own</td><td><code>EMRE KALEM ARM - SINGLE SERVO BENCH TEST</code></td></tr>
+</tbody>
+</table>
+
+<p>If the bench-test program is loaded and the console asks it <code>VER</code>, it answers one
+character at a time, because it is a keyboard console and reads every letter as a separate
+keystroke:</p>
+
+<pre>
+[stop] unknown command 'V'. Type 'h' for help.
+[stop] unknown command 'E'. Type 'h' for help.
+[stop] unknown command 'R'. Type 'h' for help.
+</pre>
+<p class="rung-caption">The exact symptom recorded on 2026-08-01. <span class="pageref">[verified on bench 2026-08-01]</span></p>
+
+<h3>Loading the arm controller</h3>
+<p>Rocker OFF and the supply unplugged first — loading a program restarts the board, and a
+powered servo can twitch when that happens. Then, in a terminal:</p>
+
+<pre>"C:\Program Files\Arduino CLI\arduino-cli.exe" compile --fqbn arduino:avr:uno "C:\RobotArm\Software\factorylm_arm_controller"
+
+"C:\Program Files\Arduino CLI\arduino-cli.exe" upload -p COM5 --fqbn arduino:avr:uno --verify "C:\RobotArm\Software\factorylm_arm_controller"</pre>
+
+<div class="check">compile reports <code>Sketch uses 11650 bytes (36%)</code> and <code>Global variables use 405 bytes (19%)</code>, and upload reports <code>New upload port: COM5 (serial)</code>. <span class="pageref">[verified on bench 2026-08-02]</span></div>
+
+<h3>Going back to the bench-test program</h3>
+<p>Same command, different folder. You will want this every time you calibrate a joint on its
+own:</p>
+
+<pre>"C:\Program Files\Arduino CLI\arduino-cli.exe" upload -p COM5 --fqbn arduino:avr:uno --verify "C:\RobotArm\Software\emre_kalem_single_servo_bench_test"</pre>
+
+<div class="danger">
+<span class="danger-title">&ldquo;No error&rdquo; is not proof it worked</span>
+An upload that prints nothing alarming can still have gone nowhere. The only proof is that the
+board <em>identifies itself</em> afterwards. Open the arm console and connect: if the header
+goes from DISCONNECTED to connected and six joint cards appear, the right program is running.
+That is a stronger check than any readback.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">5</span> What the refusal messages mean</h2>
+
+<p>The controller never fails silently. Every rejected command comes back with a code, and the
+console turns it into a sentence. Here is what is behind each one
+<span class="pageref">[SERIAL-PROTOCOL &sect;7 error table]</span>.</p>
+
+<table class="compact">
+<thead><tr><th>Code</th><th>What it really means</th><th>What to do</th></tr></thead>
+<tbody>
+<tr><td><code>E4</code> with <code>RESERVED=shoulder_pair</code></td><td>You addressed joint 2. It does not exist as a control — it is the shoulder's <em>second</em> servo, and it is only ever driven together with the first, as J1</td><td>Use J1. Nothing to fix.</td></tr>
+<tr><td><code>E5</code> with <code>REQ=&hellip; MIN=&hellip; MAX=&hellip;</code></td><td>The angle you said the joint is sitting at is outside that joint's limits. Every joint is still stuck at the <code>70–110</code> placeholder</td><td>If the joint really is out there, measure it and widen its limits in <code>joint-limits.csv</code>, then press LOAD LIMITS FILE. Do not guess the numbers.</td></tr>
+<tr><td><code>E5</code> with <strong>nothing after it</strong></td><td><strong>Not an angle problem.</strong> This is the watchdog defect from page 1</td><td>The watchdog value must be <code>0</code>, or <code>200–10000</code> ms.</td></tr>
+<tr><td><code>E6</code></td><td>That joint is already enabled, or is not enabled and you tried to move it</td><td>Look at the card — it says DISABLED or not.</td></tr>
+<tr><td><code>E7</code></td><td>The E-STOP is latched. <strong>Every</strong> enable and move will be refused until it is cleared</td><td>Press CLEAR E-STOP, then enable each joint again with a fresh angle. This is a common cause of &ldquo;nothing works any more&rdquo;.</td></tr>
+<tr><td><code>E9</code></td><td>You tried to change limits, speed or the mirror on a joint that is currently enabled</td><td>Disable it first. You cannot move the goalposts under a driven joint.</td></tr>
+<tr><td><code>E10</code></td><td>A row in <code>joint-limits.csv</code> is illegal — limits must sit inside 0–180&deg; and min must be below max</td><td>Fix the row, reload the file.</td></tr>
+<tr><td><code>E11</code></td><td>The shoulder mirror setting is illegal, or the offset would swing the second servo past its travel</td><td>Reduce <code>mirror_offset_deg</code> or narrow the shoulder's limits.</td></tr>
+<tr><td><code>E12</code></td><td>Speed outside 1–90 &deg;/s</td><td>Pick a number in range.</td></tr>
+<tr><td><code>E13</code></td><td><strong>The shoulder is locked on purpose.</strong> It will not drive D4 and D5 until it knows whether the second servo turns the same way as the first or the opposite way</td><td>Measure the mirror — see &sect;7. Never guess it.</td></tr>
+</tbody>
+</table>
+
+<div class="why">
+Codes <code>E10</code>, <code>E11</code> and <code>E12</code> exist because they were once all
+<code>E5</code>, and the console was telling the operator &ldquo;that starting angle is outside
+this joint's limits&rdquo; for three completely different problems with three different remedies
+<span class="pageref">[arm-console.html, comment above <code>ERR_TEXT</code>]</span>. A message
+that names the wrong cause is worse than no message.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">6</span> It connects, but a servo will not move</h2>
+
+<p>Work this table top to bottom. The order is deliberate — the top entries are cheap to check
+and have actually happened on this bench.</p>
+
+<table class="compact">
+<thead><tr><th>Symptom</th><th>Likely cause</th><th>Fix / how to confirm</th></tr></thead>
+<tbody>
+<tr>
+  <td>Nothing moves. No noise, no heat, no board reset, no matter which pin</td>
+  <td><strong>Missing common ground.</strong> The number one cause on this project</td>
+  <td>One wire: Uno <code>GND</code> &rarr; supply negative. Silence with power present <em>is</em> the symptom — a servo with no ground reference draws nothing <span class="pageref">[V2, RESOLVED banner]</span>.</td>
+</tr>
+<tr>
+  <td>Nothing moves on one pin, but another pin works</td>
+  <td>That signal wire, that breadboard row, or that servo</td>
+  <td>Move the suspect servo's signal wire onto a pin you know works and drive that joint instead. Moves there = the servo is fine and the fault is the wire or the pin. Still dead = the servo.</td>
+</tr>
+<tr>
+  <td>The board resets or the console disconnects the moment a servo starts</td>
+  <td>Brownout — the supply cannot deliver the startup surge</td>
+  <td>Fit the capacitor if it is not fitted <span class="pageref">[V2 &sect;4a]</span>. Get servo current off the breadboard <span class="pageref">[V2 &sect;4b]</span>. Check you are on the 5&nbsp;A supply and not the 700&nbsp;mA one.</td>
+</tr>
+<tr>
+  <td>It moves, but only a little, and stops well short</td>
+  <td>Nothing is wrong. Every joint is clamped to the <code>70–110&deg;</code> placeholder — 40&deg; of travel</td>
+  <td>Measure that joint's real travel and widen its row in <code>joint-limits.csv</code>. See &sect;7.</td>
+</tr>
+<tr>
+  <td>The servo turns, but the arm does not</td>
+  <td>The horn is off, or the joint is not bolted to it</td>
+  <td>Expected while the arm is apart. Not a fault.</td>
+</tr>
+<tr>
+  <td>Something moves, but not the joint named on the card</td>
+  <td>The pin-to-motor map is wrong for that channel</td>
+  <td>See &sect;7 — this is a known open question on D3.</td>
+</tr>
+<tr>
+  <td>Buzzing, getting hot, not moving</td>
+  <td>Stalled against a mechanical limit, or two servos fighting</td>
+  <td><strong>Rocker OFF immediately.</strong> A stalled MG996R pulls about 2.5&nbsp;A and will cook <span class="pageref">[V2 &sect;2]</span>. Find the obstruction before re-enabling.</td>
+</tr>
+<tr>
+  <td>Erratic, intermittent, works then does not</td>
+  <td>A contact — usually a breadboard spring carrying servo current</td>
+  <td>Run servo power on screw terminals straight to the servo <span class="pageref">[V2 &sect;4b]</span>. Also check the mini-breadboard's <code>+</code>/<code>&minus;</code> rails are not split in the middle; on many they are.</td>
+</tr>
+<tr>
+  <td>Everything is refused with <code>E7</code></td>
+  <td>The E-STOP latch is still set</td>
+  <td>Press CLEAR E-STOP, then re-enable each joint with a fresh angle.</td>
+</tr>
+<tr>
+  <td>Everything went limp on its own and the console said the watchdog tripped</td>
+  <td>The host stopped talking — tab closed, bridge stopped, cable knocked</td>
+  <td>Reconnect, clear, re-enable. The watchdog is off by default at boot, so this only happens if it was switched on.</td>
+</tr>
+</tbody>
+</table>
+
+<h3>The meter test that ends the guessing</h3>
+<p>With one joint enabled and holding, probe two places <span class="pageref">[V2 &sect;6]</span>:</p>
+
+<table class="compact">
+<thead><tr><th>Probe</th><th>Expect</th><th>What a wrong reading means</th></tr></thead>
+<tbody>
+<tr><td>Signal pin &harr; <code>GND</code></td><td><code>~0.37 V DC</code></td><td><code>0 V</code> = no pulses on that pin at all. <code>~5 V</code> = stuck high.</td></tr>
+<tr><td>Servo plug RED &harr; BROWN</td><td><code>~5 V DC</code></td><td><code>0 V</code> = that servo has no power. Prime suspect.</td></tr>
+</tbody>
+</table>
+
+<div class="why">
+0.37&nbsp;V looks like a broken reading and is not. The signal is a 1472&nbsp;&micro;s pulse
+repeated every 20&nbsp;ms — a 7.4% duty cycle — and 7.4% of 5&nbsp;V is 0.37&nbsp;V. A cheap
+meter averaging 50&nbsp;Hz will wander. What matters is the difference between
+<em>about a third of a volt</em>, <em>zero</em>, and <em>about five</em>.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">7</span> Three things nobody has measured yet</h2>
+
+<p>These are not faults. They are blanks, and the software is deliberately refusing to fill them
+in for you. Filling a blank with a guess is how a joint gets driven into a hard stop.</p>
+
+<h3>a. Every joint's travel limits</h3>
+<p>All six joints read <code>70–110&deg;</code> with <code>calibrated=no</code>
+<span class="pageref">[joint-limits.csv]</span>. That is the same conservative default the
+bench-test sketch uses. It is <strong>not</strong> the travel of any joint on this arm.</p>
+<p>To fill one in: load the bench-test program, test that joint alone with the horn off, find
+where it genuinely stops each way, back off a few degrees from each end, and write those two
+numbers into its row. Then set <code>calibrated=yes</code>, log it in
+<code>Calibration_Notes/calibration-log.csv</code>, and press LOAD LIMITS FILE in the console.</p>
+<div class="danger">
+<span class="danger-title">Only ever set calibrated=yes for a joint you personally measured</span>
+A row still sitting at 70–110 with <code>calibrated=yes</code> is a lie the console will believe
+and repeat, and the amber UNCALIBRATED badge is the only thing that would have warned you
+<span class="pageref">[joint-limits.csv header]</span>.
+</div>
+<p class="small">The elbow (D6) is the lightest of the four MG996R joints and a sensible one to
+calibrate first <span class="pageref">[joint-limits.csv, joint_id=3 notes]</span>.</p>
+
+<h3>b. Which motor is physically on D3</h3>
+<p>Two project files disagree, and both are in the repository:</p>
+<table class="compact">
+<thead><tr><th>File</th><th>Says D3 is</th></tr></thead>
+<tbody>
+<tr><td><code>Software/wiring-map.csv</code>, index 0</td><td>Base — an MG995/MG996R, marked <code>INFERRED</code></td></tr>
+<tr><td><code>Calibration_Notes/calibration-log.csv</code>, 2026-08-01</td><td>&ldquo;the servo physically wired to D3 was the GRIPPER/CLAW&rdquo;</td></tr>
+</tbody>
+</table>
+<p>The console shows this contradiction on the J0 card rather than picking a side. Settle it
+<strong>by size, with no power connected at all</strong>: follow the signal wire out of D3 and
+look at the servo it lands on.</p>
+<table class="compact">
+<thead><tr><th>If the servo is</th><th>Then</th><th>Correct</th></tr></thead>
+<tbody>
+<tr><td>Large, heavy, metal gear horn (MG996R, ~55 g)</td><td>D3 really is a base-class servo — the wiring map is right</td><td>the calibration-log note</td></tr>
+<tr><td>Small, light, plastic (MG90S, ~14 g)</td><td>D3 is the gripper — the bench log is right</td><td><code>wiring-map.csv</code> <strong>and</strong> <code>joint-limits.csv</code>, together</td></tr>
+</tbody>
+</table>
+<div class="callout">
+<span class="callout-title">Change both files or neither</span>
+<code>wiring-map.csv</code> and <code>joint-limits.csv</code> use the same joint numbering on
+purpose, so that this project has exactly one numbering system
+<span class="pageref">[SERIAL-PROTOCOL &sect;1]</span>. Correcting one and not the other
+re-creates the confusion that produced this contradiction in the first place.
+</div>
+
+<h3>c. The shoulder mirror</h3>
+<p>J1 drives two MG996Rs (D4 and D5) through one link. The firmware refuses to enable it at all
+until it is told whether the second servo must be given the <em>same</em> angle or the
+<em>opposite</em> one — that is the <code>E13</code> refusal.</p>
+<div class="danger">
+<span class="danger-title">This is the one measurement never to guess</span>
+Get it wrong and two MG996Rs push against each other through a single link. They will hold, get
+hot, and strip a gear. It is the highest-consequence mechanical failure available on this arm,
+which is why the software removes the ability to express it rather than warning about it
+<span class="pageref">[SERIAL-PROTOCOL &sect;1, &ldquo;Why ID 2 is reserved&rdquo;]</span>.
+</div>
+<p>To measure it: with the shoulder linkage <strong>unbolted</strong> and both horns off, use the
+bench-test sketch on D4 and D5 <strong>separately, never paired</strong>. Note whether the two
+output shafts point the same physical direction when given the same angle (that is
+<code>same</code>) or when given mirrored angles (that is <code>inverted</code>). Write it into
+the <code>mirror_mode</code> column of the shoulder row.</p>
+<p>If it turns out to be <code>inverted</code>, there is a second number to measure — the offset.
+Command each servo until the two shafts point the same physical way; call those angles
+<em>a</em> and <em>b</em>; then <code>mirror_offset_deg = (a + b) / 2 &minus; 90</code>
+<span class="pageref">[joint-limits.csv header]</span>.</p>
+<div class="why">
+Servo horns fit on a splined shaft in whole-tooth steps — about 18&deg; apart on an MG996R — so
+two horns fitted perfectly symmetrically is the exception, not the rule. If the true mirror axis
+is 96&deg; and the offset is left at 0, the two servos fight each other by 12&deg; for the entire
+time joint 1 is enabled.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">8</span> Two faults already paid for — do not re-diagnose these</h2>
+
+<p>Both of these cost a working session. If a symptom below matches, go straight to the fix.</p>
+
+<div class="ok">
+<span class="ok-title">1. The servo that had everything and still would not move</span>
+Power present. Valid ~1472&nbsp;&micro;s pulses on D3. Twenty-one attach events across seven
+pins. No current draw, no brownout, no movement. <strong>There was no wire between Arduino
+<code>GND</code> and the supply negative.</strong> The complete absence of any electrical event
+was the diagnostic clue — a servo that is trying and failing makes noise and draws current; one
+with no ground reference does neither <span class="pageref">[V2, RESOLVED banner 2026-08-01]</span>.
+</div>
+
+<div class="ok">
+<span class="ok-title">2. &ldquo;The port is blocked&rdquo;</span>
+Only one program at a time can hold a serial port, and four things here want it: the bridge, the
+Arduino IDE Serial Monitor, a browser tab using Web Serial, and <code>SERVO CONSOLE.bat</code>.
+<strong>A browser tab keeps the port until the tab itself is closed</strong> — not minimised, not
+navigated away from. Closed. The preflight now names whatever is holding it
+<span class="pageref">[verified on bench 2026-08-01]</span>.
+</div>
+
+<h3>And two tool traps worth knowing</h3>
+<ul>
+<li>Windows reports <strong>phantom COM ports</strong> from stale registry entries. The port list
+you can trust comes from the device enumeration, not the registry — which is why the preflight
+and the bridge both use it <span class="pageref">[verified on bench 2026-08-01]</span>.</li>
+<li>A program that prints raw text coming back from the board can crash on an odd byte, because
+the Windows console is not set to UTF-8 by default. The shipped bridge is safe from this — it
+converts the text properly before it ever reaches a console
+<span class="pageref">[arm-bridge.py lines 380 and 493, verified on bench 2026-08-02]</span>.
+Anything hand-written to talk to the board needs the same care.</li>
+</ul>
+
+<hr/>
+
+<h3>Rules that must survive everything</h3>
+<ul>
+<li>Nothing is attached at boot, and no joint is ever centred automatically. Every enable
+requires you to say where the joint is sitting <em>first</em>, so the very first pulse a servo
+receives equals its current position and nothing jumps.</li>
+<li>Limits are <strong>measured data</strong>. Never invented, never inferred, never copied from
+another arm.</li>
+<li>D4 and D5 are one joint. Always.</li>
+<li><strong>HOLD is not E-STOP.</strong> HOLD freezes motion with the joints still powered and
+holding position. E-STOP cuts the signal — the joints go limp, and a loaded arm sags under its
+own weight.</li>
+<li>MIRA-side rule for the whole project: read-only intelligence. This firmware answers; it does
+not act on its own.</li>
+</ul>
+
+<div class="danger">
+<span class="danger-title">The last word on stopping</span>
+The rocker switch and the inline fuse are the emergency stop. The button on the screen, the
+Arduino, the firmware and the browser are conveniences. If something is moving that should not
+be, reach for the switch — not the mouse.
+</div>
+
+</body>
+</html>
