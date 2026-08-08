@@ -1,16 +1,45 @@
 # joint-limits.csv - per-joint travel limits for factorylm_arm_controller
 #
-# STATUS as of 2026-08-06: FIVE of the six joints have been measured and locked
-# at the console. Only joint 6 (gripper) is still a placeholder. This file used
-# to say every number in it was a placeholder; that is no longer true, and each
-# row now says for itself which it is.
+# STATUS as of 2026-08-08: all six joints carry a lock, but joint 6's lock is
+# VOID - see the 2026-08-08 block below. This file used to say every number in
+# it was a placeholder; that is no longer true, and each row now says for itself
+# which it is. NOTE the joint 6 summary line below read "0-180 NEVER MEASURED"
+# until 2026-08-08; that was stale from before the 14:53 lock on 2026-08-06 and
+# is corrected here.
 #
 #   0 Base        29-110  home  64   locked 2026-08-05 15:36
 #   1 Shoulder     0- 91  home   1   locked 2026-08-05 19:04  (3rd lock; newest wins)
 #   3 Elbow        0- 66  home  33   locked 2026-08-06 04:43  (2nd lock; widened from 0-46)
 #   4 Wrist pitch  0-180  home  90   locked 2026-08-06 04:44  <- SUSPECT, see the row
 #   5 Wrist roll  31-178  home 104   locked 2026-08-06 04:47
-#   6 Gripper      0-180  home  90   NEVER MEASURED - placeholder
+#   6 Gripper     10- 70  home  40   locked 2026-08-06 14:53  <- VOID, see below
+#
+# 2026-08-08 - THE GRIPPER GEAR WAS REPAIRED AND THAT VOIDS ITS LOCK.
+# The operator fixed the gear that was slipping on the J6 motor shaft. That is
+# good news for the project and bad news for this row. J6 was locked 10-70 on
+# 2026-08-06 14:53 - WHILE THE GEAR WAS STILL SLIPPING. A lock records the
+# angles the operator drove to and the controller acknowledged; nothing here
+# observes an output shaft. So 10 and 70 describe A SERVO TURNING INSIDE A GEAR
+# THAT WAS NOT GRIPPING. They say nothing about where the fingers go.
+#
+# Now that the gear bites, commanding 10 or 70 drives the fingers to positions
+# NOBODY HAS EVER OBSERVED. The row's own hazard note applies with full force: a
+# gripper can close onto its own linkage, and the 5A rail will not current-limit
+# a stall the way the old 700mA unit did. The 1A slow-blow fuse called for in
+# that note WAS confirmed fitted by the operator on 2026-08-08.
+#
+# RE-MEASURE J6 BEFORE COMMANDING IT TO EITHER END. Start from home 40, step a
+# few degrees at a time, eyes on the fingers, and stop at the first contact,
+# resistance or servo buzz in each direction. Back off from each end - that
+# margin is the whole point - then re-lock and record that the new row
+# supersedes the slipping-gear lock.
+#
+# calibrated STILL READS yes ON THE J6 ROW AND THAT IS NOW ARGUABLY A LIE - this
+# file's own doctrine below says a calibrated=yes nobody measured is "a lie the
+# console will believe and repeat". It was left at yes ONLY because the runtime
+# effect of flipping it to no has not been verified on this firmware, and
+# guessing at a field that may gate motion is the worse error. Decide it
+# deliberately, then set it.
 #
 # WHAT A LOCK IS AND IS NOT. LOCK THIS AXIS records the ACCEPTED COMMANDED SOFT
 # LIMITS - the angles the operator drove to and chose, and the controller

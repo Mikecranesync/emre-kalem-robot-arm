@@ -24,11 +24,24 @@
 # 2026-08-06 and J0 must be re-measured when fitted - a new horn seats on a
 # different spline tooth- so the old 29-110 will not point where it used to.
 #
-# J6 ANGLES ARE COMMANDED- NOT ACTUAL. As of 2026-08-06 evening the gripper does
-# not articulate: the firmware ramps D11 correctly and the fingers do not move.
-# Operator's diagnosis after checking it by hand - the gear is slipping on the
-# motor shaft. Any j6_deg below is what the joint was TOLD- and should not be
-# read as a finger position until the mechanical fault is fixed and re-verified.
+# J6 ANGLES ARE COMMANDED- NOT ACTUAL. As of 2026-08-06 evening the gripper did
+# not articulate: the firmware ramped D11 correctly and the fingers did not move.
+# Operator's diagnosis after checking it by hand - the gear was slipping on the
+# motor shaft. Any j6_deg below is what the joint was TOLD- and must not be read
+# as a finger position.
+#
+# 2026-08-08 - THE GEAR IS FIXED- WHICH MAKES THE j6_deg=70 IN BOTH ROWS BELOW
+# MORE DANGEROUS- NOT LESS. Every j6_deg here was recorded while the gear was
+# slipping- so 70 was a command that moved nothing and could not collide with
+# anything. Now that the gear bites- driving either pose commands the fingers to
+# a position NOBODY HAS EVER OBSERVED- and a gripper can close onto its own
+# linkage against a 5A rail that will not current-limit the stall.
+#
+# DO NOT DRIVE storage OR pick UNTIL J6 HAS BEEN RE-MEASURED and these two rows
+# have been re-recorded against real finger positions. See the 2026-08-08 block
+# in joint-limits.csv for the re-measure procedure. The 1A slow-blow fuse is
+# confirmed fitted as of 2026-08-08- which is a backstop against a stall- not a
+# licence to drive an unverified angle.
 #
 # ANGLES ARE COMMANDED SOFT-LIMIT DEGREES- the same units as joint-limits.csv.
 # Nothing in this system observes an output shaft- so "verified" in this file
