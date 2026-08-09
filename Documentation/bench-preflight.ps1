@@ -101,17 +101,28 @@ if ($null -eq $served) {
 
 # --- 7. does the bench pose file match the repo? ------------------------------
 # So that after the session, any diff is what you taught and nothing else.
-$benchPoses = & $SSH -o BatchMode=yes -o ConnectTimeout=10 $HOSTALIAS "cat $REMOTEDIR/arm-poses.csv" 2>$null
-if (-not $benchPoses) { No 'cannot read arm-poses.csv on the Pi' }
+# COMPARED AS NORMALISED BYTES, HASHED ON EACH SIDE - never as text through ssh.
+# The pose notes are full of degree signs, and PowerShell decodes ssh's stdout
+# with the console codepage, so a round-trip through `cat` mangles them and two
+# identical files compare unequal. That produced a WARN telling the operator to
+# sync a file that was already in sync, which is worse than no check: the next
+# real difference gets ignored. Both sides strip CR and hash, so the CRLF this
+# repo checks out on Windows does not count as a difference either.
+$benchHash = & $SSH -o BatchMode=yes -o ConnectTimeout=10 $HOSTALIAS `
+             "tr -d '\r' < $REMOTEDIR/arm-poses.csv | sha256sum | cut -d' ' -f1" 2>$null
+$benchRows = & $SSH -o BatchMode=yes -o ConnectTimeout=10 $HOSTALIAS `
+             "grep -vc '^#' $REMOTEDIR/arm-poses.csv" 2>$null
+if (-not $benchHash) { No 'cannot read arm-poses.csv on the Pi' }
 else {
-    $tmp2 = [IO.Path]::GetTempFileName()
-    [IO.File]::WriteAllLines($tmp2, $benchPoses)
-    $a = (Get-Content -LiteralPath $tmp2 -Raw) -replace "`r`n","`n"
-    $b = (Get-Content -LiteralPath $repoPoses -Raw) -replace "`r`n","`n"
-    $benchRows = ($a -split "`n" | Where-Object { $_ -and -not $_.StartsWith('#') }).Count - 1
-    if ($a.TrimEnd() -eq $b.TrimEnd()) { Ok ("pose file matches the repo ({0} poses) - any diff afterwards is what you taught" -f $benchRows) }
-    else { Hmm 'pose file on the bench DIFFERS from the repo - run Software/arm-console/sync-poses.sh and commit BEFORE teaching, or you will not be able to tell old work from new' }
-    Remove-Item $tmp2 -ErrorAction SilentlyContinue
+    $bytes  = [IO.File]::ReadAllBytes($repoPoses) | Where-Object { $_ -ne 13 }
+    $sha    = [Security.Cryptography.SHA256]::Create()
+    $local  = ($sha.ComputeHash([byte[]]$bytes) | ForEach-Object { $_.ToString('x2') }) -join ''
+    if ($local -eq ($benchHash -join '').Trim()) {
+        Ok ("pose file matches the repo ({0} rows) - any diff afterwards is what you taught" -f `
+            (($benchRows -join '').Trim()))
+    } else {
+        Hmm 'pose file on the bench DIFFERS from the repo - run Software/arm-console/sync-poses.sh and commit BEFORE teaching, or you will not be able to tell old work from new'
+    }
 }
 
 # --- 8. is there a rollback copy of the console on the Pi? --------------------
