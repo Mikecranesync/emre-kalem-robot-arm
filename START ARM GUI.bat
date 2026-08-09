@@ -40,6 +40,17 @@ echo.
 
 if not exist "%BRIDGE%" goto NOBRIDGE
 
+REM ---- WHICH ARM? The board is on ONE machine: this laptop, or the Pi.
+REM The USB cable is the only thing that decides, so ask it rather than asking
+REM the operator to remember. No local COM device means the arm is on the Pi,
+REM and everything below this line (local Python, pyserial, the local bridge,
+REM the serial preflight) is the wrong route - the preflight would even stop
+REM with "port 8770 is in use" because the SSH tunnel to the Pi is holding it.
+REM SetupAPI enumeration, never SerialPort::GetPortNames, which reports stale
+REM registry entries for boards that are not plugged in.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$d=@(Get-CimInstance Win32_PnPEntity -EA SilentlyContinue | Where-Object { $_.Name -match 'COM\d+' -and $_.Status -eq 'OK' }); exit ([int]($d.Count -eq 0))"
+if errorlevel 1 goto PIROUTE
+
 REM ---- preflight: clear stale bridges, and NAME whatever else holds the port.
 REM Only one program can hold a serial port. A leftover bridge, the Arduino IDE
 REM Serial Monitor, or a browser tab using Web Serial will each lock the others
@@ -110,6 +121,14 @@ echo  Double-click START ARM GUI.bat again to restart it.
 echo.
 pause
 exit /b 0
+
+
+:PIROUTE
+REM The arm is on the Pi. That script opens the tunnel, makes sure the bridge is
+REM up over there, and opens the browser. It holds ITS window open because that
+REM window is the tunnel, so nothing more happens in this one.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%Documentation\arm-console-pi.ps1"
+exit /b %errorlevel%
 
 
 :PORTBUSY
