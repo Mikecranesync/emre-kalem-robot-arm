@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Emre Kalem Robot Arm — Bench Run: Teach and Playback</title>
+<style>
+  @page { size: Letter; margin: 0.45in 0.55in; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 10.5pt; color: #111; line-height: 1.42; }
+  h1 { font-size: 19pt; margin: 0 0 4pt 0; border-bottom: 2pt solid #111; padding-bottom: 6pt; }
+  h2 { font-size: 14pt; margin: 18pt 0 6pt 0; padding: 6pt 10pt; background: #1f3a5f; color: #fff; }
+  h3 { font-size: 12pt; margin: 14pt 0 4pt 0; color: #1f3a5f; }
+  h4 { font-size: 11pt; margin: 10pt 0 2pt 0; color: #333; }
+  .meta { font-size: 9.5pt; color: #555; margin-bottom: 10pt; }
+  .meta strong { color: #111; }
+  ol, ul { margin: 4pt 0 6pt 22pt; }
+  li { margin-bottom: 4pt; }
+  code, pre { font-family: 'Consolas', 'Courier New', monospace; }
+  pre { background: #f4f5f7; border: 1pt solid #d0d5dc; border-radius: 3pt; padding: 8pt; font-size: 9pt; white-space: pre; overflow-x: auto; tab-size: 2; -webkit-tab-size: 2; line-height: 1.25; }
+  pre.ladder { background: #fafbfd; border: 1pt solid #1f3a5f; font-size: 9pt; line-height: 1.15; padding: 10pt 12pt; }
+  pre.wiring { background: #fff8e8; border: 1pt solid #b9882a; padding: 10pt; font-size: 9.5pt; }
+  pre.bits { background: #f0f4fa; border: 1pt solid #1f3a5f; padding: 10pt; font-size: 9.5pt; }
+  code { background: #f4f5f7; padding: 1pt 3pt; border-radius: 2pt; font-size: 10pt; }
+  table { border-collapse: collapse; width: 100%; margin: 4pt 0 8pt 0; font-size: 9.5pt; }
+  th, td { border: 1pt solid #b5bcc4; padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background: #e8edf3; }
+  .callout { border-left: 4pt solid #d9822b; background: #fff7eb; padding: 8pt 12pt; margin: 8pt 0; }
+  .callout-title { font-weight: bold; color: #a55a14; display: block; margin-bottom: 2pt; }
+  .danger { border-left: 4pt solid #c5392c; background: #fdecea; padding: 8pt 12pt; margin: 8pt 0; }
+  .danger-title { font-weight: bold; color: #8a1a10; display: block; margin-bottom: 2pt; }
+  .ok { border-left: 4pt solid #2f8f3a; background: #ecf6ee; padding: 8pt 12pt; margin: 8pt 0; }
+  .ok-title { font-weight: bold; color: #1f5f24; display: block; margin-bottom: 2pt; }
+  .bug { border-left: 4pt solid #8a1a10; background: #fff5f3; padding: 10pt 12pt; margin: 10pt 0; }
+  .bug-title { font-weight: bold; color: #8a1a10; display: block; margin-bottom: 3pt; font-size: 11pt; }
+  .why { background: #eef2f9; padding: 6pt 10pt; margin: 4pt 0 6pt 0; border-radius: 3pt; font-size: 10pt; }
+  .why::before { content: 'Why this matters: '; font-weight: bold; color: #1f3a5f; }
+  .check { background: #f7fff8; border: 1pt dashed #2f8f3a; padding: 5pt 9pt; border-radius: 3pt; margin: 4pt 0; font-size: 10pt; }
+  .check::before { content: '\2713 You should see: '; font-weight: bold; color: #2f8f3a; }
+  .pageref { font-size: 8.5pt; color: #888; font-style: italic; }
+  hr { border: 0; border-top: 1pt solid #b5bcc4; margin: 12pt 0; }
+  .step { background: #1f3a5f; color: #fff; border-radius: 50%; display: inline-block; width: 20pt; height: 20pt; line-height: 20pt; text-align: center; font-weight: bold; margin-right: 7pt; }
+  .checkbox { display: inline-block; width: 11pt; height: 11pt; border: 1.5pt solid #111; margin-right: 6pt; vertical-align: middle; }
+  .small { font-size: 9.5pt; color: #555; }
+  .page-break { page-break-before: always; }
+  .compact td, .compact th { padding: 3pt 6pt; font-size: 9.5pt; }
+  .rung-caption { font-style: italic; color: #555; font-size: 9.5pt; margin: 2pt 0 6pt 0; }
+  .cheatsheet { background: #fffaf0; border: 2pt solid #1f3a5f; padding: 12pt 14pt; margin: 10pt 0; }
+  .cheatsheet h3 { margin-top: 8pt; color: #1f3a5f; }
+  .cheatsheet table { margin: 4pt 0; }
+  .cheatsheet th { background: #1f3a5f; color: #fff; }
+  .bit-fixed { font-family: 'Consolas', monospace; font-size: 11pt; letter-spacing: 1pt; color: #1f3a5f; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h1>Bench Run — Teach and Playback<br/><span style="font-size:13pt;font-weight:normal;color:#555;">Prove a step is recorded when you let go, build a park pose, and play it back</span></h1>
+<div class="meta">
+  <strong>Audience:</strong> the person at the bench, one hand free for the rocker &nbsp;|&nbsp;
+  <strong>Arm:</strong> Emre Kalem 6-axis, 4&times; MG996R + 3&times; MG90S<br/>
+  <strong>Controller:</strong> Arduino Uno R3 on the Pi <code>mira-arm</code>, <code>/dev/ttyACM0</code> &nbsp;|&nbsp;
+  <strong>Firmware:</strong> <code>FACTORYLM-ARM PROTO=1.0 FW=1.1.1 BUILD=20260808</code>
+  <span class="pageref">[factorylm_arm_controller.ino line 566]</span><br/>
+  <strong>Console:</strong> <code>1.3.0</code> — tabbed pendant layout, auto-step recording, OUT OF RANGE verdict
+  <span class="pageref">[arm-console.html <code>CONSOLE_VERSION</code>; commits 2630d85, 1b4fc41, 1565b44]</span><br/>
+  <strong>Start it with:</strong> the <strong>Arm Console</strong> icon on the desktop &nbsp;|&nbsp;
+  <strong>Long form:</strong> <em>Documentation/NEXT-BENCH-RUN.md</em>, <em>Documentation/RECORDING-A-POSE.md</em><br/>
+  <strong>Written:</strong> 2026-08-09, after <code>Parked</code> was saved with no path and could not be played
+</div>
+
+<!-- =========================================================== -->
+<!-- CHEATSHEET                                                  -->
+<!-- =========================================================== -->
+<div class="cheatsheet">
+<h3 style="margin-top:0;">&#128712; One-page cheat sheet (the values that absolutely must be right)</h3>
+<table class="compact">
+<thead><tr><th>What</th><th>Value</th><th>Source</th></tr></thead>
+<tbody>
+<tr><td><strong>The real emergency stop</strong></td><td>the KCD1 rocker switch and the inline fuse. <strong>Not</strong> the screen.</td><td><span class="pageref">[arm-console.html header comment]</span></td></tr>
+<tr><td>Hand position on every power change</td><td>under the forearm <strong>before</strong> the rocker &mdash; it swings down through the base area where the loom and blue cable sit</td><td><span class="pageref">[arm-poses.csv, <code>storage</code> notes]</span></td></tr>
+<tr><td>J0 Base travel</td><td><code>0&ndash;180&deg;</code>, home <code>90</code> &mdash; <strong>pin not verified on this arm</strong></td><td><span class="pageref">[joint-limits.csv J0; calibration-log 2026-08-01]</span></td></tr>
+<tr><td>J1 Shoulder travel</td><td><code>0&ndash;91&deg;</code>, home <code>1</code> (not 0, on purpose)</td><td><span class="pageref">[joint-limits.csv J1, locked 2026-08-05 19:04]</span></td></tr>
+<tr><td><strong>J3 Elbow travel</strong></td><td><code>0&ndash;30&deg;</code>, home <code>15</code> &mdash; <strong>re-locked 2026-08-08, down from 0&ndash;66</strong></td><td><span class="pageref">[joint-limits.csv J3, locked 2026-08-08 17:48]</span></td></tr>
+<tr><td>J4 Wrist pitch travel</td><td><code>33&ndash;180&deg;</code>, home <code>90</code> &mdash; travel ends still unconfirmed</td><td><span class="pageref">[joint-limits.csv J4]</span></td></tr>
+<tr><td>J5 Wrist roll travel</td><td><code>0&ndash;180&deg;</code>, home <code>90</code></td><td><span class="pageref">[joint-limits.csv J5]</span></td></tr>
+<tr><td>J6 Gripper travel</td><td><code>0&ndash;180&deg;</code>, home <code>90</code> &mdash; does not articulate yet</td><td><span class="pageref">[arm-poses.csv, <code>pick</code> notes 2026-08-06]</span></td></tr>
+<tr><td>Park margin from any limit</td><td><strong>at least 3&deg; inside</strong>. A joint on its own end has nowhere to back off to.</td><td><span class="pageref">[joint-limits.csv &mdash; J1 homes at 1 not 0, J3 at 15 not 30]</span></td></tr>
+<tr><td>Firmware speed ceiling</td><td><code>90 deg/s</code>. Above it the firmware answers <code>ERR E12</code>.</td><td><span class="pageref">[arm-poses.csv, <code>pick</code> notes, 11 cycles 2026-08-06]</span></td></tr>
+<tr><td>Smallest movement that becomes a step</td><td><code>2&deg;</code>. Less is a nudge and is deliberately not recorded.</td><td><span class="pageref">[arm-console.html <code>AUTO_STEP_MIN_DEG</code>]</span></td></tr>
+<tr><td>Preflight, before servo power</td><td><code>powershell -NoProfile -ExecutionPolicy Bypass -File Documentation\bench-preflight.ps1</code></td><td><span class="pageref">[commit 9fb45bc; 8/8 on 2026-08-09]</span></td></tr>
+<tr><td>Rollback the console, no restart</td><td>on the Pi: <code>cp ~/arm/console/arm-console.html.bak-* ~/arm/console/arm-console.html</code>, then F5</td><td><span class="pageref">[arm-bridge.py re-reads the file on every page load]</span></td></tr>
+<tr><td>Pull poses back into git afterwards</td><td><code>Software/arm-console/sync-poses.sh</code></td><td><span class="pageref">[sync-poses.sh header]</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<div class="danger">
+<span class="danger-title">The on-screen E-STOP is not a safety device</span>
+Neither is the Arduino, the firmware, nor the browser. A USB cable, a browser tab and a Python
+program can all die in the middle of a move. The only stop you can rely on is removing servo power
+at the rocker switch. Nothing on this arm observes the output shaft, so every number on screen is
+what the console <em>commanded</em> &mdash; judge the arm with your eyes, not the display.
+</div>
+
+<!-- =========================================================== -->
+<!-- WHAT CHANGED BLOCK                                          -->
+<!-- =========================================================== -->
+<div class="bug">
+  <span class="bug-title">&#9888; 3 things are different from your last bench session &mdash; read before you start</span>
+  <ol style="margin: 4pt 0 0 22pt;">
+    <li><strong>You no longer press RECORD WAYPOINT.</strong> Letting go of the jog bar records the
+    step. The old flow made recording a separate act to remember between every jog, and forgetting
+    once wrote a pose that looked saved and could never be played &mdash; which is exactly what
+    happened to <code>Parked</code> on 2026-08-09. The button still exists; you should not need it.
+    <span class="pageref">[commit 1565b44]</span></li>
+
+    <li><strong>The console is now four tabs, one joint at a time.</strong> TEACH is where you land.
+    The six joints are a rail down the left; click one and its full card opens in the middle. The
+    envelope sliders, LOCK THIS AXIS, deg/s and LOAD LIMITS FILE moved to CALIBRATION &mdash; they
+    are not gone, just out of the way of RECORD.
+    <span class="pageref">[commits 2630d85, 1b4fc41]</span></li>
+
+    <li><strong>All three saved poses are unusable, and the library now says so.</strong>
+    <code>storage</code> (J3=64) and <code>pick</code> (J3=36) read <strong>OUT OF RANGE</strong>:
+    the elbow lock narrowed to 0&ndash;30 on 2026-08-08, so the arm cannot reach either any more and
+    the firmware would clamp them and stop somewhere that is not the pose. <code>Parked</code> reads
+    <strong>REFERENCE ONLY</strong> &mdash; no path was recorded. All three stay as history; none is
+    a target. <span class="pageref">[arm-poses.csv; joint-limits.csv J3]</span></li>
+  </ol>
+</div>
+
+<!-- =========================================================== -->
+<h2><span class="step">1</span> What a pose is &mdash; the 60-second mental model</h2>
+
+<p>A pose is a named position you can send the arm back to: park, start, pick, handoff. It is
+<strong>not</strong> six numbers.</p>
+
+<p>Two positions can both be perfectly safe while the straight line between them drives the claw
+through the bench, the wire loom, or the base housing. So a pose is <strong>the route you drove, in
+the order you drove it</strong> &mdash; the console calls each stop along the way a <em>step</em>.</p>
+
+<p>The steps come from the angles the arm was actually commanded to, at each point where you stopped
+and looked at it. Nothing is guessed and nothing is interpolated. That is why letting go is the
+moment a step is taken: letting go is when you stopped and looked.</p>
+
+<div class="why">
+A pose saved with no steps records only where the arm ended up. The library shows it as
+<strong>REFERENCE ONLY</strong> and refuses to load it, because there is no safe way to drive
+somewhere when nobody recorded how you got there.
+</div>
+
+<p>One extra step is taken for you: <strong>the position the arm is standing in when you first touch
+the jog bar</strong>. Without it, playback would jump straight to step 1 from wherever the arm
+happens to be &mdash; every joint moving at once &mdash; which is the exact hazard above.</p>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">2</span> Phase 0 &mdash; everything below runs with servo power OFF</h2>
+
+<p>Nothing in this phase moves the arm. The console is built to be exercised end to end with zero
+servos powered: the board answers, the controls respond, the firmware acknowledges.</p>
+
+<p><span class="checkbox"></span> <strong>P0.1</strong> &nbsp;Run the preflight from the repository root:</p>
+<pre>powershell -NoProfile -ExecutionPolicy Bypass -File Documentation\bench-preflight.ps1</pre>
+
+<div class="check">8 passed, 0 failed. It confirms the Pi is serving <em>exactly</em> the console in the repo, that the pose file matches, and that the hold daemon is stopped.</div>
+
+<div class="danger">
+<span class="danger-title">If it says the hold daemon is RUNNING, stop</span>
+<code>hold_arm_pi.py</code> reports <code>EN=1</code> for joints whose supply rail is dead. Switching
+servo power on with it running snaps every joint to the setpoint it was last holding.
+Stop it before the rocker goes anywhere near ON.
+</div>
+
+<p><span class="checkbox"></span> <strong>P0.2</strong> &nbsp;Double-click <strong>Arm Console</strong> on the desktop. A black window opens and stays open &mdash; that window is the connection to the Pi. The browser follows a few seconds later.</p>
+<div class="check">The <strong>TEACH</strong> tab selected, and six joints listed in the left rail.</div>
+
+<p><span class="checkbox"></span> <strong>P0.3</strong> &nbsp;Click through <strong>RUN POSES</strong>, <strong>CALIBRATION</strong>, <strong>DIAGNOSTICS</strong>, and back to <strong>TEACH</strong>.</p>
+<div class="check">The red <strong>E-STOP</strong> and the safety line stay on screen on all four tabs. They are outside the tabs on purpose.</div>
+
+<p><span class="checkbox"></span> <strong>P0.4</strong> &nbsp;Press <strong>CONNECT</strong>.</p>
+<div class="check">The status chip turns green and reads <em>Connected</em>. No red notices.</div>
+
+<p><span class="checkbox"></span> <strong>P0.5</strong> &nbsp;Go to <strong>CALIBRATION</strong> and click <strong>J3 Elbow</strong>.</p>
+<div class="check">The envelope reads <code>0&deg;</code> and <code>30&deg;</code>, and the pill beside ENVELOPE says <strong>ACKNOWLEDGED</strong>.</div>
+
+<div class="callout">
+<span class="callout-title">P0.5 is the gate. Do not pass it.</span>
+<strong>DEFAULT</strong> instead of ACKNOWLEDGED means the controller has not confirmed the limits and
+<code>joint-limits.csv</code> never loaded &mdash; every joint is on the firmware's
+<code>70&ndash;110&deg;</code> placeholder, which is not this arm's travel. Opening the serial port
+resets the board and the firmware keeps nothing across a reset, so the file is re-read on every
+connect. If it did not, use <strong>LOAD LIMITS FILE</strong> on the CALIBRATION tab and check again.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">3</span> Phase 1 &mdash; power on, one joint, prove the recording</h2>
+
+<p><strong>Hand under the forearm. Then the rocker.</strong></p>
+
+<p><span class="checkbox"></span> <strong>T1</strong> &nbsp;Select <strong>J1 Shoulder</strong>, press <strong>ENABLE</strong>, type the angle it is sitting at judged by eye, press <strong>CONFIRM</strong>.</p>
+<div class="check">Nothing jumps. The first pulse is exactly the value you typed, which is the whole point of being asked.</div>
+
+<p><span class="checkbox"></span> <strong>T2</strong> &nbsp;The teach table is empty and reads <em>&ldquo;No steps yet&rdquo;</em> under SAVE POSE. <strong>Touch the jog bar and hold it still for a second.</strong></p>
+<div class="check">A row labelled <strong>start</strong> appears <strong>before the arm has gone anywhere</strong>.</div>
+
+<p><span class="checkbox"></span> <strong>T3</strong> &nbsp;Jog about 10&deg;, then let go.</p>
+<div class="check">A <strong>second row</strong> appears, carrying the new angle.</div>
+
+<p><span class="checkbox"></span> <strong>T4</strong> &nbsp;Nudge it barely &mdash; a degree or so &mdash; and let go.</p>
+<div class="check"><strong>No new row.</strong> Below 2&deg; is a nudge, not a step.</div>
+
+<p><span class="checkbox"></span> <strong>T5</strong> &nbsp;Hold the jog bar so the joint is moving, and <strong>while still holding it, click a different joint tile in the left rail.</strong></p>
+<div class="check">The joint <strong>stops immediately</strong>.</div>
+
+<p><span class="checkbox"></span> <strong>T6</strong> &nbsp;Untick <strong>Save a step each time I let go</strong>. Jog and release: no row. Tick it back on.</p>
+
+<h3>What each one is actually testing</h3>
+<table class="compact">
+<thead><tr><th>Test</th><th>Proves</th><th>If it fails</th></tr></thead>
+<tbody>
+<tr><td><strong>T2</strong></td><td>The starting position is captured before the first move. Without it, playback jumps to step 1 from wherever the arm stands &mdash; every joint at once.</td><td><strong>Stop.</strong> Recording is not safe to rely on. Do not go to Phase 3.</td></tr>
+<tr><td><strong>T4</strong></td><td>A nudge does not become a step, so the table stays readable.</td><td>Cosmetic. Carry on; delete spare rows with DELETE.</td></tr>
+<tr><td><strong>T5</strong></td><td>Switching joints releases the one you were holding. Otherwise it keeps taking jog commands at a joint whose controls you can no longer see.</td><td><strong>Press E-STOP.</strong> Report it. Do not continue.</td></tr>
+</tbody>
+</table>
+
+<p>Delete the practice rows before Phase 2.</p>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">4</span> Phase 2 &mdash; make the park pose</h2>
+
+<p>Park is where the arm rests with the power off. It is the one pose worth being fussy about.</p>
+
+<div class="callout">
+<span class="callout-title">Rules, not angles</span>
+No angles are prescribed here on purpose. The elbow's travel is <code>0&ndash;30&deg;</code> now, not
+<code>0&ndash;66&deg;</code> &mdash; the fold that <code>storage</code> recorded does not exist any
+more, and nobody has looked at the arm's geometry since that re-lock. Judge it with your eyes.
+</div>
+
+<ul>
+  <li><strong>Stay at least 3&deg; inside every limit.</strong> A joint against its own end has nowhere to back off to. <code>joint-limits.csv</code> does this itself: J1 homes at 1&deg; and not the locked 0&deg;, J3 at 15&deg; and not 30&deg;.</li>
+  <li><strong>Fold over the base</strong> rather than reaching out over the bench.</li>
+  <li><strong>Leave the wrist alone</strong> unless you are sure of its travel. J4's ends are still unconfirmed, and driving a wrist blind is how the claw gets pushed into the mat.</li>
+  <li><strong>Think about power-off.</strong> The forearm swings down through the base area where the loom and the blue cable sit.</li>
+</ul>
+
+<p><span class="checkbox"></span> <strong>T7</strong> &nbsp;Drive there in 8&ndash;12&deg; steps, letting go at each one. Watch the arm, not the screen.</p>
+
+<p><span class="checkbox"></span> <strong>T8</strong> &nbsp;Read the line above <strong>SAVE POSE</strong>.</p>
+<div class="check"><em>&ldquo;Will save N steps as the path to this pose.&rdquo;</em></div>
+
+<div class="danger">
+<span class="danger-title">If it still says &ldquo;No steps yet&rdquo;, do not save</span>
+Nothing was recorded, and saving would produce another <code>Parked</code>: a row that looks saved
+and can never be played. Go back and jog with the tick box on.
+</div>
+
+<p><span class="checkbox"></span> <strong>T9</strong> &nbsp;Type <code>park</code> in the name box and press <strong>SAVE POSE</strong>.</p>
+<div class="check">A green notice naming the pose and its step count.</div>
+
+<p><span class="checkbox"></span> <strong>T10</strong> &nbsp;Check for an amber warning about a joint on a soft limit.</p>
+<div class="check"><strong>No amber warning.</strong> If you get one you are parked on an end &mdash; back off a few degrees and save again. It warns and still saves; parking on a limit deliberately is your call, just not one to make by accident.</div>
+
+<p><span class="checkbox"></span> <strong>T11</strong> &nbsp;Go to <strong>RUN POSES</strong>.</p>
+<div class="check"><code>park</code> shows a green <strong>READY</strong> badge with its step count, and its <strong>LOAD</strong> button is enabled.</div>
+
+<!-- =========================================================== -->
+<h2><span class="step">5</span> Phase 3 &mdash; the first playback</h2>
+
+<p>Nothing taught on this arm has ever been played back. Go slowly, and keep a hand free for the
+rocker.</p>
+
+<p><span class="checkbox"></span> <strong>T12</strong> &nbsp;Jog the arm away from park, somewhere obviously different.</p>
+
+<p><span class="checkbox"></span> <strong>T13</strong> &nbsp;On <strong>RUN POSES</strong>, press <strong>LOAD</strong> on <code>park</code>.</p>
+<div class="check">You land on <strong>TEACH</strong> with the recorded steps in the table. Read them before going further &mdash; that review is the reason LOAD and PLAY are two buttons.</div>
+
+<p><span class="checkbox"></span> <strong>T14</strong> &nbsp;Press <strong>PLAY</strong>.</p>
+<div class="check">The arm retraces the path step by step and ends at park.</div>
+
+<div class="danger">
+<span class="danger-title">Abort &mdash; E-STOP or the rocker &mdash; if any of these happen</span>
+<ul style="margin:4pt 0 0 20pt;">
+  <li>any joint reports <code>CL=1</code> (clamped) or <code>JTO=1</code> (joint timeout)</li>
+  <li>the watchdog latches, or a joint detaches on its own</li>
+  <li>anything moves that you did not expect, or in an order you did not expect</li>
+  <li>the claw heads toward the bench, the mat, the loom or the base housing</li>
+</ul>
+If it aborts, write down which step number it was on. The step number plus the table is the whole
+diagnosis.
+</div>
+
+<div class="ok">
+<span class="ok-title">If T14 is clean, the run has succeeded</span>
+Phase 4 is optional. Stop here with a working park pose and you have got what this session was for.
+</div>
+
+<div class="page-break"></div>
+
+<!-- =========================================================== -->
+<h2><span class="step">6</span> Phase 4 &mdash; optional: re-record the two broken poses</h2>
+
+<p><code>storage</code> and <code>pick</code> are marked <strong>OUT OF RANGE</strong> because the
+elbow lock narrowed from <code>0&ndash;66&deg;</code> to <code>0&ndash;30&deg;</code> after they were
+recorded. The arm cannot reach either any more.</p>
+
+<p><span class="checkbox"></span> <strong>T15</strong> &nbsp;Teach and save <code>storage-v2</code>, the same way as <code>park</code>.</p>
+<p><span class="checkbox"></span> <strong>T16</strong> &nbsp;Teach and save <code>pick-v2</code>.</p>
+
+<div class="why">
+The old rows stay exactly where they are. <code>arm-poses.csv</code> is append-only history: a row
+was true on the date it was written, and deleting it would erase the record of what the arm used to
+do. They are simply not targets any more.
+</div>
+
+<!-- =========================================================== -->
+<h2><span class="step">7</span> Phase 5 &mdash; get the poses into git</h2>
+
+<p>Do this before closing anything. The pose is written into <code>arm-poses.csv</code> on the Pi,
+next to the bridge &mdash; which is a deploy copy, not a git checkout. A pose that lives only there
+is invisible to git and to anyone else working on this arm.</p>
+
+<pre>Software/arm-console/sync-poses.sh
+git diff Software/arm-console/arm-poses.csv</pre>
+
+<p><span class="checkbox"></span> <strong>T17</strong> &nbsp;Read the diff.</p>
+<div class="check"><strong>Additions only.</strong> An edited or removed row means something went wrong &mdash; the file is append-only.</div>
+
+<p><span class="checkbox"></span> <strong>T18</strong> &nbsp;Commit it.</p>
+
+<!-- =========================================================== -->
+<h2><span class="step">8</span> Powering down</h2>
+
+<p><span class="checkbox"></span> Hand under the forearm <strong>before</strong> the rocker. It swings down through the base area on power-off.</p>
+<p><span class="checkbox"></span> Rocker off.</p>
+<p><span class="checkbox"></span> Leave the hold daemon stopped. Do not start it &ldquo;to hold position&rdquo; &mdash; it reports <code>EN=1</code> for joints whose rail is dead, so it is exactly what makes the next power-on dangerous.</p>
+
+<!-- =========================================================== -->
+<h2><span class="step">9</span> Record the run</h2>
+
+<p>Fill this in and hand it back. Blank is a result &mdash; &ldquo;did not get to it&rdquo; is worth
+knowing.</p>
+
+<pre>Date / time: ______________________________________________
+
+Preflight:            pass / fail   which check ______________
+
+Phase 1  T1-T6:       pass / fail   which test  ______________
+   what happened: ___________________________________________
+
+park pose saved:      yes / no      steps recorded: __________
+
+Playback  T14:        clean / aborted at step ____ / not tried
+
+storage-v2:           yes / no
+pick-v2:              yes / no
+
+Synced and committed: yes / no
+
+Anything the console SAID that turned out not to be true:
+__________________________________________________________
+__________________________________________________________</pre>
+
+<div class="callout">
+<span class="callout-title">That last line is the most valuable one on the page</span>
+The console now makes claims before you act: how many steps it will save, whether a pose is READY,
+whether a joint is on its limit. Those claims have been tested with no board attached, but a bench
+is not a test harness. If any of them turned out to be false in front of the real arm, that is worth
+more than the pose.
+</div>
+
+</body>
+</html>
