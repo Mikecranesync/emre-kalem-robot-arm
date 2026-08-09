@@ -28,6 +28,17 @@ WHAT IT PROVES
        which is the whole point of the change.
     6. It decelerates into the target rather than stopping dead.
     7. A mid-move SPD reduction is obeyed immediately.
+    8. A REVERSAL brakes through zero instead of flipping sign at speed, and no
+       tick changes velocity faster than that joint's acceleration allows. Cases
+       1-7 all start at vel = 0, so none of them ever reversed - which is how the
+       firmware shipped a reversal that went +30 to -30 deg/s in one 20 ms tick.
+    9. Acceleration is per joint and measurably changes the ramp.
+   10. Changing acceleration mid-move cannot cause an overshoot - which is what
+       makes it safe to accept ACC on a live joint, unlike LIM and MIR.
+   11. Slamming acceleration to its gentlest setting DURING a reversal brake -
+       reachable by dragging the console's smoothness slider - still converges,
+       stays inside the commanded speed, and never emits an away-side step
+       larger than MAX_STEP_C.
 """
 
 import argparse
@@ -230,6 +241,49 @@ int main(void) {
         }
     }
 
+    /* 12: THE SLIDER'S WORST CASE. ACC is accepted on a live joint so smoothness
+       can be tuned by watching the arm, which means an operator can drag it to
+       the gentlest setting DURING a reversal brake - the one place the required
+       braking distance is already at its largest. At 90 deg/s the stopping
+       distance goes from about 20 deg at ACC=200 to about 810 deg at ACC=5.
+
+       The firmware cannot leave its envelope regardless, because writeJoint
+       clamps at the point of write. What this asserts is the thing the clamp
+       does NOT protect: that the profile still converges rather than hanging,
+       that velocity stays inside the commanded ceiling, and that the away-side
+       step - the only branch where MAX_STEP_C is the sole bound, since there is
+       no remaining-distance to clamp against - never exceeds it. */
+    {
+        int16_t vel = 0;
+        long set = 0, tgt = 18000;
+        /* 60 ticks: past the ~23-tick ramp to 90 deg/s and still well inside the
+           cruise. 200 would FINISH the move and park the velocity at 0, which is
+           exactly what the first run of this case did. */
+        for (int i = 0; i < 60; i++) set += profileStepC(set, tgt, 90, 200, 20, &vel);
+        if (vel < 8900) bad("case 12 never reached cruise", vel, 0, 0, 0);
+
+        tgt = -18000;                     /* reverse... */
+        long ticks = 0, worst_away = 0, peak = 0;
+        while (set != tgt) {
+            /* ...and slam the smoothness slider to its gentlest mid-brake. */
+            long st = profileStepC(set, tgt, 90, 5, 20, &vel);
+            long mag = st < 0 ? -st : st;
+            long avel = vel < 0 ? -vel : vel;
+            if (avel > peak) peak = avel;
+
+            if (st > 0 && mag > worst_away) worst_away = mag;   /* still heading away */
+            if (mag > MAX_STEP_C) bad("step exceeded MAX_STEP_C during a gentle reversal", mag, st, vel, ticks);
+            if (avel > 9000) bad("velocity exceeded 90 deg/s during a gentle reversal", vel, 0, 0, ticks);
+
+            set += st;
+            if (set < tgt) { bad("overshot the target during a gentle reversal", set, tgt, vel, ticks); break; }
+            if (++ticks > 500000L) { bad("a gentle reversal never converged", set, tgt, vel, ticks); break; }
+        }
+        if (worst_away > MAX_STEP_C)
+            bad("an away-side step exceeded MAX_STEP_C", worst_away, MAX_STEP_C, 0, 0);
+        (void)peak;
+    }
+
     if (fails) { printf("INTERPOLATOR_FAIL (%%d)\n", fails); return 1; }
     printf("  PASS  step never exceeds MAX_STEP_C\n");
     printf("  PASS  velocity never exceeds the commanded deg/s\n");
@@ -242,6 +296,7 @@ int main(void) {
     printf("  PASS  velocity never changes faster than the joint's ACC allows\n");
     printf("  PASS  per-joint ACC changes the ramp - gentle is measurably gentler\n");
     printf("  PASS  a mid-move ACC change cannot overshoot\n");
+    printf("  PASS  slamming ACC to its gentlest mid-reversal still converges\n");
     printf("INTERPOLATOR_PASS\n");
     return 0;
 }
