@@ -112,6 +112,16 @@ io.open(sys.argv[2], 'w', encoding='utf-8', newline='\n').write(b[-1] if b else 
     echo "SELFTEST FAILED: the scroll-wheel guard on the console's number boxes is broken."
     exit 1
   fi
+
+  # No alert/confirm/prompt anywhere in the console. A modal stops the event
+  # loop, which stops the 250 ms heartbeat, and the firmware detaches every
+  # joint after 4000 ms -- the arm sags and the screen calls it an e-stop that
+  # nobody pressed. Two of these shipped before this gate existed. Same
+  # reasoning as the wheel guard: an unwired test is a test that never runs.
+  if ! node "$SCRIPT_DIR/no_blocking_modals.js" "$PAGE_FILE"; then
+    echo "SELFTEST FAILED: a blocking modal can stall the heartbeat and drop the arm."
+    exit 1
+  fi
 fi
 
 # --virtual-time-budget makes the dump deterministic: it fires after the page's

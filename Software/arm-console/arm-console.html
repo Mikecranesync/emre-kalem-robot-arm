@@ -495,6 +495,15 @@ details.log summary{
 .ackpill.acked{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
 .gatebar{background:var(--warn-bg);border:1px solid var(--warn);color:#ffd591;border-radius:var(--radius);
          padding:9px 12px;margin:0 0 12px;font-size:13px}
+/* Same shape as the e-stop strip so it reads as header-level and unmissable,
+   amber because it is a question and not a latched fault. */
+.confirmstrip{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  background:var(--warn-bg);border-top:1px solid var(--warn);
+  color:#ffd591;padding:10px 18px;font-size:14px;
+}
+.confirmstrip span{flex:1 1 320px}
+
 /* ---------------- teach-pendant pass ----------------------------------------
    A pendant is read at arm's length, in a hurry, sometimes one-handed. What has
    to be legible from three feet is: which joint, what angle, is it live, and
@@ -655,6 +664,20 @@ h2{margin-bottom:8px}
   <div class="estopstrip hidden" id="estopStrip">
     <span id="estopWhy">E&#8209;STOP LATCHED &mdash; every joint is detached. Nothing is being driven.</span>
     <button class="btn" id="btnClear">CLEAR E&#8209;STOP</button>
+  </div>
+
+  <!-- IN-PAGE CONFIRMATION, NEVER window.confirm().
+       A modal stops this page's JavaScript, which stops the 250 ms heartbeat,
+       and the firmware's 4000 ms watchdog then detaches every joint by itself.
+       The one place the old code asked for confirmation was DISCONNECT while
+       joints were enabled and holding - so the dialog whose whole purpose was
+       to prevent an unsupported detach caused one, plus the gravity sag it was
+       warning about, if you read it for four seconds. This strip does the same
+       job with the timers still running. -->
+  <div class="confirmstrip hidden" id="confirmStrip">
+    <span id="confirmWhy"></span>
+    <button class="btn warn" id="btnConfirmYes">DETACH AND DISCONNECT</button>
+    <button class="btn" id="btnConfirmNo">CANCEL</button>
   </div>
 
   <!-- Raised whenever this tab is in the background. It lives in the header,
@@ -3286,14 +3309,20 @@ function renderPoseList(){
       badge + verified +
       '<span class="pcount">' + count + (p.date ? " &middot; " + escHtml(p.date) : "") + '</span>' +
       '<span class="pacts">' +
-        '<button class="btn small js-load">LOAD</button>' +
+        /* Endpoint-only rows get a live BUILD ROUTE where a dead LOAD used to
+           sit. A greyed button with a paragraph under it is a dead end; this
+           one offers the thing that actually gets the arm there. */
+        (ready || outOfRange.length ? '<button class="btn small js-load">LOAD</button>'
+                                    : '<button class="btn small go js-route">BUILD ROUTE</button>') +
         '<button class="btn small js-play" disabled>PLAY</button>' +
       '</span>' +
       '<span class="posewhy js-why"></span>';
 
-    var bLoad = row.querySelector(".js-load");
-    var bPlay = row.querySelector(".js-play");
-    var why   = row.querySelector(".js-why");
+    var bLoad  = row.querySelector(".js-load");
+    var bRoute = row.querySelector(".js-route");
+    var bPlay  = row.querySelector(".js-play");
+    var why    = row.querySelector(".js-why");
+    if (bRoute) bRoute.onclick = function(){ buildJointRoute(i); };
     /* The row carries its own library index. paintTop re-enables these buttons
        on every poll and must not infer the index from the button's POSITION in
        the NodeList: that is only correct while every pose renders exactly one
@@ -3314,12 +3343,18 @@ function renderPoseList(){
         "and save it under a new name." + (p.entry ? " Its recorded path was: " + escHtml(p.entry) : "") +
         "</div></details>";
     } else if (!ready) {
-      bLoad.disabled = true;
       /* One line on the row; the free-text path itself is long enough to push
          every other pose off the screen, so it goes one tap down. */
-      why.innerHTML = "No recorded path &mdash; endpoint only, nothing to drive." +
-        (p.entry ? '<details class="note"><summary>Its recorded path</summary><div>' +
-                   escHtml(p.entry) + "</div></details>" : "");
+      why.innerHTML = "No recorded path. <b>BUILD ROUTE</b> makes one step per joint so you can " +
+        "drive there one joint at a time and watch each move." +
+        '<details class="note"><summary>What that route is and is not</summary><div>' +
+        "It is the endpoint split into single-joint moves, in the order the shoulder lifts first, " +
+        "then elbow and wrist while high, then the base, then the gripper &mdash; the rule written " +
+        "into this arm&rsquo;s own <code>pick</code> notes. <b>Nobody has driven it.</b> Use GO on one " +
+        "row at a time while you watch the arm before you ever use PLAY, and if the order is wrong " +
+        "for this pose, drive it by hand instead and save it again with real steps." +
+        (p.entry ? "<br><br>Its recorded path: " + escHtml(p.entry) : "") +
+        "</div></details>";
     } else {
       bLoad.onclick = function(){ loadPoseIntoTeach(i); };
       /* PLAY IS NOT A SECOND DRIVE PATH. It stays dead until this same row has
@@ -3337,6 +3372,79 @@ function renderPoseList(){
     }
     box.appendChild(row);
   });
+}
+
+/* ---- one joint at a time, to an endpoint that has no recorded path --------
+
+   THE PROBLEM. A pose saved without steps records where the arm ended up and
+   not how it got there, so it cannot be played: the straight line to it moves
+   every joint at once through space nobody watched. That is why LOAD refuses.
+
+   WHAT THIS DOES INSTEAD. It expands the endpoint into ONE WAYPOINT PER JOINT
+   and puts them in the teach table. Playback already sends the joints of a
+   waypoint and then waits for MOV=0, so a waypoint holding a single joint IS a
+   single-joint move that completes before the next begins. Nothing new drives
+   the arm; the operator reviews the list and then uses the buttons that were
+   already there - PLAY for the sequence, or GO on one row to take it one joint
+   at a time under their own finger.
+
+   THE ORDER IS A HEURISTIC AND IS LABELLED AS ONE. It comes from this arm's own
+   recorded notes - arm-poses.csv, `pick`: "REVERSE EXACTLY to go back: lift J1
+   FIRST to get the claw off the mat, then neutralise J3 J4 J5 while high, then
+   fold J1". So: shoulder first to get height, then elbow and wrist while high,
+   then the base (rotating while low sweeps the claw across the bench), gripper
+   last because it changes nothing about reach. It is NOT a verified route for
+   any particular pose, and the console says so rather than implying it is. */
+var ROUTE_ORDER = [1, 3, 4, 5, 0, 6];
+
+function buildJointRoute(i){
+  var p = poseLib[i];
+  if (!p) return;
+
+  var steps = [];
+  ROUTE_ORDER.forEach(function(id){
+    if (!J[id]) return;
+    var v = p.deg[id];
+    if (v === null || v === undefined) return;      /* "-" means leave it alone */
+    var deg = {};
+    JOINT_DEFS.forEach(function(d){ deg[d.id] = null; });
+    deg[id] = v;
+    steps.push({ label: "J" + id + " " + J[id].def.name + " to " + v + "°",
+                 deg: deg, dwell: 500 });
+  });
+
+  if (!steps.length) { notice("bad", "“" + p.name + "” records no joint angles."); return; }
+
+  waypoints = steps;
+  /* NOT the pose's own path - nobody drove this. The library's PLAY must stay
+     dead for it, exactly as it does for any table that was not loaded from a
+     recorded route. */
+  loadedPoseIdx = null;
+  setTab("teach");
+  renderWaypoints(); renderPoseList(); paintTop();
+
+  /* Say what it will NOT do. A joint stored "-" was not enabled when the pose
+     was saved, so it has no angle to go to and playback leaves it alone - the
+     arm ends at this pose's joints plus wherever those happen to be. */
+  var skipped = JOINT_DEFS.filter(function(d){
+    var v = p.deg[d.id]; return v === null || v === undefined;
+  }).map(function(d){ return "J" + d.id + " " + d.name; });
+
+  var atEnd = JOINT_DEFS.filter(function(d){
+    var v = p.deg[d.id];
+    return v !== null && v !== undefined && (v <= J[d.id].min || v >= J[d.id].max);
+  }).map(function(d){ return "J" + d.id + "=" + p.deg[d.id]; });
+
+  notice("warn",
+    "Built a " + steps.length + "-step route to “" + p.name + "”, one joint per step, in this " +
+    "order: " + steps.map(function(s){ return s.label.split(" ")[0]; }).join(" → ") + ". " +
+    "THIS ORDER IS A GUESS, not a route anybody has driven - it follows the rule written into " +
+    "this arm's own pick pose (lift the shoulder first, neutralise elbow and wrist while high, " +
+    "rotate the base only once clear, gripper last). Read the steps, and use GO on one row at a " +
+    "time while you watch the arm rather than PLAY, the first time." +
+    (skipped.length ? " Leaves alone (not enabled when the pose was saved): " + skipped.join(", ") + "." : "") +
+    (atEnd.length ? " Parks on a soft limit: " + atEnd.join("; ") + "." : ""),
+    22000);
 }
 
 function escHtml(s){
@@ -3481,13 +3589,19 @@ function saveWaypointCsv(){
    with the evidence in front of them may promote that to yes. */
 function savePoseCsv(){
   if (connState !== "on") { notice("warn","Connect to the controller before saving a pose."); return; }
-  /* The name comes from the field beside the button. Falling back to prompt()
-     keeps the file:// route and any older muscle memory working; an empty field
-     with no fallback would just look broken. */
+  /* NO prompt() HERE, EVER. A modal dialog stops this page's JavaScript dead,
+     which stops the 250 ms PNG heartbeat, and the firmware's 4000 ms watchdog
+     then detaches every joint on its own - EVT WDOG, the arm drops, and it
+     reads on screen as an e-stop nobody pressed. Four seconds is how long it
+     takes to read a dialog and type a word. The name box beside this button
+     costs nothing and blocks nothing. */
   var box  = el("poseName");
   var name = String((box && box.value) || "").trim();
-  if (!name) name = String(window.prompt("Name for this pose (e.g. storage-v2, pick-v2):") || "").trim();
-  if (!name) { if (box) box.focus(); return; }
+  if (!name) {
+    notice("warn", "Type a name for this pose in the box above the SAVE POSE button, then press it again.", 8000);
+    if (box) box.focus();
+    return;
+  }
   name = name.replace(/,/g, ";");
 
   var disabled = JOINT_DEFS.filter(function(d){ return !J[d.id].en; })
@@ -3664,12 +3778,16 @@ el("btnConnect").onclick    = function(){
   var live = JOINT_DEFS.filter(function(d){ return J[d.id].en; })
                        .map(function(d){ return d.name; });
   if (!live.length) { teardown(); return; }
-  var ok = window.confirm(
-    "These joints are still enabled and holding:\n\n    " + live.join(", ") + "\n\n" +
-    "Disconnecting stops this page commanding the arm. Press OK to detach them first — " +
-    "A GRAVITY-LOADED ARM SAGS WHEN IT IS DETACHED, so support it before you continue.\n\n" +
-    "Cancel to stay connected.");
-  if (!ok) return;
+  /* Ask in the page, not in a modal. See the comment on #confirmStrip: the
+     dialog this replaces caused the exact detach it was written to prevent. */
+  el("confirmWhy").textContent =
+    "These joints are still enabled and holding: " + live.join(", ") + ". " +
+    "A GRAVITY-LOADED ARM SAGS WHEN IT IS DETACHED — support it before you continue.";
+  el("confirmStrip").classList.remove("hidden");
+};
+el("btnConfirmNo").onclick  = function(){ el("confirmStrip").classList.add("hidden"); };
+el("btnConfirmYes").onclick = function(){
+  el("confirmStrip").classList.add("hidden");
   send("DIS A").catch(function(){}).then(function(){ teardown(); });
 };
 el("btnEstop").onclick      = doEstop;
