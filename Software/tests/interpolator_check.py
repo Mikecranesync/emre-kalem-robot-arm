@@ -53,6 +53,11 @@ HARNESS = r"""
 %(lifted)s
 /* ---- end lifted ---- */
 
+/* The acceleration the pre-existing cases run at. It is the firmware's own boot
+   default, so cases 1-8 exercise exactly the behaviour they always did and a red
+   result there means the signed-velocity change broke something real. */
+#define ACC_TEST 200
+
 static int fails = 0;
 static void bad(const char *what, long a, long b, long c, long d) {
     printf("  FAIL  %%s  (%%ld %%ld %%ld %%ld)\n", what, a, b, c, d);
@@ -79,14 +84,21 @@ int main(void) {
         long firststep = -1;
 
         while (set != tgt) {
-            long st = profileStepC(set, tgt, dps, el, &vel);
+            long st = profileStepC(set, tgt, dps, ACC_TEST, el, &vel);
             long mag = st < 0 ? -st : st;
+            long avel = vel < 0 ? -vel : vel;
             if (firststep < 0) firststep = mag;
             if (mag > maxseen) maxseen = mag;
 
             if (mag > MAX_STEP_C) bad("step exceeded MAX_STEP_C", mag, dps, dist, el);
-            if (vel > (long)dps * 100) bad("velocity exceeded dps", vel, dps, dist, el);
-            if (vel < 0) bad("velocity went negative", vel, dps, dist, el);
+            if (avel > (long)dps * 100) bad("velocity exceeded dps", vel, dps, dist, el);
+            /* velC IS SIGNED NOW, so "never negative" is no longer the invariant
+               - it was an artifact of the old magnitude-only representation, and
+               a downward move legitimately carries a negative velocity. The real
+               invariant, which is strictly stronger, is that the sign of the
+               velocity always agrees with the direction of travel. */
+            if (signs[s] > 0 && vel < 0) bad("velocity sign disagrees with +move", vel, dps, dist, el);
+            if (signs[s] < 0 && vel > 0) bad("velocity sign disagrees with -move", vel, dps, dist, el);
 
             long before = set;
             set += st;
@@ -116,7 +128,7 @@ int main(void) {
         long set = 0, tgt = 6000;
         long prev = 0, mid = 0, last = 0, n = 0;
         while (set != tgt) {
-            long st = profileStepC(set, tgt, 60, 20, &vel);
+            long st = profileStepC(set, tgt, 60, ACC_TEST, 20, &vel);
             set += st; n++;
             if (n == 40) mid = st;
             prev = last; last = st;
@@ -132,9 +144,9 @@ int main(void) {
         /* 60 ticks: past the ~23-tick ramp to 90 deg/s and still well inside the
            cruise, which ends around tick 100. Running to 200 would finish the
            move and park the velocity at 0, which is what this used to do. */
-        for (int i = 0; i < 60; i++) set += profileStepC(set, tgt, 90, 20, &vel);
+        for (int i = 0; i < 60; i++) set += profileStepC(set, tgt, 90, ACC_TEST, 20, &vel);
         if (vel <= 3000) bad("never reached the high speed", vel, set, 0, 0);
-        long st = profileStepC(set, tgt, 30, 20, &vel);
+        long st = profileStepC(set, tgt, 30, ACC_TEST, 20, &vel);
         (void)st;
         if (vel > 3000) bad("SPD reduction ignored", vel, 3000, 0, 0);
     }
@@ -142,8 +154,80 @@ int main(void) {
     /* 8: a zero-length move is a no-op and parks the velocity. */
     {
         int16_t vel = 4321;
-        long st = profileStepC(500, 500, 30, 20, &vel);
+        long st = profileStepC(500, 500, 30, ACC_TEST, 20, &vel);
         if (st != 0 || vel != 0) bad("zero-distance move was not a no-op", st, vel, 0, 0);
+    }
+
+    /* 9: THE REVERSAL. This is the case the original 224 never reached, because
+       every one of them starts at vel = 0. A joint at cruise whose target moves
+       behind it must brake through zero before it travels the other way - never
+       flip sign at speed, which lands the arm's whole momentum on the opposite
+       gear faces in one tick. Both directions: the bug was symmetric. */
+    for (int s = 0; s < 2; s++) {
+        int sign = s ? -1 : 1;
+        int16_t vel = 0;
+        long set = 0, tgt = sign * 9000;
+
+        for (int i = 0; i < 60; i++) set += profileStepC(set, tgt, 30, ACC_TEST, 20, &vel);
+        long cruise = vel;
+        if ((sign > 0 && cruise < 2900) || (sign < 0 && cruise > -2900))
+            bad("never reached cruise before the reversal", cruise, sign, 0, 0);
+
+        /* Flip the target to the far side. Nothing else changes. */
+        tgt = -sign * 9000;
+        int16_t prev = vel;
+        int crossed = 0;
+        for (int i = 0; i < 400; i++) {
+            long st = profileStepC(set, tgt, 30, ACC_TEST, 20, &vel);
+            set += st;
+
+            /* The sign must never invert without standing at zero on the way. */
+            if (prev > 0 && vel < 0) bad("velocity flipped +to- without passing zero", prev, vel, sign, i);
+            if (prev < 0 && vel > 0) bad("velocity flipped -to+ without passing zero", prev, vel, sign, i);
+            if (vel == 0) crossed = 1;
+
+            /* And the change per tick must respect the acceleration limit. At
+               20 ms and 200 deg/s^2 that is 400 cd/s, plus one for the dv floor. */
+            long dvel = (long)vel - (long)prev;
+            if (dvel < 0) dvel = -dvel;
+            if (dvel > 401) bad("velocity changed faster than ACC allows", dvel, prev, vel, i);
+
+            prev = vel;
+            if (set == tgt) break;
+        }
+        if (!crossed) bad("velocity never passed through zero on reversal", cruise, vel, sign, 0);
+    }
+
+    /* 10: acceleration is PER JOINT and actually does something. A gentle wrist
+       value must ramp visibly slower than the brisk shoulder default - this is
+       what protects the small printed gear. */
+    {
+        int16_t vgentle = 0, vbrisk = 0;
+        long sg = 0, sb = 0, tgt = 18000;
+        for (int i = 0; i < 10; i++) {
+            sg += profileStepC(sg, tgt, 90, 60,  20, &vgentle);   /* wrist-ish */
+            sb += profileStepC(sb, tgt, 90, 200, 20, &vbrisk);    /* default   */
+        }
+        if (vgentle >= vbrisk)
+            bad("a lower ACC did not ramp more gently", vgentle, vbrisk, 0, 0);
+        /* 60 deg/s^2 for 200 ms is about 12 deg/s; 200 gives about 40. */
+        if (vgentle > 1500 || vbrisk < 3000)
+            bad("ramp rates do not match the requested accelerations", vgentle, vbrisk, 0, 0);
+    }
+
+    /* 11: changing ACC mid-move cannot cause an overshoot. ACC is accepted on a
+       live joint precisely so smoothness can be tuned by watching the arm, so
+       the no-overshoot rule must not depend on the acceleration staying put. */
+    {
+        int16_t vel = 0;
+        long set = 0, tgt = 9000;
+        for (int i = 0; i < 30; i++) set += profileStepC(set, tgt, 90, 200, 20, &vel);
+        long ticks = 0;
+        while (set != tgt) {
+            set += profileStepC(set, tgt, 90, 5, 20, &vel);   /* slammed to the gentlest */
+            if (set > tgt) { bad("overshot after a mid-move ACC change", set, tgt, vel, 0); break; }
+            if (++ticks > 200000L) { bad("did not converge after a mid-move ACC change", set, tgt, vel, 0); break; }
+        }
     }
 
     if (fails) { printf("INTERPOLATOR_FAIL (%%d)\n", fails); return 1; }
@@ -154,6 +238,10 @@ int main(void) {
     printf("  PASS  ramps up instead of jumping to full speed\n");
     printf("  PASS  decelerates into the target instead of stopping dead\n");
     printf("  PASS  a mid-move SPD reduction is obeyed at once\n");
+    printf("  PASS  a reversal brakes through zero instead of flipping at speed\n");
+    printf("  PASS  velocity never changes faster than the joint's ACC allows\n");
+    printf("  PASS  per-joint ACC changes the ramp - gentle is measurably gentler\n");
+    printf("  PASS  a mid-move ACC change cannot overshoot\n");
     printf("INTERPOLATOR_PASS\n");
     return 0;
 }

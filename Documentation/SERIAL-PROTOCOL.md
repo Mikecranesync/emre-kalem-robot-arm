@@ -138,6 +138,7 @@ miss an e-stop it did not initiate.
 | `DIS` | `A` | `OK DIS ALL` | Same, every joint. Not a latch. |
 | `MOV` | `<j> <deg>` | `OK MOV J<j> REQ=… SET=… CL=…` | Set the target. Non-blocking. |
 | `SPD` | `<j> <dps>` | `OK SPD J<j> DPS=…` | Slew rate, 1–90 degrees per second. |
+| `ACC` | `<j> <dps2>` | `OK ACC J<j> ACC=…` | Acceleration limit, 5–250 °/s². Per joint. Accepted on a **live, moving** joint — unlike `LIM`/`MIR`. |
 | `STP` | — | `OK STP` | Abort motion on every enabled joint; hold the last commanded value. Joints stay driven. **Not an emergency stop.** |
 | `STP` | `<j>` | `OK STP J<j>` | Abort motion on one joint only. `E4` bad/reserved id, `E6` not enabled. |
 | `JOG` | `<j> <-1\|0\|1>` | `OK JOG J<j> DIR=<d>` | Jog toward the envelope edge and arm the command-age timer. `0` aborts and holds. **Must be refreshed every 250 ms.** |
@@ -320,6 +321,40 @@ it, change the limits, re-enable with a fresh adopt angle.
 still holds the shipped 70-110 defaults must stay flagged uncalibrated — that flag is the
 only thing standing between an operator and a placeholder they believe.
 
+#### `ACC <j> <dps2>` — and why it is *not* refused while the joint is live
+
+`ACC` is the one configuration verb accepted on an enabled, moving joint. That is a
+deliberate departure from `LIM` and `MIR` above, and the reasoning is worth stating because
+the inconsistency looks like an oversight:
+
+- `LIM` and `MIR` describe **the machine** — which angles exist, how the shoulder pair is
+  wired. Moving those under a live joint is how you drive into a limit that was true a
+  moment ago.
+- `ACC` describes **how the arm feels**. The right value is a bench observation, not a
+  derived number, and the only way to find it is to change it and watch. Requiring a detach
+  per attempt turns a ten-second tuning loop into a park / disable / set / adopt cycle — and
+  the adopt is the single most dangerous thing this arm does.
+
+Safety does not rest on it holding still: `profileStepC` clamps each step to the remaining
+distance unconditionally, so lowering `ACC` mid-deceleration makes the arrival firmer than
+the profile intended but **cannot** make the joint sail past its target. `SPD` already
+behaves this way and is tested for it.
+
+#### Acceleration applies to reversals, and that is the point
+
+A joint at cruise whose target moves behind it does **not** flip direction at speed. Its
+velocity is braked to zero under `ACC`, passes through zero, and accelerates the other way.
+Before FW 1.2.0 the velocity was a magnitude with the direction taken fresh each tick, so a
+reversal went `+30 °/s` to `−30 °/s` in a single 20 ms tick — no ramp at all, on the one
+event that punishes a gear train hardest. `Software/tests/interpolator_check.py` asserts the
+sign never inverts without standing at zero on the way.
+
+**The trade-off, stated plainly:** braking takes distance. A joint reversing at speed travels
+a little further in its original direction first — `v²/(2·ACC)`, about 2° at 30 °/s and 20°
+at 90 °/s with `ACC=200`. It cannot leave the envelope (`writeJoint` clamps to the limits at
+the point of write), but a reversal commanded near a limit will press into that limit rather
+than turning on the spot. That is the cost of not slamming the teeth.
+
 ---
 
 ## 4. Worked `STA` reply — byte for byte
@@ -328,12 +363,12 @@ only thing standing between an operator and a placeholder they believe.
 then the terminator. Field order is exactly as shown.
 
 ```
-STA J0 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0
-STA J1 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0
-STA J3 EN=1 SET=95 TGT=110 MIN=70 MAX=110 CAL=1 DPS=30 MOV=1
-STA J4 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0
-STA J5 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0
-STA J6 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0
+STA J0 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0
+STA J1 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0
+STA J3 EN=1 SET=95 TGT=110 MIN=70 MAX=110 CAL=1 DPS=30 ACC=200 MOV=1
+STA J4 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0
+STA J5 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0
+STA J6 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0
 SYS ES=0 WD=0 WDMS=1000 MIR=UNKNOWN UP=48211 UNCAL=5
 OK STA N=6
 ```
@@ -348,6 +383,7 @@ There is no `STA J2` line, ever. `N=6` counts addressable joints.
 | `MIN` `MAX` | this joint's limits, degrees |
 | `CAL` | 1 = a human measured these limits. 0 = still the 70-110 placeholder. |
 | `DPS` | slew rate, degrees per second |
+| `ACC` | acceleration limit, degrees per second squared. How hard this joint may change speed — at the start of a move, into the target, and through a reversal. Lower is gentler on a gear train. |
 | `MOV` | 1 while `SET != TGT` |
 
 | `SYS` field | Meaning |
@@ -393,7 +429,7 @@ sketch, because a blocking call is invisible right up until the moment it matter
 ## 6. Asynchronous lines
 
 ```
-RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1
+RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.2.0
 EVT ESTOP SRC=CMD
 EVT ESTOP SRC=RT
 EVT WDOG MS=1043
@@ -434,6 +470,7 @@ uppercased three-letter verb that caused it.
 | `E11` | `MIRARG` | `ERR E11 MIR …` | the `MIR` mode word or offset is illegal |
 | `E12` | `SPEED` | `ERR E12 SPD JOINT=<j> REQ=… MIN=1 MAX=90` | slew rate outside 1–90 °/s |
 | `E14` | `JOGDIR` | `ERR E14 JOG JOINT=<j> REQDIR=<d>` | jog direction outside `-1..+1` |
+| `E15` | `ACCEL` | `ERR E15 ACC JOINT=<j> REQ=… MIN=5 MAX=250` | acceleration outside 5–250 °/s² |
 | `E13` | `MIRROR` | `ERR E13 ENA JOINT=1 MIR=UNKNOWN` | tried to enable joint 1 while the mirror is unknown |
 
 `E8` is the one error that does **not** echo a verb: the line was refused *before* it was
@@ -759,12 +796,12 @@ half a second. Polling mid-move:
 
 ```
 >  STA\n
-<  STA J0 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0\n
-<  STA J1 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0\n
+<  STA J0 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0\n
+<  STA J1 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0\n
 <  STA J3 EN=1 SET=103 TGT=110 MIN=70 MAX=110 CAL=0 DPS=30 MOV=1\n
-<  STA J4 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0\n
-<  STA J5 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0\n
-<  STA J6 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 MOV=0\n
+<  STA J4 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0\n
+<  STA J5 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0\n
+<  STA J6 EN=0 SET=90 TGT=90 MIN=70 MAX=110 CAL=0 DPS=30 ACC=200 MOV=0\n
 <  SYS ES=0 WD=0 WDMS=1000 MIR=UNKNOWN UP=9884 UNCAL=6\n
 <  OK STA N=6\n
 ```
@@ -868,7 +905,7 @@ A multimeter on DC volts.
 
 | # | Do this | Expect exactly |
 |---|---|---|
-| 1 | Upload `factorylm_arm_controller`. Open Serial Monitor at 115200. | The `;` banner, then `RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1` |
+| 1 | Upload `factorylm_arm_controller`. Open Serial Monitor at 115200. | The `;` banner, then `RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.2.0` |
 | 2 | Probe D3, D4, D5, D10, D6, D9, D11 against GND | **~0 V on all seven.** Nothing is attached at boot. |
 | 3 | Type `VER` | `OK VER NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1 JOINTS=6 BUILD=20260808` |
 | 4 | Type `STA` | 6 `STA` lines (no `J2`), one `SYS` line with `UNCAL=6`, then `OK STA N=6` |

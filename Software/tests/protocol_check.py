@@ -248,6 +248,18 @@ def non_motion_tests(b):
     expect("limits are back at the default after the span case",
            b.cmd("LIM"), "LIM J3 MIN=70 MAX=110")
 
+    print("\n-- per-joint acceleration, no motion --")
+    expect("STA carries the ACC field", b.cmd("STA"), "ACC=")
+    expect("ACC is accepted", b.cmd("ACC 3 60"), "OK ACC J3 ACC=60")
+    expect("the accepted ACC is readable back", b.cmd("STA"), "ACC=60")
+    expect("ACC below the minimum is refused", b.cmd("ACC 3 1"), "ERR E15")
+    expect("ACC above the maximum is refused", b.cmd("ACC 3 300"), "ERR E15")
+    expect("a refused ACC changed nothing", b.cmd("STA"), "ACC=60")
+    expect("ACC on a bad joint id", b.cmd("ACC 9 60"), "ERR E4")
+    expect("ACC with missing arguments", b.cmd("ACC 3"), "ERR E2")
+    expect("HLP advertises ACC", b.cmd("HLP"), "ACC j dps2")
+    b.cmd("ACC 3 200")   # back to the boot default for everything below
+
     print("\n-- stop verbs, nothing enabled --")
     expect("bare STP is accepted with nothing enabled", b.cmd("STP"), "OK STP")
     expect("STP on a disabled joint", b.cmd("STP 3"), "ERR E6",

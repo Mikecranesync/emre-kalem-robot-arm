@@ -233,64 +233,114 @@ const int16_t MAX_STEP_C = 200;
 //
 // ACC is a BENCH OBSERVATION, not a derived value.  200 deg/s^2 takes a joint
 // from rest to the default 30 deg/s in about 150 ms, and to the 90 deg/s ceiling
-// in about 450 ms.  Raise it if the arm feels sluggish to start; lower it if it
-// still lurches.  It is deliberately the only number here worth touching.
-const int16_t ACC_DPS2      = 200;                    // deg/s^2
-const int32_t ACC_CDPS2     = (int32_t)ACC_DPS2 * 100;  // centideg/s^2
+// in about 450 ms.  It is the DEFAULT ONLY: the real value is per-joint DATA,
+// loaded from joint-limits.csv column max_deg_per_sec2 and set on the wire with
+// ACC.  A wrist driving a small printed gear wants a far gentler number than the
+// shoulder - see j[].accD.  This constant survives as the boot value for a joint
+// nobody has configured yet, and nowhere else: two sources for the same quantity
+// is a drift bug that no bench observation can see.
+const uint8_t ACC_DPS2_DEF  = 200;                    // deg/s^2, boot default
+const uint8_t ACC_DPS2_MIN  = 5;                      // below this a move barely starts
+const uint8_t ACC_DPS2_MAX  = 250;                    // uint8 headroom, not a measurement
 //
-// Floor on the deceleration ramp.  A pure v^2/(2a) ramp approaches the target
-// asymptotically in integer arithmetic and can leave a joint creeping forever a
-// few centidegrees short.  1 deg/s guarantees arrival; the step clamp below
-// still stops it overshooting.
+// Floor on the deceleration ramp INTO A TARGET.  A pure v^2/(2a) ramp approaches
+// the target asymptotically in integer arithmetic and can leave a joint creeping
+// forever a few centidegrees short.  1 deg/s guarantees arrival; the step clamp
+// below still stops it overshooting.
+//
+// It deliberately does NOT apply to the reversal ramp below: a joint turning
+// round must be allowed to reach exactly zero, and a floor there would leave it
+// permanently crawling the wrong way.
 const int16_t VEL_MIN_CDPS  = 100;                    // centideg/s
 
 // One tick of the profile.  PURE: no globals, no I/O, no clock - everything it
 // needs arrives as an argument, which is what lets the test compile this exact
 // text with gcc and hammer it without a board.
 //
+// *velC IS SIGNED, AND THAT IS THE WHOLE POINT OF THE REVERSAL FIX.
+//
+// It used to be a magnitude, with direction taken fresh from (tgtC - setC) on
+// every tick.  That made a direction change free: a joint cruising at +30 deg/s
+// whose target moved behind it kept its 3000 cd/s and simply emitted the next
+// step negative, so it went +30 to -30 deg/s in ONE 20 ms tick.  From rest the
+// same joint ramps 4, 8, 12, 16 deg/s - gentle by design - but a reversal, which
+// is the harshest thing a gear train ever sees, had no ramp at all.  The whole
+// arm's momentum arrives on the opposite tooth faces at once.  Measured, not
+// argued: Software/tests/interpolator_check.py drives it.
+//
+// With a signed velocity a reversal is not a special case.  The velocity is
+// decelerated toward zero, passes through zero, and accelerates the other way,
+// all under the same ACC the joint uses everywhere else.
+//
 // Returns the signed step in centidegrees to apply this tick, and updates *velC
-// (unsigned magnitude, centidegrees per second).
+// (SIGNED, centidegrees per second; positive means setC is increasing).
 //
 // INVARIANTS, each of which the test asserts:
 //   - the returned magnitude never exceeds MAX_STEP_C
-//   - velocity never exceeds dps (the operator's commanded ceiling)
+//   - |velocity| never exceeds dps (the operator's commanded ceiling)
 //   - it never steps past the target, in either direction
 //   - it always converges, from any starting velocity and distance
+//   - velocity passes through zero before it changes sign - never a sign flip
+//     at speed, which is the reversal slam this exists to stop
 static int32_t profileStepC(int32_t setC, int32_t tgtC, uint8_t dps,
-                            uint32_t el, int16_t *velC) {
+                            uint8_t accDps2, uint32_t el, int16_t *velC) {
   int32_t d = tgtC - setC;
   if (d == 0) { *velC = 0; return 0; }
 
+  if (accDps2 < ACC_DPS2_MIN) accDps2 = ACC_DPS2_MIN;   // a zero here never converges
+  int32_t accC = (int32_t)accDps2 * 100;                // centideg/s^2
+
   int32_t dist = (d < 0) ? -d : d;
-  int32_t vmax = (int32_t)dps * 100;              // centideg/s
-  int32_t v    = *velC;
-  if (v > vmax) v = vmax;                         // SPD lowered mid-move
+  int32_t vmax = (int32_t)dps * 100;                    // centideg/s
+  int32_t dir  = (d < 0) ? -1 : 1;                      // sign of "toward target"
 
-  // Distance this speed needs in order to stop under ACC.  int32 is safe: the
-  // largest v is 9000 cd/s, so v*v is 81e6 against a 2.1e9 ceiling.
-  int32_t dstop = (v * v) / (2 * ACC_CDPS2);
+  // Work in the TOWARD-TARGET frame: vt > 0 is closing on the target, vt < 0 is
+  // running away from it, which is exactly the reversal case.  One branch each,
+  // and the arithmetic below never has to ask which way round the joint is.
+  int32_t vt = (int32_t)(*velC) * dir;
+  if (vt >  vmax) vt =  vmax;                           // SPD lowered mid-move
+  if (vt < -vmax) vt = -vmax;
 
-  int32_t dv = (ACC_CDPS2 * (int32_t)el) / 1000;  // velocity change this slice
+  int32_t dv = (accC * (int32_t)el) / 1000;             // velocity change this slice
   if (dv < 1) dv = 1;
 
-  if (dist <= dstop) {
-    v -= dv;
-    if (v < VEL_MIN_CDPS) v = VEL_MIN_CDPS;       // still arrives
+  if (vt < 0) {
+    // REVERSAL. Moving away from the target: brake toward zero and stop there.
+    // Clamping at 0 rather than letting it shoot past guarantees the sign change
+    // happens at zero speed - one tick standing still costs nothing, and it is
+    // the entire difference between easing round and slamming the tooth faces.
+    vt += dv;
+    if (vt > 0) vt = 0;
   } else {
-    v += dv;
-    if (v > vmax) v = vmax;
+    // Distance this speed needs in order to stop under accC.  int32 is safe: the
+    // largest vt is 9000 cd/s, so vt*vt is 81e6 against a 2.1e9 ceiling.
+    int32_t dstop = (vt * vt) / (2 * accC);
+    if (dist <= dstop) {
+      vt -= dv;
+      if (vt < VEL_MIN_CDPS) vt = VEL_MIN_CDPS;         // still arrives
+    } else {
+      vt += dv;
+      if (vt > vmax) vt = vmax;
+    }
   }
 
   // Elapsed-time integration, exactly as the constant-velocity version did: a
   // stall that ate several ticks produces a proportionally larger step, so the
   // commanded deg/s stays honest across a blocked Serial.print.
-  int32_t step = (v * (int32_t)el) / 1000;
-  if (step < 1) step = 1;                         // never stall short of target
-  if (step > dist) step = dist;                   // never overshoot
-  if (step > (int32_t)MAX_STEP_C) step = MAX_STEP_C;  // the hard per-write ceiling
+  int32_t step = (vt * (int32_t)el) / 1000;             // signed, toward-target frame
 
-  *velC = (int16_t)v;
-  return (d < 0) ? -step : step;
+  if (step >= 0) {
+    if (step < 1) step = 1;                             // never stall short of target
+    if (step > dist) step = dist;                       // never overshoot
+    if (step > (int32_t)MAX_STEP_C) step = MAX_STEP_C;  // the hard per-write ceiling
+  } else {
+    // Still braking away from the target. No dist clamp - it is not approaching
+    // - and no minimum, or it could never come to rest.
+    if (step < -(int32_t)MAX_STEP_C) step = -(int32_t)MAX_STEP_C;
+  }
+
+  *velC = (int16_t)(vt * dir);                          // back to the world frame
+  return step * dir;
 }
 // <<< INTERPOLATOR-PROFILE
 
@@ -327,6 +377,12 @@ struct Joint {
   uint8_t minD;   // limit, degrees - DATA, loaded from joint-limits.csv
   uint8_t maxD;   // limit, degrees
   uint8_t dps;    // slew rate, degrees per second
+  // How hard this joint is allowed to change speed, deg/s^2 - DATA, loaded from
+  // joint-limits.csv column max_deg_per_sec2 and settable with ACC.  PER JOINT
+  // because the joints are not alike: the shoulder pair swings the whole arm and
+  // wants a brisk ramp, while J4/J5 drive a small printed gear that a hard start
+  // chews.  One global number had to be a compromise that suited neither.
+  uint8_t accD;
   bool    en;     // true only between ENA and DIS
   bool    cal;    // false = these limits are a placeholder, not a measurement
 
@@ -653,7 +709,7 @@ static void estopAll(const __FlashStringHelper* src, bool byWatchdog) {
 
 static void doVer() {
   okPre();
-  Serial.println(F(" NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1 JOINTS=6 BUILD=20260808"));
+  Serial.println(F(" NAME=FACTORYLM-ARM PROTO=1.0 FW=1.2.0 JOINTS=6 BUILD=20260809"));
 }
 
 static void doPng() {
@@ -675,6 +731,9 @@ static void doSta() {
     Serial.print(F(" MAX="));      Serial.print(j[i].maxD);
     Serial.print(F(" CAL="));      Serial.print(j[i].cal ? 1 : 0);
     Serial.print(F(" DPS="));      Serial.print(j[i].dps);
+    // Readable back on purpose. ACC is tuned by watching the arm, and a setting
+    // you cannot read back is a setting you cannot tell you failed to send.
+    Serial.print(F(" ACC="));      Serial.print(j[i].accD);
     Serial.print(F(" MOV="));      Serial.print((j[i].en && j[i].setC != j[i].tgtC) ? 1 : 0);
     // JTO=1: this joint's last jog ended because the controller stopped hearing
     // from the host, NOT because the operator let go.  Latched - the timeout
@@ -950,6 +1009,40 @@ static void doSpd(uint8_t i, int32_t dps) {
   Serial.print(F(" DPS="));  Serial.println(j[i].dps);
 }
 
+// ACC j dps2 - how hard this joint may change speed, degrees per second squared.
+//
+// E15, not E12: a bad acceleration is not a bad slew rate, and an operator
+// staring at "E12" while tuning smoothness would go looking at the speed.
+//
+// ACCEPTED WHILE THE JOINT IS ENABLED AND EVEN MID-MOVE, deliberately, and this
+// is the one place this command does NOT follow LIM/MIR.  LIM and MIR describe
+// the machine - which angles exist, how the shoulder pair is wired - and letting
+// those move under a live joint is how you drive into a limit that was true a
+// moment ago.  ACC describes how the arm FEELS, it is explicitly "a bench
+// observation waiting to happen", and the only way to find the right number is
+// to change it and watch.  Requiring a detach to try the next value turns a
+// ten-second tuning loop into a park-disable-set-adopt cycle, and an adopt is
+// the single most dangerous thing this arm does.
+//
+// Safe because the no-overshoot rule does not depend on it: profileStepC clamps
+// the step to the remaining distance unconditionally, whatever the acceleration
+// was when the move started.  Lowering ACC mid-decel makes the arrival firmer
+// than the profile intended; it cannot make the joint sail past the target.
+// SPD already works exactly this way and is tested for it.
+static void doAcc(uint8_t i, int32_t dps2) {
+  if (dps2 < (int32_t)ACC_DPS2_MIN || dps2 > (int32_t)ACC_DPS2_MAX) {
+    errJPre(F("E15"), i);
+    Serial.print(F(" REQ="));  Serial.print(dps2);
+    Serial.print(F(" MIN="));  Serial.print(ACC_DPS2_MIN);
+    Serial.print(F(" MAX="));  Serial.println(ACC_DPS2_MAX);
+    return;
+  }
+  j[i].accD = (uint8_t)dps2;
+  okPre();
+  Serial.print(F(" J"));     Serial.print(i);
+  Serial.print(F(" ACC="));  Serial.println(j[i].accD);
+}
+
 // STP aborts motion.  It is NOT an emergency stop: it cancels the remaining
 // interpolation and holds the last COMMANDED value, with the channel still
 // driven.  It does not remove power and it cannot know the shaft angle - the
@@ -1067,6 +1160,7 @@ static void doHlp() {
   Serial.println(F("; DIS j   |   DIS A        detach one / detach all"));
   Serial.println(F("; MOV j deg                set target; clamped, reply shows CL=1"));
   Serial.println(F("; SPD j dps                1..90 deg/s"));
+  Serial.println(F("; ACC j dps2               5..250 deg/s2; gentler = kinder to gears"));
   Serial.println(F("; STP [j]                  abort motion, hold, stay attached"));
   Serial.print  (F("; JOG j -1|0|1             jog to envelope edge; resend every "));
   Serial.print(JOG_BEAT_MS);
@@ -1191,6 +1285,14 @@ static void dispatch() {
     return;
   }
 
+  if (VIS('A','C','C')) {
+    if (tokc != 2) { badArgc(); return; }
+    if (!intArg(0, &a0) || !intArg(1, &a1)) return;
+    if (!jointArg(a0, &id)) return;
+    doAcc(id, a1);
+    return;
+  }
+
   if (VIS('W','D','G')) {
     if (tokc != 1) { badArgc(); return; }
     if (!intArg(0, &a0)) return;
@@ -1278,6 +1380,7 @@ void setup() {
     j[i].minD = DEF_MIN_DEG;
     j[i].maxD = DEF_MAX_DEG;
     j[i].dps  = DEF_DPS;
+    j[i].accD = ACC_DPS2_DEF;   // until joint-limits.csv or ACC says otherwise
     j[i].en   = false;
     j[i].cal  = false;
     j[i].jogActive   = false;
@@ -1304,7 +1407,7 @@ void setup() {
   Serial.println(F(";  THE ROCKER SWITCH AND THE INLINE FUSE ARE THE REAL E-STOP."));
   Serial.println(F(";  This firmware is NOT a safety device. Type HLP for commands."));
   Serial.println(F("; ==========================================================="));
-  Serial.println(F("RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.1.1"));
+  Serial.println(F("RDY NAME=FACTORYLM-ARM PROTO=1.0 FW=1.2.0"));
 }
 
 void loop() {
@@ -1363,7 +1466,7 @@ void loop() {
       // live inside profileStepC now, which is also what the host-side test
       // compiles and hammers.  TICK_CAP_MS still bounds the elapsed slice above.
       int32_t d = profileStepC((int32_t)j[i].setC, (int32_t)j[i].tgtC,
-                               j[i].dps, el, &j[i].velC);
+                               j[i].dps, j[i].accD, el, &j[i].velC);
       if (d != 0) {
         j[i].setC += (int16_t)d;
         writeJoint(i);
