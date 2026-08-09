@@ -495,6 +495,32 @@ details.log summary{
 .ackpill.acked{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
 .gatebar{background:var(--warn-bg);border:1px solid var(--warn);color:#ffd591;border-radius:var(--radius);
          padding:9px 12px;margin:0 0 12px;font-size:13px}
+/* ---- go-to panel ---- */
+.gopanel{
+  border:2px solid var(--move);border-radius:var(--radius);background:var(--panel);
+  padding:12px 14px;display:flex;flex-direction:column;gap:10px;
+}
+.gohead{
+  display:flex;align-items:center;gap:12px;
+  font-size:16px;font-weight:700;letter-spacing:.02em;
+}
+.gohead .btn{margin-left:auto}
+.gonote{font-size:13px;line-height:1.5;color:var(--dim)}
+.gonote.warn{color:#ffd591}
+.gonote.ok{color:var(--ok)}
+.gotable{font-size:13px}
+.gotable th{background:var(--panel-2);font-size:11px}
+.gotable td{vertical-align:middle}
+.gotable input.goval{
+  width:88px;text-align:right;font-family:var(--mono);
+  background:var(--panel-2);border:1px solid var(--move);border-radius:6px;
+  padding:9px;min-height:42px;color:var(--text);
+}
+.gohint{display:block;font-size:11px;color:var(--dimmer);margin-top:3px}
+.gotgt{font-family:var(--mono);color:var(--move);font-weight:700}
+.gobad{color:var(--fault);font-size:12.5px}
+.gopanel .btn{min-height:50px;font-size:14px}
+
 /* Same shape as the e-stop strip so it reads as header-level and unmissable,
    amber because it is a question and not a latched fault. */
 .confirmstrip{
@@ -740,6 +766,13 @@ h2{margin-bottom:8px}
             <li>Every time you <b>let go</b>, that position is saved as a step.</li>
             <li>Name it and press SAVE POSE.</li>
           </ol>
+
+          <!-- GO-TO PANEL. Filled by paintGoPanel() when a pose is prepared.
+               It exists because the four things standing between "I want the
+               arm at up" and the arm being there were four separate hunts:
+               find the tile, press ENABLE, judge the angle, confirm - once per
+               joint, on four different cards. Same four judgements, one place. -->
+          <div class="gopanel hidden" id="goPanel"></div>
 
           <div class="toolbar">
             <button class="btn go" id="btnRecord" disabled>RECORD WAYPOINT</button>
@@ -2747,6 +2780,11 @@ function paintTop(){
     }
   }
 
+  /* Repainted from live state on every poll. If the watchdog detaches a joint
+     or DISABLE ALL is pressed between ATTACH and START, the panel must go back
+     to asking for that joint rather than keep claiming the arm is ready. */
+  if (goPose !== null) paintGoPanel();
+
   var recGate = el("recordGate");
   if (recGate) {
     var why = "";
@@ -3312,8 +3350,11 @@ function renderPoseList(){
         /* Endpoint-only rows get a live BUILD ROUTE where a dead LOAD used to
            sit. A greyed button with a paragraph under it is a dead end; this
            one offers the thing that actually gets the arm there. */
+        /* "GO TO..." with the ellipsis on purpose: it opens the panel and
+           energises nothing. The button that moves the arm is START, and it is
+           behind a list of steps the operator has to look at first. */
         (ready || outOfRange.length ? '<button class="btn small js-load">LOAD</button>'
-                                    : '<button class="btn small go js-route">BUILD ROUTE</button>') +
+                                    : '<button class="btn small go js-route">GO TO&hellip;</button>') +
         '<button class="btn small js-play" disabled>PLAY</button>' +
       '</span>' +
       '<span class="posewhy js-why"></span>';
@@ -3421,30 +3462,201 @@ function buildJointRoute(i){
      recorded route. */
   loadedPoseIdx = null;
   setTab("teach");
-  renderWaypoints(); renderPoseList(); paintTop();
+  renderWaypoints(); renderPoseList();
+  openGoPanel(i);
+  paintTop();
 
-  /* Say what it will NOT do. A joint stored "-" was not enabled when the pose
-     was saved, so it has no angle to go to and playback leaves it alone - the
-     arm ends at this pose's joints plus wherever those happen to be. */
+  /* NO NOTICE HERE. The panel says all of this in place, next to the boxes it
+     applies to. A banner repeating it would push the panel down the screen and
+     make a simple job look like a wall of warnings - which is how the operator
+     stops reading them at all. The caveats live in paintGoPanel(). */
+}
+
+/* The three things that are true of any built route, kept next to the control
+   rather than in a banner: the order is a guess, some joints are left where
+   they are, and some targets sit on a soft limit. */
+function routeCaveats(p){
+  var out = [];
+  out.push("This order is a guess — nobody has driven it. It follows the rule in this arm's own " +
+           "<code>pick</code> notes: shoulder first for height, elbow and wrist while high, base " +
+           "once clear, gripper last.");
   var skipped = JOINT_DEFS.filter(function(d){
     var v = p.deg[d.id]; return v === null || v === undefined;
   }).map(function(d){ return "J" + d.id + " " + d.name; });
-
+  if (skipped.length) {
+    out.push("Left where they are (not enabled when the pose was saved): " + skipped.join(", ") + ".");
+  }
   var atEnd = JOINT_DEFS.filter(function(d){
     var v = p.deg[d.id];
     return v !== null && v !== undefined && (v <= J[d.id].min || v >= J[d.id].max);
   }).map(function(d){ return "J" + d.id + "=" + p.deg[d.id]; });
+  if (atEnd.length) {
+    out.push("Parks on a soft limit: " + atEnd.join("; ") + " — no room to back off there.");
+  }
+  return out;
+}
 
-  notice("warn",
-    "Built a " + steps.length + "-step route to “" + p.name + "”, one joint per step, in this " +
-    "order: " + steps.map(function(s){ return s.label.split(" ")[0]; }).join(" → ") + ". " +
-    "THIS ORDER IS A GUESS, not a route anybody has driven - it follows the rule written into " +
-    "this arm's own pick pose (lift the shoulder first, neutralise elbow and wrist while high, " +
-    "rotate the base only once clear, gripper last). Read the steps, and use GO on one row at a " +
-    "time while you watch the arm rather than PLAY, the first time." +
-    (skipped.length ? " Leaves alone (not enabled when the pose was saved): " + skipped.join(", ") + "." : "") +
-    (atEnd.length ? " Parks on a soft limit: " + atEnd.join("; ") + "." : ""),
-    22000);
+/* ---- the go-to panel -----------------------------------------------------
+
+   ONE PLACE FOR THE FOUR JUDGEMENTS. Driving to a saved endpoint needed the
+   operator to find each joint's tile, press ENABLE, judge the angle it is
+   sitting at, and confirm - four times, on four cards, with a refusal from PLAY
+   in between to tell them which four. Nothing about that was safer than doing
+   it once in one list; it was just further apart.
+
+   WHAT IS NOT COLLAPSED: the by-eye angle. Nothing on this arm observes the
+   output shaft, so the first pulse after ENA must match where the joint really
+   is or it snaps to the number instead. Four joints still means four numbers.
+
+   THE BOXES START EMPTY, ON PURPOSE. The per-joint adopt box prefills with the
+   joint's home angle, which is a deliberate override each time you meet it.
+   Four prefilled boxes in a column invite one Enter press - and "up" wants
+   J4=180 while J4's home is 90, so an unread default is a 90-degree snap on a
+   wrist whose travel ends are still unconfirmed. An empty box that refuses to
+   submit is safer than a plausible wrong number. */
+var goPose = null;      /* index into poseLib, or null when no pose is prepared */
+
+function openGoPanel(i){
+  goPose = i;
+  el("goPanel").classList.remove("hidden");
+  paintGoPanel();
+}
+function closeGoPanel(){
+  goPose = null;
+  var p = el("goPanel");
+  if (p) { p.classList.add("hidden"); p.innerHTML = ""; }
+}
+
+/* Which joints does the loaded route command, and which of those are not
+   attached yet? Recomputed on every paint rather than captured when the panel
+   opened: between ATTACH and START the watchdog can fire or DISABLE ALL can be
+   pressed, and a panel still saying "Ready" would be lying about the arm. */
+function routeJoints(){
+  var ids = [];
+  waypoints.forEach(function(w){
+    JOINT_DEFS.forEach(function(d){
+      var v = w.deg[d.id];
+      if (v !== null && v !== undefined && ids.indexOf(d.id) < 0) ids.push(d.id);
+    });
+  });
+  return ids;
+}
+
+function paintGoPanel(){
+  var box = el("goPanel");
+  if (!box || goPose === null || !poseLib[goPose]) return;
+  var p = poseLib[goPose];
+  var ids = routeJoints();
+  var missing = ids.filter(function(id){ return !J[id].en; });
+
+  /* The shoulder is in every route this order produces, and it REFUSES to
+     enable while the mirror relation is unknown. Say so before four boxes get
+     filled in, not on submit. */
+  var mirrorBlocked = (missing.indexOf(1) >= 0 && mirrorMode === "unknown");
+
+  var h = '<div class="gohead">Go to &ldquo;' + escHtml(p.name) + '&rdquo;' +
+          '<button class="btn small js-goclose">CLOSE</button></div>' +
+          '<div class="gonote">Nothing has moved yet, and nothing will until you press START. ' +
+          'The route is ' + waypoints.length + ' steps, one joint each: ' +
+          ids.map(function(id){ return "J" + id; }).join(" &rarr; ") + '.</div>';
+
+  if (missing.length) {
+    h += '<div class="gonote warn">These joints have to be attached first. ' +
+         '<b>Type the angle each one is sitting at RIGHT NOW, judged by eye.</b> ' +
+         'The first pulse will be exactly what you type &mdash; a wrong number snaps the joint ' +
+         'to it.</div>' +
+         '<table class="gotable"><thead><tr><th>Joint</th><th>Sitting at now</th>' +
+         '<th>Route drives it to</th></tr></thead><tbody>';
+    missing.forEach(function(id){
+      var j = J[id];
+      var tgt = p.deg[id];
+      var blocked = (id === 1 && mirrorMode === "unknown");
+      h += '<tr><td>J' + id + ' ' + escHtml(j.def.name) + '</td>' +
+           '<td>' + (blocked
+             ? '<span class="gobad">cannot attach &mdash; mirror relation unknown</span>'
+             : '<input type="number" class="goval" data-id="' + id + '" step="1" placeholder="deg">' +
+               '<span class="gohint">' + j.min + '&ndash;' + j.max + '&deg;, home ' + j.home + '&deg;</span>') +
+           '</td><td class="gotgt">' + (tgt === null || tgt === undefined ? '&ndash;' : tgt + '&deg;') + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    h += '<button class="btn warn js-goattach"' + (mirrorBlocked ? ' disabled' : '') + '>' +
+         'ATTACH THESE JOINTS &mdash; SUPPORT THE ARM FIRST</button>';
+    if (mirrorBlocked) {
+      h += '<div class="gonote warn">The shoulder cannot be attached until the mirror relation is ' +
+           'known. Load <code>joint-limits.csv</code> on the Calibration tab, or set ' +
+           '<code>mirror_mode</code> in that file, then try again.</div>';
+    }
+    h += '<div class="gonote js-goresult"></div>';
+  } else {
+    h += '<div class="gonote ok">All ' + ids.length + ' joints are attached. ' +
+         'Read the steps below, then start.</div>' +
+         '<button class="btn go js-gostart">START &mdash; drive the ' + waypoints.length +
+         ' steps, one joint at a time</button>' +
+         '<div class="gonote">Or press <b>GO</b> on a single row in the table to take just that ' +
+         'one joint while you watch it. That is the safer first run.</div>';
+  }
+
+  /* Folded away, because they are the same every time and reading them once is
+     enough - but one tap from the button they apply to, never in a banner. */
+  h += '<details class="note"><summary>Before you start</summary><div>' +
+       routeCaveats(p).map(function(s){ return "<p style=\"margin:0 0 7px\">" + s + "</p>"; }).join("") +
+       '</div></details>';
+
+  box.innerHTML = h;
+  box.querySelector(".js-goclose").onclick = closeGoPanel;
+  var attach = box.querySelector(".js-goattach");
+  if (attach) attach.onclick = function(){ attachRouteJoints(box); };
+  var start = box.querySelector(".js-gostart");
+  if (start) start.onclick = function(){ playFrom(0, waypoints.length - 1, false); };
+  Array.prototype.forEach.call(box.querySelectorAll(".goval"), function(inp){ noWheel(inp); });
+}
+
+/* Attach ONE AT A TIME, reporting each. A single "attached 4 joints" would let
+   a refusal on the shoulder pass as success, and the operator would press START
+   believing the arm is holding when part of it is not. */
+function attachRouteJoints(box){
+  var result = box.querySelector(".js-goresult");
+  var inputs = Array.prototype.slice.call(box.querySelectorAll(".goval"));
+  var plan = [], bad = null;
+
+  inputs.forEach(function(inp){
+    if (bad) return;
+    var id = Number(inp.getAttribute("data-id")), j = J[id];
+    var raw = String(inp.value).trim();
+    if (!/^-?\d+$/.test(raw)) { bad = "J" + id + " " + j.def.name + ": type the angle it is sitting at."; return; }
+    var v = Number(raw);
+    if (v < j.min || v > j.max) {
+      bad = "J" + id + " " + j.def.name + " is limited to " + j.min + "–" + j.max +
+            "°. If it really is outside that, widen its limits in joint-limits.csv first.";
+      return;
+    }
+    plan.push({ id: id, v: v });
+  });
+
+  if (bad) { result.className = "gonote js-goresult warn"; result.textContent = bad; return; }
+  if (!plan.length) { return; }
+
+  result.className = "gonote js-goresult";
+  result.textContent = "Attaching…";
+
+  var done = [];
+  var chain = Promise.resolve();
+  plan.forEach(function(s){
+    chain = chain.then(function(){
+      return Promise.resolve(doEnable(s.id, s.v)).then(function(){
+        done.push("J" + s.id + " at " + s.v + "°");
+        result.textContent = "Attached " + done.join(", ") + "…";
+      });
+    });
+  });
+  chain.then(function(){
+    paintAll();                    /* recomputes the panel from real state */
+  }).catch(function(e){
+    result.className = "gonote js-goresult warn";
+    result.textContent = "Stopped after " + (done.length ? done.join(", ") : "nothing") +
+                         ". " + plainErr(e && e.message ? e.message : String(e)) +
+                         " The joints not listed are NOT attached.";
+  });
 }
 
 function escHtml(s){
