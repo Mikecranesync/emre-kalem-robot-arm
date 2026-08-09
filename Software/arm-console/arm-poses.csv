@@ -1,5 +1,42 @@
 # arm-poses.csv - named whole-arm poses for the Emre Kalem arm
 #
+# !! BOTH ROWS BELOW ARE STALE AS OF 2026-08-08. DO NOT DRIVE THEM. !!
+#
+# The arm was DISASSEMBLED- recalibrated and rewired between 2026-08-06 and
+# 2026-08-08- and the signal leads were moved at the Uno header. Joint IDs still
+# name the same physical joints- but the commanded-angle to mechanical-angle
+# mapping did not survive- and neither did these two rows. Specifically:
+#
+#   storage asks for J3 = 64. The elbow was re-locked 0-30 on 2026-08-08- so 64
+#   now CLAMPS at 30. Driving storage today folds the shoulder and leaves the
+#   forearm standing straight up- which is not a storage pose. Confirmed on the
+#   bench 2026-08-08 ~21:40: every other axis reached its storage value and the
+#   arm did not collapse.
+#
+# THREE MORE CLAIMS IN THIS HEADER ARE NOW FALSE- left in place below so the
+# reasoning stays readable- but corrected here:
+#
+#   "J0 IS ABSENT FROM EVERY ROW ON PURPOSE. Its servo is dead" - the replacement
+#   was fitted and J0 was re-locked 0-180 home 90 on 2026-08-08. It drives. Note
+#   also the 2026-08-08 no-motion on J0 was NOT a dead servo: there was no 5 V
+#   reaching the servos at all. Poses written from now on SHOULD carry j0_deg;
+#   the console's SAVE POSE button emits that column.
+#
+#   "As of 2026-08-06 evening the gripper does not articulate" - it articulates.
+#   Proven 2026-08-08 ~20:45 by opposite-direction prong fringing and the gear
+#   teeth in a new rotational position. It is still NOT controllable: it does not
+#   return to the same finger position for the same commanded angle. See
+#   Calibration_Notes/evidence/2026-08-08_J6-retry/.
+#
+#   The camera framing every "camera_verified" here was taken against no longer
+#   exists - the camera has moved twice since. All three historical ROIs fail a
+#   backdrop negative control. See Documentation/2026-08-08-EVENING-SESSION-FINDINGS.md.
+#
+# WHAT TO DO: reteach the joints (find real ends- back off- write joint-limits.csv)
+# and then re-record these poses from scratch with the console's SAVE POSE button-
+# which fills entry_path from the driven teach table. Supersede these rows- do not
+# edit them: an old row stays true as of its date.
+#
 # WHAT THIS FILE IS. joint-limits.csv says how far each joint MAY go. This file
 # says where the arm should BE for a named purpose - storage- pick-approach- and
 # so on. Every row here was driven on the real arm and photographed- not planned

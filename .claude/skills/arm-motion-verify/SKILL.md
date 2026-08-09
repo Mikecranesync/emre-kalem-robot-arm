@@ -27,9 +27,29 @@ operator's eyes, ideally both.
 
 `Software/tests/motion_verify.py` drives one joint through named waypoints and
 photographs every settle point. It **never opens the serial port** — the holder
-daemon (`hold_arm.py`) owns COM5 and must keep owning it, because the watchdog
-latches and detaches every joint the moment nothing feeds it, and closing the port
-can DTR-reset the board. Motion goes through the daemon's file command channel.
+daemon owns it and must keep owning it, because the watchdog latches and detaches
+every joint the moment nothing feeds it, and closing the port can DTR-reset the
+board. Motion goes through the daemon's file command channel.
+
+> **⚠ ON THE PI, USE THE `_pi` PAIR — 2026-08-08.** The Uno moved off the Windows
+> laptop, so `hold_arm.py` (hardcoded `COM5`) and `motion_verify.py`
+> (`cv2.CAP_DSHOW`, a Windows-only backend, against a `/dev/video0` that
+> `mjpeg_preview.py` already owns) **cannot run there at all**. Use
+> `Software/arm-console/hold_arm_pi.py` — `--port /dev/ttyACM0`, limits read from
+> `joint-limits.csv` rather than a hand-maintained dict, J1 refused structurally —
+> and `Software/tests/motion_verify_pi.py --snapshot-url http://127.0.0.1:8781/snapshot`.
+>
+> **Two bugs live in the originals and are fixed only in the `_pi` copies:**
+> `clamped` was read from a `STA` row, but firmware 1.1.1 never emits `CL` there
+> (it is on the `MOV` reply), so **every** move reported `clamped=false` including
+> the clamped ones; and the parked-check required `SET == requested`, which a
+> clamped move can never satisfy, so it burned the full timeout then recorded an
+> unflagged `parked_at`.
+>
+> **The old `hold_arm.py` limits dict is dangerous, not merely stale** — it had
+> drifted in both directions at once (elbow `0-66 adopt 33` against a measured
+> `0-30`; wrist pitch `0-180` against a real minimum of `33`), it excluded J0 as
+> "dead" when it is not, and it enabled J1 whose mirror offset is still unmeasured.
 
 | Flag | Meaning |
 |---|---|
@@ -97,6 +117,38 @@ command**. Their difference is that waypoint's noise floor. Rules:
 
 Boxes calibrated 2026-08-06 for this camera position: gripper diff
 `330,425,485,565`, gripper prongs (geo) `325,455,425,560`, wrist `315,370,530,600`.
+
+> **⚠ THOSE BOXES ARE VOID AS OF 2026-08-08 — the camera has moved twice since.**
+> Measured at the new position: the gripper **geo** box contains **zero arm
+> pixels** (100 dark px, all in one row — a 1 px artifact line), so it has been
+> reporting a shape verdict about nothing. And **all three** historical boxes fail
+> the negative control below — skill diff 417/232 px, skill geo 200/75 px, and a
+> later ad-hoc `700,350,900,480` box 5,978/4,318 px. Re-derive per camera position;
+> do not copy a box forward. Numbers:
+> `Calibration_Notes/evidence/2026-08-08_J6-film-void/`.
+
+## The negative control — the gate this harness was missing
+
+The three gates below all ask "is the signal real enough". None asked **"does this
+box see things that are not the joint?"** A 75 s gripper film on 2026-08-08 scored
+**65 of 96 intervals as MOTION with peaks of 80,263 px** while the fingers never
+moved: the white paper backdrop and its shadow were sweeping through the ROI.
+
+So, before trusting any new ROI: **disturb the scene, command nothing, and require
+the box to score near zero.** Frame pairs in which the backdrop moved and the arm
+did not are kept as fixtures in the evidence folder above; `Software/tests/hunt_watch.py`
+is the same idea applied over time rather than over a disturbance.
+
+Two related traps, both measured:
+
+- **A saturated metric silently carries no information** — the same failure as the
+  `bbox_h` warning above. A naive "topmost dark pixel" apex pinned at 0 whatever
+  the arm did, because a 1 px prong tip touches the frame edge. Use the topmost
+  row carrying ≥20 px.
+- **Phase correlation cannot discriminate motion inside a body-dominated ROI.** It
+  returned under 0.75 px on every pair *including a real 60° move* (0.16 px),
+  because the large static servo body dominates the correlation. A measure that
+  reads ~0 on a known motion cannot be used to rule motion out.
 
 ## The three gates, and what each one caught
 
