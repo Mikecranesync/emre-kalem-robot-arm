@@ -212,6 +212,88 @@ const uint8_t  TICK_CAP_MS = 200;    // largest elapsed slice honoured after a s
 // every speed above 50 deg/s, which is inside the legal 1..90 range.
 const int16_t MAX_STEP_C = 200;
 
+// >>> INTERPOLATOR-PROFILE  (lifted verbatim by Software/tests/interpolator_check.py
+//                            - do not reformat the markers)
+//
+// WHY THIS EXISTS.  The interpolator used to move at a CONSTANT velocity: on the
+// first tick after a MOV it jumped straight to the full slew rate, and on the
+// last tick it stopped dead.  Both ends are an instantaneous change of velocity,
+// which is infinite acceleration, and on a geared servo carrying a loaded arm
+// that is the visible jerk at the start of every move and the bounce at the end.
+// Limiting acceleration replaces the rectangle with a trapezoid: ramp up, cruise
+// at the commanded deg/s, ramp down, arrive.
+//
+// WHAT THIS CANNOT FIX.  The jump when a joint is ENABLED is a different event
+// and no amount of profiling touches it.  enableJoint() pre-loads the adopt
+// pulse before attach() so the first pulse equals the operator's by-eye angle -
+// but if that angle is wrong the servo slams from where it really is to where it
+// was told, at its own speed, through its own internal loop.  Nothing on this
+// board can slow that down; it has no feedback from the shaft.  A better adopt
+// number is the only fix for that one.
+//
+// ACC is a BENCH OBSERVATION, not a derived value.  200 deg/s^2 takes a joint
+// from rest to the default 30 deg/s in about 150 ms, and to the 90 deg/s ceiling
+// in about 450 ms.  Raise it if the arm feels sluggish to start; lower it if it
+// still lurches.  It is deliberately the only number here worth touching.
+const int16_t ACC_DPS2      = 200;                    // deg/s^2
+const int32_t ACC_CDPS2     = (int32_t)ACC_DPS2 * 100;  // centideg/s^2
+//
+// Floor on the deceleration ramp.  A pure v^2/(2a) ramp approaches the target
+// asymptotically in integer arithmetic and can leave a joint creeping forever a
+// few centidegrees short.  1 deg/s guarantees arrival; the step clamp below
+// still stops it overshooting.
+const int16_t VEL_MIN_CDPS  = 100;                    // centideg/s
+
+// One tick of the profile.  PURE: no globals, no I/O, no clock - everything it
+// needs arrives as an argument, which is what lets the test compile this exact
+// text with gcc and hammer it without a board.
+//
+// Returns the signed step in centidegrees to apply this tick, and updates *velC
+// (unsigned magnitude, centidegrees per second).
+//
+// INVARIANTS, each of which the test asserts:
+//   - the returned magnitude never exceeds MAX_STEP_C
+//   - velocity never exceeds dps (the operator's commanded ceiling)
+//   - it never steps past the target, in either direction
+//   - it always converges, from any starting velocity and distance
+static int32_t profileStepC(int32_t setC, int32_t tgtC, uint8_t dps,
+                            uint32_t el, int16_t *velC) {
+  int32_t d = tgtC - setC;
+  if (d == 0) { *velC = 0; return 0; }
+
+  int32_t dist = (d < 0) ? -d : d;
+  int32_t vmax = (int32_t)dps * 100;              // centideg/s
+  int32_t v    = *velC;
+  if (v > vmax) v = vmax;                         // SPD lowered mid-move
+
+  // Distance this speed needs in order to stop under ACC.  int32 is safe: the
+  // largest v is 9000 cd/s, so v*v is 81e6 against a 2.1e9 ceiling.
+  int32_t dstop = (v * v) / (2 * ACC_CDPS2);
+
+  int32_t dv = (ACC_CDPS2 * (int32_t)el) / 1000;  // velocity change this slice
+  if (dv < 1) dv = 1;
+
+  if (dist <= dstop) {
+    v -= dv;
+    if (v < VEL_MIN_CDPS) v = VEL_MIN_CDPS;       // still arrives
+  } else {
+    v += dv;
+    if (v > vmax) v = vmax;
+  }
+
+  // Elapsed-time integration, exactly as the constant-velocity version did: a
+  // stall that ate several ticks produces a proportionally larger step, so the
+  // commanded deg/s stays honest across a blocked Serial.print.
+  int32_t step = (v * (int32_t)el) / 1000;
+  if (step < 1) step = 1;                         // never stall short of target
+  if (step > dist) step = dist;                   // never overshoot
+  if (step > (int32_t)MAX_STEP_C) step = MAX_STEP_C;  // the hard per-write ceiling
+
+  *velC = (int16_t)v;
+  return (d < 0) ? -step : step;
+}
+// <<< INTERPOLATOR-PROFILE
+
 // Largest mirror offset accepted on the wire, degrees.  Bounds mirrorOffsetC so
 // the int16 store and the 18000 + 2*offset arithmetic cannot overflow before the
 // envelope check below gets a chance to run.
@@ -236,6 +318,12 @@ Servo sB;       // joint 1's second servo, on D5
 struct Joint {
   int16_t setC;   // angle commanded right now, centidegrees
   int16_t tgtC;   // where the interpolator is walking to, centidegrees
+  // Current speed, centidegrees per second, magnitude only - the direction comes
+  // from tgtC - setC.  Carried between ticks because acceleration is a change of
+  // velocity, so the profile has to remember what the velocity WAS.  Every path
+  // that stops a joint must zero this, or the joint coasts: see doStp, the jog
+  // timeout, disableJoint and enableJoint.
+  int16_t velC;
   uint8_t minD;   // limit, degrees - DATA, loaded from joint-limits.csv
   uint8_t maxD;   // limit, degrees
   uint8_t dps;    // slew rate, degrees per second
@@ -493,6 +581,7 @@ static void disableJoint(uint8_t i) {
 
   j[i].en   = false;
   j[i].tgtC = j[i].setC;   // no stale target survives to the next enable
+  j[i].velC = 0;           // ...and no stale velocity either
 
   // The single choke point for DIS, DIS A, EST, '!' and the watchdog, so the jog
   // state is cleared for all five here rather than in each caller.
@@ -514,6 +603,7 @@ static void enableJoint(uint8_t i, int16_t adoptDeg) {
   int16_t c = clampToLimits(i, (int16_t)(adoptDeg * 100));
   j[i].setC = c;
   j[i].tgtC = c;
+  j[i].velC = 0;   // a joint just attached is at rest, whatever the last one did
 
   // A freshly enabled joint is never mid-jog.  That is already true by
   // construction - doEna refuses an enabled joint, and every route to disabled
@@ -871,6 +961,9 @@ static void doStp() {
   for (uint8_t i = 0; i < NJ; i++) {
     if (!j[i].en) continue;
     j[i].tgtC        = j[i].setC;
+    j[i].velC        = 0;       // INSTANT stop, not a coast: STP's contract is
+                                // "freezes every joint where it is", and STOP
+                                // PLAYBACK on the console depends on it.
     j[i].jogActive   = false;
     j[i].jogTimedOut = false;
   }
@@ -883,6 +976,7 @@ static void doStp() {
 static void doStpJoint(uint8_t i) {
   if (!j[i].en) { errJ(F("E6"), i); return; }
   j[i].tgtC        = j[i].setC;
+  j[i].velC        = 0;       // instant, for the reason in doStp
   j[i].jogActive   = false;   // an operator stop also disarms the jog timer
   j[i].jogTimedOut = false;   // ...and retires the fault it may have recorded
   okPre();
@@ -1180,6 +1274,7 @@ void setup() {
   for (uint8_t i = 0; i < NJ; i++) {
     j[i].setC = DEF_SET_C;
     j[i].tgtC = DEF_SET_C;
+    j[i].velC = 0;
     j[i].minD = DEF_MIN_DEG;
     j[i].maxD = DEF_MAX_DEG;
     j[i].dps  = DEF_DPS;
@@ -1264,15 +1359,11 @@ void loop() {
 
     for (uint8_t i = 0; i < NJ; i++) {
       if (!j[i].en) continue;
-      int32_t maxStep = ((int32_t)j[i].dps * (int32_t)el) / 10;   // centidegrees
-      if (maxStep < 1) maxStep = 1;
-      // TICK_CAP_MS bounds the elapsed SLICE; this bounds the resulting STEP,
-      // which is the thing that actually moves the arm.  Without it a 200 ms
-      // stall at 90 deg/s still commands an 18 degree jump in one write.
-      if (maxStep > (int32_t)MAX_STEP_C) maxStep = MAX_STEP_C;
-      int32_t d = (int32_t)j[i].tgtC - (int32_t)j[i].setC;
-      if (d >  maxStep) d =  maxStep;
-      if (d < -maxStep) d = -maxStep;
+      // The per-write ceiling, the deg/s ceiling and the no-overshoot rule all
+      // live inside profileStepC now, which is also what the host-side test
+      // compiles and hammers.  TICK_CAP_MS still bounds the elapsed slice above.
+      int32_t d = profileStepC((int32_t)j[i].setC, (int32_t)j[i].tgtC,
+                               j[i].dps, el, &j[i].velC);
       if (d != 0) {
         j[i].setC += (int16_t)d;
         writeJoint(i);
@@ -1297,6 +1388,7 @@ void loop() {
   for (uint8_t i = 0; i < NJ; i++) {
     if (j[i].en && j[i].jogActive && (uint32_t)(now - j[i].jogMs) > JOG_TIMEOUT_MS) {
       j[i].tgtC        = j[i].setC;
+      j[i].velC        = 0;   // the host went quiet - stop, do not coast on
       j[i].jogActive   = false;
       j[i].jogTimedOut = true;
     }
