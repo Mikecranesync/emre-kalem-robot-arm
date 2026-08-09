@@ -2464,8 +2464,9 @@ function paintTop(){
      every STA poll, and rebuilding a list of rows under the operator's cursor
      twice a second is its own bug. The load-first rule stays with the row. */
   var playRows = document.querySelectorAll("#poseRows .js-play");
-  Array.prototype.forEach.call(playRows, function(b, i){
-    b.disabled = (loadedPoseIdx !== i) || !waypoints.length || playing ||
+  Array.prototype.forEach.call(playRows, function(b){
+    var idx = Number(b.getAttribute("data-idx"));
+    b.disabled = (loadedPoseIdx !== idx) || !waypoints.length || playing ||
                  connState !== "on" || !!sys.es;
   });
 
@@ -2986,6 +2987,12 @@ function renderPoseList(){
     var bLoad = row.querySelector(".js-load");
     var bPlay = row.querySelector(".js-play");
     var why   = row.querySelector(".js-why");
+    /* The row carries its own library index. paintTop re-enables these buttons
+       on every poll and must not infer the index from the button's POSITION in
+       the NodeList: that is only correct while every pose renders exactly one
+       row in library order, and the first filter or sort added here would
+       silently arm PLAY on the wrong pose. */
+    bPlay.setAttribute("data-idx", String(i));
 
     if (!ready) {
       bLoad.disabled = true;
