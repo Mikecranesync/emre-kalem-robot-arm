@@ -495,6 +495,11 @@ details.log summary{
 .ackpill.acked{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
 .gatebar{background:var(--warn-bg);border:1px solid var(--warn);color:#ffd591;border-radius:var(--radius);
          padding:9px 12px;margin:0 0 12px;font-size:13px}
+.ordercell{white-space:nowrap}
+.ordercell .btn{min-width:34px;padding:7px 9px;min-height:34px;font-size:15px;line-height:1}
+.ordercell .btn + .btn{margin-left:4px}
+#btnStepsHere{font-size:13px;text-align:left;line-height:1.35}
+
 /* ---- go-to panel ---- */
 .gopanel{
   border:2px solid var(--move);border-radius:var(--radius);background:var(--panel);
@@ -785,6 +790,10 @@ h2{margin-bottom:8px}
                never be played. -->
           <label class="chk autochk"><input type="checkbox" id="chkAuto" checked>
             <span>Save a step each time I let go</span></label>
+
+          <!-- For the case the teach flow does not cover: the arm is ALREADY
+               where you want it, and what you need is a route TO it. -->
+          <button class="btn" id="btnStepsHere">THE ARM IS ALREADY THERE &mdash; SPLIT THIS POSITION INTO STEPS</button>
           <!-- WHY RECORD IS GREYED OUT. A disabled button with no reason is the same
                dead end whatever the cause, and the three causes have three different
                remedies. Filled in by paintTop(). -->
@@ -2839,7 +2848,7 @@ function refreshPorts(){
 function buildWpHead(){
   var tr = el("wpHead");
   var cells = ["#","Label"].concat(JOINT_DEFS.map(function(d){ return d.name + " " + d.pins; }))
-                           .concat(["Dwell ms","",""]);
+                           .concat(["Dwell ms","Order","",""]);
   tr.innerHTML = cells.map(function(c){ return "<th>" + c + "</th>"; }).join("");
 }
 
@@ -2875,6 +2884,26 @@ function renderWaypoints(){
     dw.onchange = function(){ w.dwell = Math.max(0, Math.round(Number(dw.value) || 0)); dw.value = String(w.dwell); };
     tdD.appendChild(dw); tr.appendChild(tdD);
 
+    /* THE ORDER IS THE OPERATOR'S, NOT THE CONSOLE'S.
+       A built route uses a default order taken from this arm's own pick notes -
+       shoulder first for height. That is a heuristic and it is wrong for some
+       poses: the park position photographed on 2026-08-09 has to open the elbow
+       BEFORE the shoulder. Nobody can settle that from a rules table; the person
+       looking at the arm settles it. Reordering here is also what makes it
+       stick, because SAVE POSE writes the table out as the pose's entry_path -
+       so a route arranged once is recorded and never has to be arranged again. */
+    var tdM = document.createElement("td");
+    tdM.className = "ordercell";
+    var up = document.createElement("button");
+    up.className = "btn small"; up.textContent = "↑"; up.title = "Move this step earlier";
+    up.disabled = (i === 0);
+    up.onclick = function(){ swapWaypoints(i, i-1); };
+    var dn = document.createElement("button");
+    dn.className = "btn small"; dn.textContent = "↓"; dn.title = "Move this step later";
+    dn.disabled = (i === waypoints.length - 1);
+    dn.onclick = function(){ swapWaypoints(i, i+1); };
+    tdM.appendChild(up); tdM.appendChild(dn); tr.appendChild(tdM);
+
     var tdG = document.createElement("td");
     var go = document.createElement("button");
     go.className = "btn small"; go.textContent = "GO";
@@ -2890,6 +2919,55 @@ function renderWaypoints(){
     body.appendChild(tr);
   });
   paintTop();
+}
+
+/* Reordering never touches a joint or an angle - it moves whole rows. The
+   playback path reads waypoints in array order and nothing caches an index, so
+   a swap is complete once the table is redrawn. loadedPoseIdx is cleared for
+   the same reason recording clears it: the table is no longer the pose that was
+   loaded, so that row's PLAY must go back to needing a LOAD. */
+function swapWaypoints(a, b){
+  if (a < 0 || b < 0 || a >= waypoints.length || b >= waypoints.length) return;
+  var t = waypoints[a]; waypoints[a] = waypoints[b]; waypoints[b] = t;
+  loadedPoseIdx = null;
+  renderWaypoints(); renderPoseList();
+}
+
+/* ---- steps from where the arm is standing --------------------------------
+
+   THE GAP THIS FILLS. RECORD WAYPOINT stores every enabled joint in ONE row,
+   so playing it back moves them all together. That is right for a pose you
+   drove by hand - you watched them move together. It is wrong when the arm is
+   ALREADY in the position you want and you need a route TO it, because the
+   order the joints move in is the whole safety question and a single row does
+   not express one.
+
+   This takes the arm's current commanded angles and lays them out as one row
+   per joint, which you then put in the order that is safe for this arm and
+   save. SAVE POSE writes the table as the pose's entry_path, so the order is
+   recorded and the pose is drivable from then on. */
+function stepsFromHere(){
+  if (connState !== "on") { notice("warn","Connect to the controller first."); return; }
+  var live = JOINT_DEFS.filter(function(d){ return J[d.id].en; });
+  if (!live.length) {
+    notice("warn","No joint is enabled, so there is no position to split into steps. " +
+                  "Attach the joints you want in this pose first.");
+    return;
+  }
+  waypoints = live.map(function(d){
+    var deg = {};
+    JOINT_DEFS.forEach(function(x){ deg[x.id] = null; });
+    deg[d.id] = Math.round(J[d.id].set);
+    return { label: "J" + d.id + " " + d.name + " to " + Math.round(J[d.id].set) + "°",
+             deg: deg, dwell: 500 };
+  });
+  loadedPoseIdx = null;
+  renderWaypoints(); renderPoseList(); paintTop();
+  notice("ok", "Split this position into " + waypoints.length + " steps, one joint each, in joint " +
+         "order. NOTHING MOVED — these are the angles the arm is already holding. Put them in the " +
+         "order that is safe for this arm with the ↑ and ↓ buttons, delete any joint that should " +
+         "not move, then name it and press SAVE POSE. The order you leave them in is the order " +
+         "the pose plays back in, forever.", 18000);
 }
 
 function recordWaypoint(label){
@@ -4042,6 +4120,7 @@ el("btnStopPlay").onclick   = function(){
                  " If the arm is still moving, press E-STOP or switch the KCD1 rocker OFF.");
   });
 };
+el("btnStepsHere").onclick  = stepsFromHere;
 el("btnSaveCsv").onclick    = saveWaypointCsv;
 el("btnSavePose").onclick   = savePoseCsv;
 el("poseName").addEventListener("keydown", function(e){ if (e.key === "Enter") savePoseCsv(); });
