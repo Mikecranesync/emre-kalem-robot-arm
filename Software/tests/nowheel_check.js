@@ -26,7 +26,17 @@ if (!page) {
   process.exit(2);
 }
 
-const src = fs.readFileSync(page, "utf8");
+/* LINE ENDINGS ARE NORMALISED BEFORE ANY MATCHING.
+ * The patterns below anchor on "\n" (e.g. /\nfunction noWheel\(input\)\{/), and
+ * git checks this repo out with CRLF on Windows (core.autocrlf=true, no
+ * .gitattributes). Without this the very first pattern misses and the test
+ * announces "the scroll-wheel guard is gone" -- a false negative on an
+ * untouched file, which is worse than no test at all, because it reports a
+ * safety guard as deleted when it is present and working. Verified: the commit
+ * this line was added in fails identically on a CRLF copy of the PREVIOUS
+ * console. Nothing here is testing line endings, so normalising costs nothing.
+ */
+const src = fs.readFileSync(page, "utf8").replace(/\r\n/g, "\n");
 
 /* Every number box on a joint card must be handed to noWheel(). A new one added
  * without that call is the regression this half of the test catches. */

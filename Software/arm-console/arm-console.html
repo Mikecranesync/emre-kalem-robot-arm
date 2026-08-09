@@ -28,9 +28,19 @@
       CONFIG          fixed numbers, the joint table, the defaults
       TRANSPORT       the ~40-line shim: bridge fetch vs navigator.serial
       PROTOCOL        line assembly, the reply FIFO, the connect handshake
-      UI              top bar, joint cards, notices
-      TEACH-PLAYBACK  waypoint table, record, play, CSV load/save
+      UI              top bar, joint cards, rail + selection + tabs, notices
+      TEACH-PLAYBACK  waypoint table, record, play, pose library, CSV load/save
       LOG             the raw serial log
+
+  FOUR TABS, ONE JOINT AT A TIME. TEACH is the landing tab because teaching is
+  what the bench does all day. The six joints are a rail of compact status
+  tiles; clicking one puts its FULL card in the middle. Engineering controls
+  (envelope, LOCK THIS AXIS, deg/s, pins, the limits picker) are marked
+  .setup-only and appear on CALIBRATION; raw serial lives on DIAGNOSTICS.
+  Nothing was deleted, only relocated — every handler and every j.dom reference
+  is the same object it was before. The header (connection, HOLD, E-STOP, the
+  safety line, the background-tab strip) is outside the tabs and shows on all
+  of them, deliberately: those are never one screen's business.
 
   Note on wording: these servos send nothing back. Every angle on this page is
   what we COMMANDED, never what the joint did. The copy says so everywhere and
@@ -297,6 +307,98 @@ input[type=range]:disabled{opacity:.45}
 .filebtn:hover{border-color:var(--dim)}
 .filebtn input{display:none}
 
+/* ---------------- tabs, and the work layout under them ----------------
+   THE PROBLEM THIS SOLVES. The console used to open on six complete control
+   panels — six readouts, six envelopes, six joysticks, six ENABLE/DISABLE/LOCK
+   rows. Repeating the whole control vocabulary six times says "here are six
+   servo controllers, work out what you want"; the operator's actual question is
+   "what are we doing with the robot right now". Teaching is 90% of bench work,
+   so TEACH is the landing tab.
+
+   NOTHING IS DELETED — only relocated. Every envelope handle, LOCK THIS AXIS,
+   deg/s box, pin label and the limits-file picker still exist and still carry
+   the same handlers; they are marked .setup-only and appear on CALIBRATION.
+   The cards themselves are never rebuilt on selection: j.dom holds live node
+   references and the joystick/envelope handlers close over them, so a rebuild
+   would leave a held joystick beating at a dead card. Selection toggles
+   .hidden and nothing else. */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px}
+.tab{
+  background:transparent;border:0;border-bottom:3px solid transparent;
+  color:var(--dim);padding:12px 20px;min-height:46px;
+  font-weight:700;letter-spacing:.08em;font-size:13.5px;text-transform:uppercase;
+}
+.tab:hover{color:var(--text)}
+.tab.on{color:var(--text);border-bottom-color:var(--move)}
+
+.pane{display:none}
+body.tab-teach #paneTeach,
+body.tab-run   #paneRun,
+body.tab-cal   #paneCal,
+body.tab-diag  #paneDiag{display:block}
+/* The rail and the selected joint serve TEACH and CALIBRATION. RUN and
+   DIAGNOSTICS get the full width. */
+body.tab-run #workLayout,
+body.tab-diag #workLayout{display:none}
+/* Engineering controls disappear during routine teaching. They are still in the
+   DOM, still wired, still painted — CALIBRATION is where they are visible. */
+body.tab-teach .setup-only{display:none !important}
+
+.worklayout{display:grid;grid-template-columns:220px minmax(340px,1fr) minmax(300px,1fr);gap:var(--gap);align-items:start}
+@media (max-width:1100px){ .worklayout{grid-template-columns:1fr} }
+.worklayout > *{min-width:0}
+
+/* ---------------- joint rail ---------------- */
+.jrail{display:flex;flex-direction:column;gap:6px}
+.jtile{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line);
+  border-radius:var(--radius);padding:10px 12px;min-height:52px;color:var(--text);
+}
+.jtile:hover{border-color:var(--dim)}
+.jtile.sel{background:var(--panel-3);border-color:var(--move);border-left-color:var(--move)}
+.jtile .tdot{width:10px;height:10px;border-radius:50%;background:var(--grey);flex:0 0 auto}
+.jtile.en   .tdot{background:var(--ok)}
+.jtile.mov  .tdot{background:var(--move)}
+.jtile.estp .tdot{background:var(--fault)}
+.jtile .tname{flex:1 1 auto;font-size:14px;letter-spacing:.03em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jtile .tdeg{font-family:var(--mono);font-size:16px;font-weight:700}
+.jtile .tdeg.off{color:var(--dimmer)}
+.jtile .twarn{color:var(--warn);font-weight:700;flex:0 0 auto}
+.raillegend{font-size:12px;color:var(--dimmer);margin-top:6px;line-height:1.6}
+
+/* One card at a time, so the selected joint gets the room six cards used to
+   share. .grid stays a grid for the calibration case and for narrow screens. */
+.selwrap .grid{grid-template-columns:1fr}
+
+/* The envelope group is a flex child of .card, so it carries the card's own
+   column gap when it is visible. */
+.envblock{display:flex;flex-direction:column;gap:12px}
+
+.teachcol{display:flex;flex-direction:column;gap:14px}
+.posename{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--dim)}
+.posename input{
+  background:var(--panel-2);border:1px solid var(--line);border-radius:6px;
+  padding:11px;min-height:44px;
+}
+.filesrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+  border-top:1px solid var(--line-soft);padding-top:12px;margin-top:2px}
+.filesrow .lbl2{font-size:12px;color:var(--dimmer);letter-spacing:.06em;text-transform:uppercase;width:100%}
+
+/* ---------------- pose library ---------------- */
+.poserow{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--line);
+  border-radius:var(--radius);padding:12px 14px;margin-bottom:8px;
+}
+.poserow.ready{border-left-color:var(--ok)}
+.poserow.ref{border-left-color:var(--warn)}
+.poserow .pname{font-weight:700;font-size:16px;min-width:170px}
+.poserow .pcount{color:var(--dim);font-size:13.5px;flex:1 1 auto}
+.poserow .pacts{display:flex;gap:8px}
+.posewhy{width:100%;font-size:13px;color:var(--dimmer);line-height:1.5}
+.poserow.ref .posewhy{color:#ffd591}
+
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
 table{border-collapse:collapse;width:100%;font-size:14px}
 th,td{padding:9px 11px;text-align:left;border-bottom:1px solid var(--line-soft);white-space:nowrap}
@@ -434,44 +536,121 @@ details.log summary{
   <div class="notices" id="notices"></div>
   <div class="gatebar hidden" id="gateBar"></div>
 
-  <section class="block">
-    <h2>Joints</h2>
-    <div class="grid" id="jointGrid"></div>
-  </section>
+  <!-- TEACH is first and is the default: it is what the bench actually does all
+       day. RUN becomes the sensible default only once the arm is autonomous. -->
+  <nav class="tabs" id="tabs">
+    <button class="tab" data-tab="teach">Teach</button>
+    <button class="tab" data-tab="run">Run poses</button>
+    <button class="tab" data-tab="cal">Calibration</button>
+    <button class="tab" data-tab="diag">Diagnostics</button>
+  </nav>
 
-  <section class="block">
-    <h2>Teach &amp; playback</h2>
-    <div class="toolbar">
-      <button class="btn go" id="btnRecord" disabled>RECORD WAYPOINT</button>
-      <button class="btn" id="btnPlay" disabled>PLAY</button>
-      <button class="btn warn hidden" id="btnStopPlay">STOP PLAYBACK</button>
-      <label class="chk"><input type="checkbox" id="chkLoop"> loop</label>
-      <button class="btn small" id="btnSaveCsv">SAVE CSV</button>
-      <button class="btn small" id="btnSavePose">SAVE POSE</button>
-      <select id="poseSel" title="Named poses from arm-poses.csv"></select>
-      <button class="btn small" id="btnLoadPose" disabled>LOAD POSE</button>
-      <label class="filebtn small">LOAD CSV<input type="file" id="fileWp" accept=".csv,text/csv"></label>
-      <label class="filebtn small">LOAD LIMITS FILE<input type="file" id="fileLim" accept=".csv,text/csv"></label>
-    </div>
-    <!-- WHY RECORD IS GREYED OUT. A disabled button with no reason is the same
-         dead end whatever the cause, and the three causes have three different
-         remedies. Filled in by paintTop(). -->
-    <div class="gatebar hidden" id="recordGate"></div>
-    <div class="tablewrap">
-      <table>
-        <thead><tr id="wpHead"></tr></thead>
-        <tbody id="wpBody"></tbody>
-      </table>
-      <div class="empty" id="wpEmpty">
-        No waypoints yet. Enable the joints you want to teach, dial the pose with the sliders, then press RECORD WAYPOINT.
-        A joint that is disabled when you record is stored as &ldquo;&ndash;&rdquo;, which means leave it alone on playback.
+  <!-- The rail and the selected joint are shared by TEACH and CALIBRATION.
+       #jointGrid lives here and NOWHERE else: it is never moved and never
+       rebuilt, because every joystick and envelope handler closes over the
+       nodes inside it. -->
+  <div class="worklayout" id="workLayout">
+
+    <aside class="jrail">
+      <h2>Robot</h2>
+      <div id="jRail"></div>
+      <div class="raillegend">
+        Click a joint to control it. The dot is its state &mdash; grey disabled,
+        green enabled, blue moving, red e&#8209;stopped. <b>!</b> marks a joint whose
+        travel has never been bench&#8209;tested.
       </div>
+    </aside>
+
+    <div class="selwrap">
+      <h2>Selected joint</h2>
+      <div class="grid" id="jointGrid"></div>
     </div>
-    <div class="playstate" id="playState"></div>
+
+    <div>
+      <section class="pane" id="paneTeach">
+        <h2>Teach</h2>
+        <div class="teachcol">
+          <div class="toolbar">
+            <button class="btn go" id="btnRecord" disabled>RECORD WAYPOINT</button>
+            <button class="btn" id="btnPlay" disabled>PLAY</button>
+            <button class="btn warn hidden" id="btnStopPlay">STOP PLAYBACK</button>
+            <label class="chk"><input type="checkbox" id="chkLoop"> loop</label>
+          </div>
+          <!-- WHY RECORD IS GREYED OUT. A disabled button with no reason is the same
+               dead end whatever the cause, and the three causes have three different
+               remedies. Filled in by paintTop(). -->
+          <div class="gatebar hidden" id="recordGate"></div>
+          <div class="tablewrap">
+            <table>
+              <thead><tr id="wpHead"></tr></thead>
+              <tbody id="wpBody"></tbody>
+            </table>
+            <div class="empty" id="wpEmpty">
+              No waypoints yet. Enable the joints you want to teach, dial the pose with the joystick, then press RECORD WAYPOINT.
+              A joint that is disabled when you record is stored as &ldquo;&ndash;&rdquo;, which means leave it alone on playback.
+            </div>
+          </div>
+          <div class="playstate" id="playState"></div>
+
+          <label class="posename">Pose name
+            <input type="text" id="poseName" placeholder="storage-v2" autocomplete="off">
+          </label>
+          <button class="btn go" id="btnSavePose">SAVE POSE</button>
+
+          <div class="filesrow">
+            <span class="lbl2">Waypoint files</span>
+            <button class="btn small" id="btnSaveCsv">SAVE CSV</button>
+            <label class="filebtn small">LOAD CSV<input type="file" id="fileWp" accept=".csv,text/csv"></label>
+          </div>
+        </div>
+      </section>
+
+      <section class="pane" id="paneCal">
+        <h2>Calibration</h2>
+        <p class="footnote">
+          The selected joint&rsquo;s card shows its full engineering controls here: the soft&#8209;stop
+          envelope, LOCK THIS AXIS, its speed setting and its pin assignment. Those are hidden on
+          the Teach tab so they do not compete with RECORD WAYPOINT &mdash; they are not disabled,
+          just out of the way.
+        </p>
+        <div class="filesrow">
+          <span class="lbl2">Joint limits</span>
+          <label class="filebtn small">LOAD LIMITS FILE<input type="file" id="fileLim" accept=".csv,text/csv"></label>
+        </div>
+        <p class="footnote">
+          On the bridge route <code>joint-limits.csv</code> is read automatically on every connect,
+          because opening the port resets the board and the firmware keeps nothing across a reset.
+          Use this picker on the file:// route, or to try a file that is not the one on disk.
+        </p>
+      </section>
+    </div>
+  </div>
+
+  <!-- ---------------- RUN POSES ---------------- -->
+  <section class="pane wide" id="paneRun">
+    <h2>Pose library</h2>
+    <!-- CAPABILITY IS STATED BEFORE THE CLICK, not after it. A row whose
+         entry_path is legacy free text cannot be driven, and finding that out by
+         pressing LOAD and reading a warning reads as "the feature is broken".
+         READY vs REFERENCE ONLY, and a LOAD that is already disabled with the
+         reason sitting under it, is the honest version. -->
+    <div id="poseRows"></div>
+    <p class="footnote" id="poseEmpty">
+      No saved poses. Drive the arm by hand on the Teach tab, press RECORD WAYPOINT at each step,
+      then SAVE POSE. That is what gives a pose a machine&#8209;readable entry path.
+    </p>
+    <p class="footnote">
+      PLAY on a row stays dead until that same row has been loaded into the teach table. It is not
+      a second way to drive the arm: loading puts the recorded steps in front of you first, and PLAY
+      then runs the same guarded playback the Teach tab uses. The straight line between two safe
+      poses can still drive the claw through the bench.
+    </p>
   </section>
 
-  <section class="block">
-    <details class="log">
+  <!-- ---------------- DIAGNOSTICS ---------------- -->
+  <section class="pane wide" id="paneDiag">
+    <h2>Diagnostics</h2>
+    <details class="log" open>
       <summary>Serial log</summary>
       <div class="logbody">
         <div class="logtools">
@@ -1757,7 +1936,7 @@ function buildCards(){
     c.className = "card";
     c.innerHTML =
       '<div class="card-head"><b>J' + d.id + ' &middot; ' + d.name + '</b>' +
-        '<span class="pins">' + d.pins + '</span></div>' +
+        '<span class="pins setup-only">' + d.pins + '</span></div>' +
       '<div class="badges"><span class="pill uncal js-cal"></span><span class="pill off js-state"></span></div>' +
       '<div class="mirrorrow js-mirror hidden"></div>' +
       '<div class="cardnote js-note hidden"></div>' +
@@ -1768,16 +1947,21 @@ function buildCards(){
         '<div class="deg-sub">commanded &mdash; the servo sends nothing back to confirm it</div>' +
         '<div class="tgt js-tgt"></div>' +
       '</div>' +
-      '<div class="lbl">ENVELOPE &mdash; the soft stops<span class="ackpill js-ack">DEFAULT</span></div>' +
-      '<div class="env js-env">' +
-        '<div class="envtrack"></div>' +
-        '<div class="envband js-envband"></div>' +
-        '<div class="envjoint js-envjoint"></div>' +
-        '<div class="envh js-hmin"></div>' +
-        '<div class="envh js-hmax"></div>' +
+      /* The envelope is configuration, not operation: it belongs on CALIBRATION.
+         It stays in this card so paintJoint keeps one code path and the drag
+         handlers keep their nodes — .setup-only only decides where it is SEEN. */
+      '<div class="envblock setup-only">' +
+        '<div class="lbl">ENVELOPE &mdash; the soft stops<span class="ackpill js-ack">DEFAULT</span></div>' +
+        '<div class="env js-env">' +
+          '<div class="envtrack"></div>' +
+          '<div class="envband js-envband"></div>' +
+          '<div class="envjoint js-envjoint"></div>' +
+          '<div class="envh js-hmin"></div>' +
+          '<div class="envh js-hmax"></div>' +
+        '</div>' +
+        '<div class="envnums"><span class="js-envmin">70&deg;</span><span class="js-envmax">110&deg;</span></div>' +
+        '<div class="envmsg js-envmsg"></div>' +
       '</div>' +
-      '<div class="envnums"><span class="js-envmin">70&deg;</span><span class="js-envmax">110&deg;</span></div>' +
-      '<div class="envmsg js-envmsg"></div>' +
       '<div class="lbl">JOYSTICK &mdash; hold to move, let go to stop</div>' +
       '<div class="joy js-joy">' +
         '<div class="joytrack"></div>' +
@@ -1805,8 +1989,8 @@ function buildCards(){
       '<div class="cardactions">' +
         '<button class="btn go js-enable">ENABLE</button>' +
         '<button class="btn js-dis">DISABLE</button>' +
-        '<button class="btn small js-lock" disabled>LOCK THIS AXIS</button>' +
-        '<label class="spd">deg/s <input type="number" class="js-dps" min="1" max="90" step="1" value="30"></label>' +
+        '<button class="btn small js-lock setup-only" disabled>LOCK THIS AXIS</button>' +
+        '<label class="spd setup-only">deg/s <input type="number" class="js-dps" min="1" max="90" step="1" value="30"></label>' +
       '</div>';
     grid.appendChild(c);
 
@@ -1967,6 +2151,15 @@ function buildCards(){
     j.dom.hmin.addEventListener("pointerdown", envDown("min"));
     j.dom.hmax.addEventListener("pointerdown", envDown("max"));
 
+    /* A DRAG MUST NOT SURVIVE THE CONTROL LEAVING THE SCREEN. The pointer
+       listeners live on window, so switching tab or joint mid-drag would leave
+       envMove running against a hidden handle: getBoundingClientRect on a
+       display:none element is all zeroes, and envDegFromX would then feed
+       nonsense into sendLim. envUp is the honest ending — j.min/j.max have
+       already been mutated, so the controller must be told the range that is
+       now on screen. It reads no geometry, so it is safe to call from here. */
+    j.endEnvDrag = function(){ if (envDrag) envUp(); };
+
     /* ---- exact angle -----------------------------------------------------
        Sends on Enter or the button ONLY, never on input. A box that transmits
        while you type turns a three-digit number into three moves, the first two
@@ -2012,6 +2205,83 @@ function buildCards(){
       if (connState === "on") send("SPD " + d.id + " " + v).catch(function(e){ notice("warn", plainErr(e.message, d)); });
     };
   });
+}
+
+/* ==========================================================================
+   JOINT RAIL + SELECTION + TABS
+
+   Six compact tiles replace six control stations. The tile is a STATUS
+   readout and a selector — it carries no command of its own, so there is
+   exactly one place a joint can be driven from and it is the card in the
+   middle. Everything below is presentation: no joint state, no protocol, no
+   guard is defined here.
+   ========================================================================== */
+var selJoint = null;
+var curTab   = "teach";
+
+function buildRail(){
+  var rail = el("jRail");
+  if (!rail) return;
+  JOINT_DEFS.forEach(function(d){
+    var j = J[d.id];
+    var b = document.createElement("button");
+    b.className = "jtile";
+    b.type = "button";
+    b.innerHTML =
+      '<span class="tdot"></span>' +
+      '<span class="tname">J' + d.id + ' &middot; ' + d.name + '</span>' +
+      '<span class="twarn js-twarn" title="travel never bench-tested"></span>' +
+      '<span class="tdeg js-tdeg">90&deg;</span>';
+    b.onclick = function(){ selectJoint(d.id); };
+    rail.appendChild(b);
+    j.tile = { el:b, deg:b.querySelector(".js-tdeg"), warn:b.querySelector(".js-twarn") };
+  });
+}
+
+/* SWITCHING JOINTS MUST LET GO OF THE OLD ONE FIRST.
+   A joystick held while the selection changes would leave joyHeld true with a
+   JOG heartbeat still firing at a joint the operator can no longer see, and
+   jogPollPause would never be undone. Release before hiding, always — this is
+   the one genuinely new hazard the single-card layout introduces. */
+function selectJoint(id){
+  if (selJoint === id) return;
+  if (selJoint !== null && J[selJoint]) {
+    joyRelease(selJoint);
+    if (J[selJoint].endEnvDrag) J[selJoint].endEnvDrag();
+  }
+  selJoint = id;
+  JOINT_DEFS.forEach(function(d){
+    var j = J[d.id];
+    if (j.dom && j.dom.card) j.dom.card.classList.toggle("hidden", d.id !== id);
+    if (j.tile) j.tile.el.classList.toggle("sel", d.id === id);
+  });
+  paintAll();
+}
+
+function paintTile(id){
+  var j = J[id], t = j.tile;
+  if (!t) return;
+  t.el.classList.toggle("en",   !!j.en && !sys.es && !j.mov);
+  t.el.classList.toggle("mov",  !!j.en && !!j.mov && !sys.es);
+  t.el.classList.toggle("estp", !!sys.es);
+  t.deg.innerHTML = String(Math.round(j.set)) + "&deg;";
+  t.deg.classList.toggle("off", !j.en);
+  t.warn.textContent = j.cal ? "" : "!";
+}
+
+/* Tabs are CSS-scoped on <body>; no node is moved and no card is rebuilt, so
+   every handler and every j.dom reference survives a tab change untouched. */
+function setTab(name){
+  if (selJoint !== null && J[selJoint]) {
+    joyRelease(selJoint);
+    if (J[selJoint].endEnvDrag) J[selJoint].endEnvDrag();
+  }
+  curTab = name;
+  document.body.className = "tab-" + name;
+  Array.prototype.forEach.call(document.querySelectorAll("#tabs .tab"), function(b){
+    b.classList.toggle("on", b.getAttribute("data-tab") === name);
+  });
+  paintAll();
 }
 
 function openAdopt(id){
@@ -2060,6 +2330,10 @@ function clearClamp(id){ J[id].dom.clamp.textContent = ""; }
 
 function paintJoint(id){
   var j = J[id], d = j.def, D = j.dom;
+  /* The rail tile is painted FIRST and unconditionally. It is the readout for
+     the five joints whose cards are hidden, so it must never depend on the card
+     being present or visible. */
+  paintTile(id);
   if (!D) return;
   var live = (connState === "on") && !sys.es;
 
@@ -2185,6 +2459,16 @@ function paintTop(){
   el("btnRecord").disabled = !(connState === "on") || sys.es || !anyEnabled;
   el("btnPlay").disabled   = !(connState === "on") || sys.es || !waypoints.length || playing;
 
+  /* The pose library's own PLAY buttons follow the same link/e-stop/playing
+     conditions. Updated in place rather than by re-rendering: paintTop runs on
+     every STA poll, and rebuilding a list of rows under the operator's cursor
+     twice a second is its own bug. The load-first rule stays with the row. */
+  var playRows = document.querySelectorAll("#poseRows .js-play");
+  Array.prototype.forEach.call(playRows, function(b, i){
+    b.disabled = (loadedPoseIdx !== i) || !waypoints.length || playing ||
+                 connState !== "on" || !!sys.es;
+  });
+
   /* SAY WHY RECORD IS DEAD. Each cause has a different remedy, and a greyed-out
      button looks identical for all three -- which reads as "the teach feature is
      broken" rather than "connect first" or "enable a joint first".
@@ -2199,8 +2483,8 @@ function paintTop(){
     if (connState !== "on")   why = "Connect to the controller before recording a waypoint.";
     else if (sys.es)          why = "Emergency stop is latched. Clear it before recording.";
     else if (!anyEnabled)     why = "No joint is enabled, so there is nothing to record. " +
-                                    "Enable the joints you want in this pose, dial them with the " +
-                                    "sliders, then press RECORD WAYPOINT. This arm has no position " +
+                                    "Pick a joint in the rail on the left, press ENABLE, dial it " +
+                                    "with its joystick, then press RECORD WAYPOINT. This arm has no position " +
                                     "feedback - a disabled joint cannot report where it is, so it " +
                                     "would be stored as “-” (leave alone).";
     recGate.textContent = why;
@@ -2304,7 +2588,12 @@ function recordWaypoint(){
   var deg = {};
   JOINT_DEFS.forEach(function(d){ deg[d.id] = J[d.id].en ? Math.round(J[d.id].set) : null; });
   waypoints.push({ label:"step " + (waypoints.length+1), deg:deg, dwell:500 });
+  /* The table is no longer the pose that was loaded, so that row's PLAY must go
+     back to needing a LOAD. Silently keeping it live would let PLAY on the pose
+     library run a path the operator has since edited. */
+  loadedPoseIdx = null;
   renderWaypoints();
+  renderPoseList();
 }
 
 /* A number for a joint that is DISABLED is a real command that will come back
@@ -2652,23 +2941,85 @@ function autoLoadPoses(){
   }).catch(function(){ renderPoseList(); });
 }
 
+/* Which pose is currently sitting in the teach table, or null. Per-row, not a
+   boolean: loading storage-v2 must not light up PLAY on pick-v2. */
+var loadedPoseIdx = null;
+
+/* ONE ROW PER POSE, AND IT SAYS WHAT IT CAN DO BEFORE YOU CLICK IT.
+   The old picker was a <select> of names: every row looked equally drivable, and
+   the only way to learn that a legacy free-text entry_path cannot be played was
+   to press LOAD and read a warning. That reads as a broken feature. Here the
+   verdict — READY with a step count, or REFERENCE ONLY with the reason — is on
+   the row, and LOAD is already disabled where it cannot work. */
 function renderPoseList(){
-  var sel = el("poseSel");
-  if (!sel) return;
-  sel.innerHTML = "";
-  if (!poseLib.length) {
-    var o = document.createElement("option");
-    o.textContent = "no saved poses"; o.value = "";
-    sel.appendChild(o);
-  } else {
-    poseLib.forEach(function(p, i){
-      var o = document.createElement("option");
-      o.value = String(i);
-      o.textContent = p.name + (p.date ? "  (" + p.date + ")" : "");
-      sel.appendChild(o);
-    });
-  }
-  el("btnLoadPose").disabled = !poseLib.length;
+  var box = el("poseRows");
+  if (!box) return;
+  box.innerHTML = "";
+  var empty = el("poseEmpty");
+  if (empty) empty.classList.toggle("hidden", !!poseLib.length);
+
+  poseLib.forEach(function(p, i){
+    var steps = parseEntryPath(p.entry);
+    var ready = !!steps;
+    var row = document.createElement("div");
+    row.className = "poserow " + (ready ? "ready" : "ref");
+
+    var badge = ready
+      ? '<span class="pill on">READY</span>'
+      : '<span class="pill uncal">REFERENCE ONLY</span>';
+    var count = ready
+      ? (steps.length + " waypoint" + (steps.length === 1 ? "" : "s"))
+      : "endpoint only";
+    var verified = (p.verified === "yes")
+      ? '<span class="pill cal">CAMERA VERIFIED</span>' : "";
+
+    row.innerHTML =
+      '<span class="pname">' + escHtml(p.name) + '</span>' +
+      badge + verified +
+      '<span class="pcount">' + count + (p.date ? " &middot; " + escHtml(p.date) : "") + '</span>' +
+      '<span class="pacts">' +
+        '<button class="btn small js-load">LOAD</button>' +
+        '<button class="btn small js-play" disabled>PLAY</button>' +
+      '</span>' +
+      '<span class="posewhy js-why"></span>';
+
+    var bLoad = row.querySelector(".js-load");
+    var bPlay = row.querySelector(".js-play");
+    var why   = row.querySelector(".js-why");
+
+    if (!ready) {
+      bLoad.disabled = true;
+      why.textContent =
+        "This row has no machine-readable entry path" +
+        (p.entry ? " — its path is free text: “" + p.entry + "”" : "") +
+        ". It records where the arm ended up, not how it got there, so there is nothing to " +
+        "drive. Drive to this position by hand recording waypoints as you go, then SAVE POSE " +
+        "under a new name to give it a real path.";
+    } else {
+      bLoad.onclick = function(){ loadPoseIntoTeach(i); };
+      /* PLAY IS NOT A SECOND DRIVE PATH. It stays dead until this same row has
+         been loaded, so the recorded steps are in front of the operator before
+         anything moves, and it then runs the ordinary guarded playback. */
+      bPlay.disabled = (loadedPoseIdx !== i) || !waypoints.length || playing ||
+                       connState !== "on" || !!sys.es;
+      bPlay.title = (loadedPoseIdx === i)
+        ? "Run the loaded waypoints, same guards as PLAY on the Teach tab."
+        : "Press LOAD first and look at the steps. PLAY will not drive a pose you have not read.";
+      if (loadedPoseIdx !== i) {
+        why.textContent = "Press LOAD to put its " + steps.length +
+          " recorded step" + (steps.length === 1 ? "" : "s") + " in the teach table and read them.";
+      } else {
+        why.textContent = "Loaded into the teach table.";
+      }
+      bPlay.onclick = function(){ playFrom(0, waypoints.length-1, false); };
+    }
+    box.appendChild(row);
+  });
+}
+
+function escHtml(s){
+  return String(s === undefined || s === null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
 }
 
 /* Parse the machine-readable entry_path the console writes:
@@ -2702,8 +3053,7 @@ function parseEntryPath(text){
    PLAY, which already has the "a number for a disabled joint is a real command
    that comes back E6" guard. Adding a second, unguarded drive path to reach a
    pose would be the way this feature hurts somebody. */
-function loadPoseIntoTeach(){
-  var i = parseInt(el("poseSel").value, 10);
+function loadPoseIntoTeach(i){
   if (isNaN(i) || !poseLib[i]) return;
   var p = poseLib[i];
   var steps = parseEntryPath(p.entry);
@@ -2716,7 +3066,8 @@ function loadPoseIntoTeach(){
     });
     if (!known) { notice("bad", "Pose “" + p.name + "” records no joint angles."); return; }
     waypoints = [{ label: p.name + " (endpoint only)", deg: endpoint, dwell: 500 }];
-    renderWaypoints(); paintTop();
+    loadedPoseIdx = null;      /* endpoint-only is never a drivable row */
+    renderWaypoints(); renderPoseList(); paintTop();
     notice("warn", "Pose “" + p.name + "” has no machine-readable entry path" +
            (p.entry ? " — its path is free text: " + p.entry : "") +
            ". Loaded the ENDPOINT ONLY. Do not press PLAY from an arbitrary pose: " +
@@ -2726,7 +3077,12 @@ function loadPoseIntoTeach(){
   }
 
   waypoints = steps;
-  renderWaypoints(); paintTop();
+  loadedPoseIdx = i;
+  /* Land the operator on the steps they are about to run. Loading a pose on the
+     RUN tab and leaving them there would put PLAY next to a table they cannot
+     see, which is the review step written out of the loop. */
+  setTab("teach");
+  renderWaypoints(); renderPoseList(); paintTop();
   notice("ok", "Loaded “" + p.name + "” — " + steps.length + " waypoint(s) from its recorded " +
          "entry path. Review them, then press PLAY." +
          (p.verified === "yes" ? "" : " (camera_verified=" + (p.verified || "no") + ")"), 10000);
@@ -2761,7 +3117,9 @@ function loadWaypointCsv(text, fname){
 
   if (!staged.length) { notice("bad", fname + ": no waypoint rows found."); return; }
   waypoints = staged;
+  loadedPoseIdx = null;   /* a CSV is not one of the library rows */
   renderWaypoints();
+  renderPoseList();
   notice("ok","Loaded " + staged.length + " waypoint(s) from " + fname + ".", 6000);
 }
 
@@ -2801,8 +3159,13 @@ function saveWaypointCsv(){
    with the evidence in front of them may promote that to yes. */
 function savePoseCsv(){
   if (connState !== "on") { notice("warn","Connect to the controller before saving a pose."); return; }
-  var name = String(window.prompt("Name for this pose (e.g. storage, pick, handoff):") || "").trim();
-  if (!name) return;
+  /* The name comes from the field beside the button. Falling back to prompt()
+     keeps the file:// route and any older muscle memory working; an empty field
+     with no fallback would just look broken. */
+  var box  = el("poseName");
+  var name = String((box && box.value) || "").trim();
+  if (!name) name = String(window.prompt("Name for this pose (e.g. storage-v2, pick-v2):") || "").trim();
+  if (!name) { if (box) box.focus(); return; }
   name = name.replace(/,/g, ";");
 
   var disabled = JOINT_DEFS.filter(function(d){ return !J[d.id].en; })
@@ -2863,7 +3226,8 @@ function savePoseCsv(){
     httpJson("POST","/poses", payload).then(function(r){
       if (r && r.ok) {
         notice("ok", (r.message || ("Saved “" + name + "”.")) + pathNote, 10000);
-        autoLoadPoses();            // so it appears in the picker immediately
+        if (box) box.value = "";
+        autoLoadPoses();            // so it appears in the library immediately
       } else {
         notice("bad","Could not save the pose: " + ((r && r.error) || "no reply from the bridge."), 12000);
       }
@@ -2925,8 +3289,19 @@ function logLine(kind, text){
    BOOT
    ========================================================================== */
 buildCards();
+buildRail();
 buildWpHead();
 renderWaypoints();
+renderPoseList();
+
+/* TEACH first, and a joint already selected. Landing on an empty middle column
+   with "pick a joint" would be one more step between the operator and the thing
+   they came here to do. */
+Array.prototype.forEach.call(document.querySelectorAll("#tabs .tab"), function(b){
+  b.onclick = function(){ setTab(b.getAttribute("data-tab")); };
+});
+setTab("teach");
+selectJoint(JOINT_DEFS[0].id);
 paintAll();
 
 el("btnPorts").onclick = function(){
@@ -2985,7 +3360,7 @@ el("btnStopPlay").onclick   = function(){
 };
 el("btnSaveCsv").onclick    = saveWaypointCsv;
 el("btnSavePose").onclick   = savePoseCsv;
-el("btnLoadPose").onclick   = loadPoseIntoTeach;
+el("poseName").addEventListener("keydown", function(e){ if (e.key === "Enter") savePoseCsv(); });
 el("fileWp").onchange       = function(){ readFile(this, loadWaypointCsv); };
 el("fileLim").onchange      = function(){ readFile(this, loadLimitsCsv); };
 el("btnCopyLog").onclick    = function(){
