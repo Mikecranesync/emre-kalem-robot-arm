@@ -450,6 +450,10 @@ details.log summary{
       <label class="filebtn small">LOAD CSV<input type="file" id="fileWp" accept=".csv,text/csv"></label>
       <label class="filebtn small">LOAD LIMITS FILE<input type="file" id="fileLim" accept=".csv,text/csv"></label>
     </div>
+    <!-- WHY RECORD IS GREYED OUT. A disabled button with no reason is the same
+         dead end whatever the cause, and the three causes have three different
+         remedies. Filled in by paintTop(). -->
+    <div class="gatebar hidden" id="recordGate"></div>
     <div class="tablewrap">
       <table>
         <thead><tr id="wpHead"></tr></thead>
@@ -2161,6 +2165,28 @@ function paintTop(){
   var anyEnabled = JOINT_DEFS.some(function(d){ return J[d.id].en; });
   el("btnRecord").disabled = !(connState === "on") || sys.es || !anyEnabled;
   el("btnPlay").disabled   = !(connState === "on") || sys.es || !waypoints.length || playing;
+
+  /* SAY WHY RECORD IS DEAD. Each cause has a different remedy, and a greyed-out
+     button looks identical for all three -- which reads as "the teach feature is
+     broken" rather than "connect first" or "enable a joint first".
+     NOTE the third case is not a bug to be fixed by relaxing the check: a
+     waypoint records J[id].set, which is the COMMANDED angle from STA, not a
+     measured one. Nothing on this arm observes an output shaft, so a disabled
+     joint has no position to record and is deliberately stored as "-". Recording
+     with nothing enabled would save a row of dashes that commands nothing. */
+  var recGate = el("recordGate");
+  if (recGate) {
+    var why = "";
+    if (connState !== "on")   why = "Connect to the controller before recording a waypoint.";
+    else if (sys.es)          why = "Emergency stop is latched. Clear it before recording.";
+    else if (!anyEnabled)     why = "No joint is enabled, so there is nothing to record. " +
+                                    "Enable the joints you want in this pose, dial them with the " +
+                                    "sliders, then press RECORD WAYPOINT. This arm has no position " +
+                                    "feedback - a disabled joint cannot report where it is, so it " +
+                                    "would be stored as “-” (leave alone).";
+    recGate.textContent = why;
+    recGate.classList.toggle("hidden", !why);
+  }
 }
 
 function paintAll(){
