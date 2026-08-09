@@ -447,6 +447,7 @@ details.log summary{
       <button class="btn warn hidden" id="btnStopPlay">STOP PLAYBACK</button>
       <label class="chk"><input type="checkbox" id="chkLoop"> loop</label>
       <button class="btn small" id="btnSaveCsv">SAVE CSV</button>
+      <button class="btn small" id="btnSavePose">SAVE POSE</button>
       <label class="filebtn small">LOAD CSV<input type="file" id="fileWp" accept=".csv,text/csv"></label>
       <label class="filebtn small">LOAD LIMITS FILE<input type="file" id="fileLim" accept=".csv,text/csv"></label>
     </div>
@@ -574,6 +575,16 @@ var LIM_COLS = ["joint_id","joint_name","uno_pins","min_deg","max_deg","home_deg
                 "max_deg_per_sec","calibrated","mirror_mode","notes","mirror_offset_deg"];
 var WP_COLS  = ["step","label","base_deg","shoulder_deg","elbow_deg",
                 "wrist_pitch_deg","wrist_roll_deg","gripper_deg","dwell_ms"];
+
+/* arm-poses.csv columns, PLUS j0_deg which the existing file does not have.
+   Every row in that file omits the base "on purpose" because its servo was dead
+   and no pose commanded it. It was replaced on 2026-08-06 and re-locked 0-180 on
+   2026-08-08, so that reason no longer holds and a pose that cannot say where the
+   base was is not a whole pose. New column goes first among the angles; readers
+   are unaffected (nothing parses this file in code - cycle_poses.py only cites
+   it in a comment). */
+var POSE_COLS = ["pose_name","j0_deg","j1_deg","j3_deg","j4_deg","j5_deg","j6_deg",
+                 "camera_verified","date_recorded","entry_path","notes"];
 
 /* ---- live state ---------------------------------------------------------- */
 var J = {};                     // id -> joint record
@@ -2658,6 +2669,89 @@ function saveWaypointCsv(){
   setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
 }
 
+/* SAVE THIS POSE AS A NAMED ROW for arm-poses.csv.
+
+   THE ENDPOINT ALONE IS NOT A POSE. That file's own header is blunt about it:
+   "Two poses can both be safe while the straight line between them drives the
+   claw through the bench, the wire loom, or the base housing." So this does not
+   just dump six angles. It uses the teach table as the entry_path, because those
+   waypoints are a sequence somebody actually drove and watched - which is
+   exactly what the column is for. With an empty teach table the row is still
+   written, but entry_path says so in words rather than lying by omission.
+
+   camera_verified is always "no". The console cannot see the arm; only a human
+   with the evidence in front of them may promote that to yes. */
+function savePoseCsv(){
+  if (connState !== "on") { notice("warn","Connect to the controller before saving a pose."); return; }
+  var name = String(window.prompt("Name for this pose (e.g. storage, pick, handoff):") || "").trim();
+  if (!name) return;
+  name = name.replace(/,/g, ";");
+
+  var disabled = JOINT_DEFS.filter(function(d){ return !J[d.id].en; })
+                           .map(function(d){ return "J" + d.id; });
+  if (disabled.length === JOINT_DEFS.length) {
+    notice("bad","No joint is enabled, so there is no pose to save.");
+    return;
+  }
+
+  /* A disabled joint has no position to report - this arm observes no output
+     shaft - so it is recorded as "-", the same convention the waypoint table
+     uses, meaning "leave this one alone". */
+  var angles = JOINT_DEFS.map(function(d){
+    return J[d.id].en ? String(Math.round(J[d.id].set)) : "-";
+  });
+
+  var entry;
+  if (waypoints.length) {
+    entry = waypoints.map(function(w){
+      var parts = JOINT_DEFS.filter(function(d){ return w.deg[d.id] !== null && w.deg[d.id] !== undefined; })
+                            .map(function(d){ return "J" + d.id + "=" + w.deg[d.id]; });
+      return String(w.label).replace(/[,>]/g, ";") + "(" + parts.join(";") + ")";
+    }).join(" > ");
+  } else {
+    entry = "UNRECORDED - endpoint only. This row records WHERE the arm ended up and " +
+            "NOT how it got there; do not drive to it from an arbitrary pose. Record " +
+            "waypoints as you drive to this position and save the pose again.";
+  }
+
+  var d = new Date();
+  function p2(n){ return (n<10?"0":"") + n; }
+  var stamp = d.getFullYear() + "-" + p2(d.getMonth()+1) + "-" + p2(d.getDate());
+  var envelope = JOINT_DEFS.map(function(j){
+    return "J" + j.id + " " + J[j.id].min + "-" + J[j.id].max;
+  }).join("; ");
+
+  var notes = "SAVED FROM THE ARM CONSOLE at " + p2(d.getHours()) + ":" + p2(d.getMinutes()) +
+              ". Angles are COMMANDED soft-limit degrees read back from STA - nothing here " +
+              "observes an output shaft- so this records what the joints were TOLD and not " +
+              "where they physically are. Envelope in force when saved: " + envelope +
+              ". camera_verified=no: the console cannot see the arm; promote that only with " +
+              "evidence." + (disabled.length ? " Not enabled when saved- stored as '-': " +
+              disabled.join(" ") + "." : "");
+
+  var row = [name].concat(angles, ["no", stamp, entry, notes.replace(/,/g, "-")]);
+  var out = [
+    "# One pose row for Software/arm-console/arm-poses.csv. APPEND it- do not",
+    "# overwrite: that file is a history and an older row stays true as of its date.",
+    "# NOTE this carries a j0_deg column that the existing file does not have yet.",
+    "# The base was omitted from every old row because its servo was dead; it was",
+    "# replaced and re-locked- so a pose that cannot say where the base was is",
+    "# incomplete. Add the column to the header when you append.",
+    POSE_COLS.join(","),
+    row.join(",")
+  ].join("\n") + "\n";
+
+  var url = URL.createObjectURL(new Blob([out], { type:"text/csv" }));
+  var a = document.createElement("a");
+  a.href = url;
+  a.download = "pose-" + name.replace(/[^A-Za-z0-9_-]/g, "_") + "-" + stamp + ".csv";
+  a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  notice("ok","Pose “" + name + "” saved" +
+              (waypoints.length ? " with a " + waypoints.length + "-waypoint entry path."
+                                : " WITHOUT an entry path - see the row."), 8000);
+}
+
 function readFile(input, handler){
   var f = input.files && input.files[0];
   if (!f) return;
@@ -2746,6 +2840,7 @@ el("btnStopPlay").onclick   = function(){
   });
 };
 el("btnSaveCsv").onclick    = saveWaypointCsv;
+el("btnSavePose").onclick   = savePoseCsv;
 el("fileWp").onchange       = function(){ readFile(this, loadWaypointCsv); };
 el("fileLim").onchange      = function(){ readFile(this, loadLimitsCsv); };
 el("btnCopyLog").onclick    = function(){
