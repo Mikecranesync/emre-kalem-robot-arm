@@ -140,7 +140,33 @@ const driver = `
         var iSpd = sent.indexOf("SPD " + probe + " " + want[probe].dps);
         var iAcc = sent.indexOf("ACC " + probe + " 35");
         ck("ACC follows SPD for the same joint", iSpd >= 0 && iAcc > iSpd, true);
-        flush();
+
+        /* THE OLD-FIRMWARE PATH, which is the one the bench is actually on.
+           FW 1.1.1 has no ACC verb and NAKs it with E1. If that rejection
+           escapes, pushState's chain breaks and connecting leaves joints with no
+           limits pushed - far worse than having no acceleration. Nothing above
+           tests this, because send() was stubbed to always resolve. */
+        sent.length = 0;
+        send = function(line){
+          sent.push(String(line));
+          return String(line).indexOf("ACC ") === 0
+            ? Promise.reject(new Error("ERR E1 VERB TOKEN=ACC"))
+            : Promise.resolve("OK");
+        };
+        return pushState().then(function(){
+          ck("connect still completes when the board NAKs every ACC", true, true);
+          var lims = sent.filter(function(l){ return l.indexOf("LIM ") === 0; });
+          var spds = sent.filter(function(l){ return l.indexOf("SPD ") === 0; });
+          var mirs = sent.filter(function(l){ return l.indexOf("MIR ") === 0; });
+          ck("every joint still got its limits", lims.length, Object.keys(want).length);
+          ck("every joint still got its speed",  spds.length, Object.keys(want).length);
+          ck("the shoulder mirror still went out", mirs.length, 1);
+          flush();
+        }, function(e){
+          ck("connect still completes when the board NAKs every ACC",
+             "rejected: " + (e && e.message), true);
+          flush();
+        });
       });
     }).catch(function(e){
       say("threw: " + (e && e.message ? e.message : e));
