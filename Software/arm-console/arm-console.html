@@ -495,9 +495,21 @@ details.log summary{
 .ackpill.acked{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
 .gatebar{background:var(--warn-bg);border:1px solid var(--warn);color:#ffd591;border-radius:var(--radius);
          padding:9px 12px;margin:0 0 12px;font-size:13px}
-.ordercell{white-space:nowrap}
-.ordercell .btn{min-width:34px;padding:7px 9px;min-height:34px;font-size:15px;line-height:1}
-.ordercell .btn + .btn{margin-left:4px}
+.actcell{white-space:nowrap}
+.actcell .btn{min-width:32px;padding:6px 8px;min-height:34px;font-size:14px;line-height:1}
+.actcell .btn + .btn{margin-left:3px}
+/* The step number and its controls stay put while the joint columns scroll
+   sideways under them - the whole point of moving them left. */
+.teachcol table td:nth-child(1),
+.teachcol table td:nth-child(2),
+.teachcol table th:nth-child(1),
+.teachcol table th:nth-child(2){position:sticky;background:var(--panel);z-index:1}
+.teachcol table th:nth-child(1),
+.teachcol table th:nth-child(2){background:var(--panel-2)}
+.teachcol table td:nth-child(1),
+.teachcol table th:nth-child(1){left:0}
+.teachcol table td:nth-child(2),
+.teachcol table th:nth-child(2){left:34px}
 #btnStepsHere{font-size:13px;text-align:left;line-height:1.35}
 
 /* ---- go-to panel ---- */
@@ -680,6 +692,11 @@ h2{margin-bottom:8px}
            HOLD  freezes motion, joints stay powered and holding.
            DISABLE ALL / E-STOP  detach, and a gravity-loaded arm sags. -->
       <button class="btn" id="btnHold" disabled title="Freeze every joint where it is. Joints stay powered and holding — nothing is detached.">HOLD MOTION</button>
+      <!-- The counterpart to DISABLE ALL. Attaching a joint needs the angle it
+           is sitting at, and if the arm always rests at the same place that
+           angle is the same every time - so typing it six times is transcribing
+           a saved pose by hand. Save that pose as "home" and this does it. -->
+      <button class="btn go" id="btnEnableHome" disabled>ENABLE ALL AT HOME</button>
       <button class="btn warn" id="btnDisableAll" disabled>DISABLE ALL</button>
     </div>
 
@@ -798,6 +815,10 @@ h2{margin-bottom:8px}
                dead end whatever the cause, and the three causes have three different
                remedies. Filled in by paintTop(). -->
           <div class="gatebar hidden" id="recordGate"></div>
+          <!-- SAME REASONING AS recordGate, for the same reason it was needed:
+               PLAY was pressed, nothing happened, and a greyed button looks
+               identical whatever the cause. Four causes, four different fixes. -->
+          <div class="gatebar hidden" id="playGate"></div>
           <div class="tablewrap">
             <table>
               <thead><tr id="wpHead"></tr></thead>
@@ -2729,6 +2750,24 @@ function paintTop(){
      not have to work out whether pressing it will do anything. */
   el("btnHold").disabled       = (connState !== "on") || !!sys.es;
   el("btnDisableAll").disabled = (connState !== "on") || sys.es;
+  /* Live only when there is something to attach AND a home to attach it at.
+     The title says which of the two is missing, so a greyed button is never a
+     dead end. */
+  var hp = homePose();
+  var homeNeed = hp ? homeAngles(hp).filter(function(a){ return !J[a.id].en; }) : [];
+  var eh = el("btnEnableHome");
+  /* NOT disabled when there is simply no home pose yet: a greyed button cannot
+     tell you how to make one, and "how do I get a home?" is exactly the
+     question someone pressing it has. Left live so the click explains. Disabled
+     only for the states where pressing it genuinely cannot do anything. */
+  eh.disabled = (connState !== "on") || sys.es || !allEnvelopesAcked() ||
+                (!!hp && !homeNeed.length);
+  eh.title = !hp
+    ? "No pose named \"home\" saved yet. Park the arm, split the position into steps, name it home."
+    : !homeNeed.length
+      ? "Every joint in \"home\" is already attached."
+      : "Attach " + homeNeed.map(function(a){ return "J" + a.id + "=" + a.v + "°"; }).join(", ") +
+        " — only if the arm is really sitting at home.";
   el("portSel").disabled       = (connState !== "off");
   el("btnPorts").disabled      = (connState !== "off");
 
@@ -2794,6 +2833,30 @@ function paintTop(){
      to asking for that joint rather than keep claiming the arm is ready. */
   if (goPose !== null) paintGoPanel();
 
+  /* WHY PLAY IS DEAD. It was pressed and nothing happened, on both screens, and
+     a greyed button gives the same non-answer whatever the cause. The joints
+     one is the common one: playback refuses to command a joint that is not
+     attached, because a number for a detached joint comes back ERR E6 and the
+     step then never reports MOV=0. */
+  var playGate = el("playGate");
+  if (playGate) {
+    var pwhy = "";
+    if (connState !== "on")        pwhy = "Connect to the controller before playing.";
+    else if (sys.es)               pwhy = "Emergency stop is latched. Press CLEAR E-STOP first.";
+    else if (!waypoints.length)    pwhy = "There are no steps to play. Load a pose from RUN POSES, or teach one here.";
+    else if (playing)              pwhy = "Already playing.";
+    else {
+      var need = playbackBlockers(0, waypoints.length - 1);
+      if (need.length) {
+        pwhy = "PLAY needs these joints attached first: " + need.join(", ") +
+               ". Select each one on the left, press ENABLE, and type the angle it is sitting at " +
+               "now — or use ENABLE ALL AT HOME if the arm is parked at home.";
+      }
+    }
+    playGate.textContent = pwhy;
+    playGate.classList.toggle("hidden", !pwhy);
+  }
+
   var recGate = el("recordGate");
   if (recGate) {
     var why = "";
@@ -2847,8 +2910,14 @@ function refreshPorts(){
 
 function buildWpHead(){
   var tr = el("wpHead");
-  var cells = ["#","Label"].concat(JOINT_DEFS.map(function(d){ return d.name + " " + d.pins; }))
-                           .concat(["Dwell ms","Order","",""]);
+  /* THE CONTROLS COME FIRST, BEFORE THE SIX JOINT COLUMNS.
+     They used to be the last three columns of an eleven-column table inside a
+     ~400px panel that scrolls sideways, which put the reorder arrows, GO and
+     DELETE permanently off the right-hand edge. They worked; they could not be
+     reached. A control you have to scroll to find is a control that does not
+     exist, and it reads as "the buttons are broken". */
+  var cells = ["#","Step","Label"].concat(JOINT_DEFS.map(function(d){ return d.name + " " + d.pins; }))
+                                  .concat(["Dwell ms"]);
   tr.innerHTML = cells.map(function(c){ return "<th>" + c + "</th>"; }).join("");
 }
 
@@ -2863,6 +2932,29 @@ function renderWaypoints(){
 
     var tdN = document.createElement("td"); tdN.className = "num"; tdN.textContent = String(i+1);
     tr.appendChild(tdN);
+
+    /* Every control for this row in one cell, immediately after the number, so
+       it is on screen whatever the table does sideways. */
+    var tdA = document.createElement("td");
+    tdA.className = "actcell";
+    function act(txt, title, fn, off){
+      var b = document.createElement("button");
+      b.className = "btn small"; b.textContent = txt; b.title = title;
+      b.disabled = !!off; b.onclick = fn;
+      tdA.appendChild(b);
+      return b;
+    }
+    /* THE ORDER IS THE OPERATOR'S. A built route uses a default taken from this
+       arm's pick notes - shoulder first for height - and that is wrong for some
+       poses: the park position needs the elbow to open BEFORE the shoulder
+       lifts. Whoever can see the arm settles it, and SAVE POSE records the
+       order they leave, so it only has to be settled once. */
+    act("↑", "Move this step earlier", function(){ swapWaypoints(i, i-1); }, i === 0);
+    act("↓", "Move this step later",   function(){ swapWaypoints(i, i+1); }, i === waypoints.length - 1);
+    act("GO", "Drive just this one step, now", function(){ playFrom(i, i, false); });
+    var del = act("✕", "Delete this step", function(){ waypoints.splice(i,1); loadedPoseIdx = null; renderWaypoints(); renderPoseList(); paintTop(); });
+    del.classList.add("warn");
+    tr.appendChild(tdA);
 
     var tdL = document.createElement("td");
     var inp = document.createElement("input");
@@ -2883,38 +2975,6 @@ function renderWaypoints(){
     dw.className = "dw"; dw.type = "number"; dw.min = "0"; dw.step = "50"; dw.value = String(w.dwell);
     dw.onchange = function(){ w.dwell = Math.max(0, Math.round(Number(dw.value) || 0)); dw.value = String(w.dwell); };
     tdD.appendChild(dw); tr.appendChild(tdD);
-
-    /* THE ORDER IS THE OPERATOR'S, NOT THE CONSOLE'S.
-       A built route uses a default order taken from this arm's own pick notes -
-       shoulder first for height. That is a heuristic and it is wrong for some
-       poses: the park position photographed on 2026-08-09 has to open the elbow
-       BEFORE the shoulder. Nobody can settle that from a rules table; the person
-       looking at the arm settles it. Reordering here is also what makes it
-       stick, because SAVE POSE writes the table out as the pose's entry_path -
-       so a route arranged once is recorded and never has to be arranged again. */
-    var tdM = document.createElement("td");
-    tdM.className = "ordercell";
-    var up = document.createElement("button");
-    up.className = "btn small"; up.textContent = "↑"; up.title = "Move this step earlier";
-    up.disabled = (i === 0);
-    up.onclick = function(){ swapWaypoints(i, i-1); };
-    var dn = document.createElement("button");
-    dn.className = "btn small"; dn.textContent = "↓"; dn.title = "Move this step later";
-    dn.disabled = (i === waypoints.length - 1);
-    dn.onclick = function(){ swapWaypoints(i, i+1); };
-    tdM.appendChild(up); tdM.appendChild(dn); tr.appendChild(tdM);
-
-    var tdG = document.createElement("td");
-    var go = document.createElement("button");
-    go.className = "btn small"; go.textContent = "GO";
-    go.onclick = function(){ playFrom(i, i, false); };
-    tdG.appendChild(go); tr.appendChild(tdG);
-
-    var tdX = document.createElement("td");
-    var del = document.createElement("button");
-    del.className = "btn small warn"; del.textContent = "DELETE";
-    del.onclick = function(){ waypoints.splice(i,1); renderWaypoints(); paintTop(); };
-    tdX.appendChild(del); tr.appendChild(tdX);
 
     body.appendChild(tr);
   });
@@ -3737,6 +3797,93 @@ function attachRouteJoints(box){
   });
 }
 
+/* ---- home ----------------------------------------------------------------
+
+   THE POSE NAMED "home" IS THE ARM'S RESTING PLACE. Pick a position the arm
+   settles into with the least movement - near the ends it falls toward - park
+   there every time, and the angle you have to type when attaching each joint is
+   the same angle every time. At that point typing them one by one is
+   transcribing a saved pose by hand, six times, from memory.
+
+   THE CONSOLE STILL CANNOT SEE THE ARM. This does not know the arm is at home;
+   it takes the operator's word for it, which is why it shows the angles it is
+   about to adopt and asks before sending anything. If the arm is somewhere else,
+   every joint snaps to home the instant it attaches - the same hazard a wrong
+   number in a single adopt box has always carried, no better and no worse.
+
+   Newest row wins: arm-poses.csv is append-only, so re-saving "home" supersedes
+   the older one exactly as it does everywhere else. */
+function homePose(){
+  var found = null;
+  poseLib.forEach(function(p){
+    if (String(p.name || "").trim().toLowerCase() === "home") found = p;
+  });
+  return found;
+}
+
+function homeAngles(p){
+  return JOINT_DEFS.filter(function(d){
+    var v = p.deg[d.id];
+    return v !== null && v !== undefined;
+  }).map(function(d){ return { id: d.id, v: p.deg[d.id], name: d.name }; });
+}
+
+function enableAllAtHome(){
+  var p = homePose();
+  if (!p) {
+    notice("warn", "No pose named “home” yet. Park the arm where you want it to rest, press " +
+           "THE ARM IS ALREADY THERE — SPLIT THIS POSITION INTO STEPS, name it home and save it. " +
+           "After that this button attaches every joint at those angles in one press.", 14000);
+    return;
+  }
+  var list = homeAngles(p).filter(function(a){ return !J[a.id].en; });
+  if (!list.length) { notice("ok", "Every joint in “home” is already attached.", 5000); return; }
+
+  var outside = list.filter(function(a){ return a.v < J[a.id].min || a.v > J[a.id].max; });
+  if (outside.length) {
+    notice("bad", "“home” cannot be used as-is: " +
+      outside.map(function(a){ return "J" + a.id + "=" + a.v + " is outside " + J[a.id].min + "–" + J[a.id].max; }).join("; ") +
+      ". The limits have changed since it was saved. Re-park the arm and save home again.", 16000);
+    return;
+  }
+
+  askConfirm(
+    "Attach " + list.length + " joint" + (list.length === 1 ? "" : "s") + " at the angles saved in " +
+    "“home”: " + list.map(function(a){ return "J" + a.id + "=" + a.v + "°"; }).join(", ") + ". " +
+    "ONLY do this if the arm is physically sitting there right now — look at it. Any joint that is " +
+    "somewhere else will snap to its home angle the moment it attaches. Support the arm.",
+    "ATTACH ALL AT HOME",
+    function(){
+      var done = [];
+      var chain = Promise.resolve();
+      list.forEach(function(a){
+        chain = chain.then(function(){
+          return Promise.resolve(doEnable(a.id, a.v)).then(function(){ done.push("J" + a.id); });
+        });
+      });
+      chain.then(function(){
+        notice("ok", "Attached " + done.join(", ") + " at their home angles.", 8000);
+        paintAll();
+      }).catch(function(e){
+        notice("bad", "Stopped after " + (done.length ? done.join(", ") : "nothing") + ". " +
+               plainErr(e && e.message ? e.message : String(e)) +
+               " The joints not listed are NOT attached.", 14000);
+        paintAll();
+      });
+    });
+}
+
+/* One in-page confirmation used by everything that needs one. NEVER a modal:
+   see #confirmStrip - a dialog stops the heartbeat and the firmware drops the
+   arm four seconds later. */
+var confirmFn = null;
+function askConfirm(text, yesLabel, fn){
+  confirmFn = fn;
+  el("confirmWhy").textContent = text;
+  el("btnConfirmYes").textContent = yesLabel;
+  el("confirmStrip").classList.remove("hidden");
+}
+
 function escHtml(s){
   return String(s === undefined || s === null ? "" : s)
     .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
@@ -4070,16 +4217,23 @@ el("btnConnect").onclick    = function(){
   if (!live.length) { teardown(); return; }
   /* Ask in the page, not in a modal. See the comment on #confirmStrip: the
      dialog this replaces caused the exact detach it was written to prevent. */
-  el("confirmWhy").textContent =
+  askConfirm(
     "These joints are still enabled and holding: " + live.join(", ") + ". " +
-    "A GRAVITY-LOADED ARM SAGS WHEN IT IS DETACHED — support it before you continue.";
-  el("confirmStrip").classList.remove("hidden");
+    "A GRAVITY-LOADED ARM SAGS WHEN IT IS DETACHED — support it before you continue.",
+    "DETACH AND DISCONNECT",
+    function(){ send("DIS A").catch(function(){}).then(function(){ teardown(); }); });
 };
-el("btnConfirmNo").onclick  = function(){ el("confirmStrip").classList.add("hidden"); };
-el("btnConfirmYes").onclick = function(){
+el("btnConfirmNo").onclick  = function(){
+  confirmFn = null;
   el("confirmStrip").classList.add("hidden");
-  send("DIS A").catch(function(){}).then(function(){ teardown(); });
 };
+el("btnConfirmYes").onclick = function(){
+  var fn = confirmFn;
+  confirmFn = null;
+  el("confirmStrip").classList.add("hidden");
+  if (fn) fn();
+};
+el("btnEnableHome").onclick = enableAllAtHome;
 el("btnEstop").onclick      = doEstop;
 el("btnHold").onclick       = doHold;
 el("btnClear").onclick      = doClear;
