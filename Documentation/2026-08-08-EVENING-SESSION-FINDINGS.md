@@ -170,3 +170,36 @@ are the instrument for anything distal, and rows should say so.
   the answer came from `pgrep` and the log, not the status.
 - **A null in one pose and one window is not a refutation.** The hunt watch caught
   nothing; that does not mean the operator did not see it.
+- **`pgrep -f <pattern>` matches its own command line.** Over ssh, the pattern
+  lives in the `bash -c` string, so `pgrep -f hold_arm_pi.py` finds that shell and
+  reports the daemon ALIVE after it has been killed — and `pkill -f hold_arm_pi.py`
+  kills the ssh session itself (exit 255). Both happened here. Check with something
+  that cannot self-match: `ps -eo pid,cmd | awk '/hold_arm/ && /python/ && !/awk/'`,
+  or count file descriptors on the device. This is the same failure as trusting an
+  exit code — the check was structurally incapable of returning the right answer.
+
+---
+
+## 8. How the session ended
+
+Servo power off, daemon stopped, port released, board back to its 70-110 boot
+defaults. **No pose was recorded**, deliberately. `STA` reports commanded angles
+only, so with the rail dead the six numbers it was still reporting
+(`J0 90 J1 70 J3 15 J4 50 J5 119 J6 70`) described a pose that no longer existed —
+writing them into `arm-poses.csv` would have been this document's §1 failure
+committed live. The camera could not corroborate either: it had been moved hard
+against the forearm and was reading `LIGHT 34.9/255 TOO DARK`.
+
+**Tomorrow, in this order:**
+
+1. **Move the camera back** so the whole arm including the claw is in frame. Every
+   distal measurement tonight was blind without it.
+2. **Reteach the joints** — real ends, backed off, written to `joint-limits.csv`
+   and `calibration-log.csv`. The elbow first: its 0-30 vs 0-66 disagreement is
+   what blocked the collapse, and neither number can be trusted after the rebuild.
+3. **Then re-record the poses** with the console's SAVE POSE button, which fills
+   `entry_path` from the driven teach table. Storage is not a pose this arm can
+   currently reach — that is a consequence of the elbow limit, not a mystery.
+4. Open question carried forward: **is the gripper's gear loose on its output
+   shaft?** The camera says the fingers move and do not repeat. Only hands can say
+   why.
