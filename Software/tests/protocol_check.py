@@ -73,12 +73,19 @@ class Board:
         time.sleep(BOOT_WAIT_S)
         self.ser.reset_input_buffer()
 
-    def cmd(self, line):
+    def cmd(self, line, keep_comments=False):
         """Send one line; return reply lines up to and including OK/ERR.
 
-        Comment lines (';') are dropped. A command that draws no reply at all
-        returns [] after REPLY_TIMEOUT_S -- that is a real result for the
+        Comment lines (';') are dropped, because every real reply is a data line
+        and the banner would otherwise drown them. A command that draws no reply
+        at all returns [] after REPLY_TIMEOUT_S -- that is a real result for the
         blank-line case, not a hang.
+
+        keep_comments=True retains them, which is the ONLY way to assert on HLP:
+        the entire help body is ';' lines, so a default cmd("HLP") returns just
+        ["OK HLP"] and any assertion about what the help SAYS is unfalsifiable.
+        That cost a green-looking failure when the ACC help line was added and
+        the firmware was blamed for it.
         """
         self.ser.write((line + "\n").encode("ascii"))
         out, deadline = [], time.time() + REPLY_TIMEOUT_S
@@ -87,7 +94,11 @@ class Board:
             if not raw:
                 continue
             text = raw.decode("ascii", "replace").strip()
-            if not text or text.startswith(";"):
+            if not text:
+                continue
+            if text.startswith(";"):
+                if keep_comments:
+                    out.append(text)
                 continue
             out.append(text)
             if text.startswith("OK") or text.startswith("ERR"):
@@ -257,7 +268,7 @@ def non_motion_tests(b):
     expect("a refused ACC changed nothing", b.cmd("STA"), "ACC=60")
     expect("ACC on a bad joint id", b.cmd("ACC 9 60"), "ERR E4")
     expect("ACC with missing arguments", b.cmd("ACC 3"), "ERR E2")
-    expect("HLP advertises ACC", b.cmd("HLP"), "ACC j dps2")
+    expect("HLP advertises ACC", b.cmd("HLP", keep_comments=True), "ACC j dps2")
     b.cmd("ACC 3 200")   # back to the boot default for everything below
 
     print("\n-- stop verbs, nothing enabled --")
