@@ -480,6 +480,128 @@ details.log summary{
 .ackpill.acked{border-color:var(--ok);background:var(--ok-bg);color:var(--ok)}
 .gatebar{background:var(--warn-bg);border:1px solid var(--warn);color:#ffd591;border-radius:var(--radius);
          padding:9px 12px;margin:0 0 12px;font-size:13px}
+/* ---------------- teach-pendant pass ----------------------------------------
+   A pendant is read at arm's length, in a hurry, sometimes one-handed. What has
+   to be legible from three feet is: which joint, what angle, is it live, and
+   the jog control. Explanation is not in that list.
+
+   SO EVERY STANDING PARAGRAPH MOVED ONE TAP DOWN - it did not get deleted.
+   This file's whole discipline is that the copy tells the truth about what the
+   arm can and cannot know, and deleting it to look tidy would be the worst
+   possible trade. Reference text lives in <details class="note">: closed by
+   default, one tap open, still in the DOM and still findable.
+
+   WHAT NEVER COLLAPSES, because it is actionable rather than explanatory:
+   the E-stop, the one-line safety strip, the background-tab warning, the
+   envelope gate bar, the reason RECORD is greyed out, a joint timeout, and the
+   shoulder mirror block. Those tell you what to DO next. A note tells you how
+   something works. Only the second kind folds away. */
+details.note{
+  border:1px solid var(--line-soft);border-radius:6px;background:var(--panel-2);
+  font-size:12.5px;line-height:1.55;color:var(--dim);
+}
+details.note > summary{
+  cursor:pointer;list-style:none;padding:6px 10px;min-height:32px;
+  display:flex;align-items:center;gap:8px;
+  font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dimmer);
+}
+details.note > summary::-webkit-details-marker{display:none}
+details.note > summary::before{
+  content:"i";flex:0 0 auto;
+  width:17px;height:17px;border-radius:50%;border:1px solid var(--dimmer);
+  font-family:var(--mono);font-size:11px;font-style:italic;line-height:15px;text-align:center;
+}
+details.note > summary:hover{color:var(--text)}
+details.note[open] > summary{color:var(--text);border-bottom:1px solid var(--line-soft)}
+details.note > *:not(summary){padding:9px 11px}
+details.note .cardnote,
+details.note .raillegend{border:0;background:transparent;padding:9px 11px;margin:0;font-size:12.5px}
+.poserow details.note{width:100%;margin-top:6px;background:var(--panel-3)}
+.empty details.note{margin-top:10px;max-width:44ch}
+
+/* ---- read it from three feet ---- */
+.deg{font-size:68px}
+.deg .u{font-size:32px}
+.deg-sub{font-size:10.5px;letter-spacing:.14em;color:var(--dimmer)}
+.tgt{font-size:15px}
+
+/* The jog bar is the control the hand goes to, so it is the biggest thing on
+   the card after the number. Same speed-joystick behaviour, more target. */
+/* The jog bar has to look like a thing you grab. A 8px hairline did not, and
+   at a glance it read as a progress bar rather than a control. */
+.joy{height:64px;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;margin:0}
+.joytrack{top:26px;height:12px;border-radius:6px;left:34px;right:34px;background:var(--line)}
+.joydead,.joyfill{top:26px;height:12px;border-radius:6px}
+.joycentre{top:14px;height:36px;width:2px;background:var(--dim)}
+.joyh{top:8px;width:58px;height:48px;margin-left:-29px;border-radius:8px;border-width:3px}
+.joyh span{width:22px;height:2px;box-shadow:0 -7px 0 currentColor,0 7px 0 currentColor}
+.joyend{
+  position:absolute;top:0;height:64px;display:flex;align-items:center;
+  color:var(--dim);font-size:19px;letter-spacing:-3px;pointer-events:none;
+}
+.joyend.l{left:9px}
+.joyend.r{right:9px}
+.joy.dead .joyend{opacity:.35}
+.scale{font-size:13px;margin-top:4px}
+
+.card-head b{font-size:22px}
+.cardactions .btn{min-height:52px;padding:13px 22px;font-size:15px}
+.lbl{margin:8px 2px 4px}
+/* ENABLE and DISABLE must be reachable without scrolling on a 768-tall screen,
+   so the card spends its vertical budget on the number and the jog bar and
+   nothing else. */
+.card{padding:14px;gap:9px}
+.readout{gap:0}
+.deg{line-height:.95}
+.targetrow{margin-top:6px}
+.jtoflag{margin-top:4px}
+body.tab-teach .card .badges{margin-bottom:-2px}
+
+/* ---- rail reads as a machine status list ---- */
+.jtile{min-height:56px;padding:10px 13px}
+.jtile .tname{font-size:14.5px}
+.jtile .tdeg{font-size:19px}
+.jrail h2{margin-bottom:8px}
+/* The key is not a seventh joint. Set it apart so a glance down the rail does
+   not count it as one. */
+.jrail details.note{margin-top:10px;background:transparent;border-style:dashed}
+
+/* ---- give the screen back to the controls ----
+   A 768-tall laptop is the small case. The old header plus two notices spent
+   more than half of it before the first joint appeared, which on a pendant is
+   backwards: the chrome should be a strip, not a title page. The E-stop stays
+   the loudest thing on the screen - it is just no longer 76px tall to say so.
+   Nothing was removed from the header. */
+header .bar{padding:7px 14px;gap:9px}
+.brand b{font-size:15px}
+.brand small{font-size:11px}
+.brand{min-width:0;flex:0 1 auto}
+.statusgroup{gap:7px}
+.chip{font-size:11px}
+.ctrls{gap:7px}
+.ctrls .btn{min-height:40px;padding:9px 13px;font-size:13.5px}
+select{min-width:150px;min-height:40px;padding:8px 10px;font-size:13.5px}
+.estopzone{padding:4px 2px 4px 14px}
+.estop{min-width:150px;height:48px;font-size:18px;letter-spacing:.1em}
+.safetyline{font-size:11.5px;padding:5px 14px}
+
+/* Notices are FYI, not the operator's next action, so they get one compact
+   line each and the stack scrolls rather than pushing the arm off the screen.
+   They are still dismissible and still say the same words. */
+.notices{gap:5px;margin-bottom:12px;max-height:22vh;overflow-y:auto}
+.notice{padding:7px 11px;font-size:13px;gap:9px}
+
+main{padding:12px 16px}
+.tabs{margin-bottom:14px}
+.tab{padding:10px 18px;min-height:42px}
+section.block{margin-bottom:18px}
+h2{margin-bottom:8px}
+.footnote{margin-top:14px}
+
+/* On a 768-tall laptop the teach table is what should scroll, not the page:
+   RECORD, the pose name and SAVE POSE must stay put while it does. */
+.teachcol .tablewrap{max-height:38vh;overflow-y:auto}
+
 </style>
 
 
@@ -554,11 +676,14 @@ details.log summary{
     <aside class="jrail">
       <h2>Robot</h2>
       <div id="jRail"></div>
-      <div class="raillegend">
-        Click a joint to control it. The dot is its state &mdash; grey disabled,
-        green enabled, blue moving, red e&#8209;stopped. <b>!</b> marks a joint whose
-        travel has never been bench&#8209;tested.
-      </div>
+      <details class="note">
+        <summary>Key</summary>
+        <div class="raillegend">
+          Grey dot disabled &middot; green enabled &middot; blue moving &middot; red e&#8209;stopped.
+          <b>!</b> marks a joint whose travel has never been bench&#8209;tested, so its
+          70&ndash;110&deg; limits are a placeholder and not its real travel.
+        </div>
+      </details>
     </aside>
 
     <div class="selwrap">
@@ -586,8 +711,13 @@ details.log summary{
               <tbody id="wpBody"></tbody>
             </table>
             <div class="empty" id="wpEmpty">
-              No waypoints yet. Enable the joints you want to teach, dial the pose with the joystick, then press RECORD WAYPOINT.
-              A joint that is disabled when you record is stored as &ldquo;&ndash;&rdquo;, which means leave it alone on playback.
+              No waypoints yet.
+              <details class="note"><summary>How</summary>
+                <div>Pick a joint, ENABLE it, jog it where you want, then press RECORD WAYPOINT.
+                Repeat for each step. A joint that is disabled when you record is stored as
+                &ldquo;&ndash;&rdquo;, which means leave it alone on playback &mdash; this arm has no
+                position feedback, so a disabled joint has nothing to report.</div>
+              </details>
             </div>
           </div>
           <div class="playstate" id="playState"></div>
@@ -607,21 +737,24 @@ details.log summary{
 
       <section class="pane" id="paneCal">
         <h2>Calibration</h2>
-        <p class="footnote">
-          The selected joint&rsquo;s card shows its full engineering controls here: the soft&#8209;stop
-          envelope, LOCK THIS AXIS, its speed setting and its pin assignment. Those are hidden on
-          the Teach tab so they do not compete with RECORD WAYPOINT &mdash; they are not disabled,
-          just out of the way.
-        </p>
         <div class="filesrow">
           <span class="lbl2">Joint limits</span>
           <label class="filebtn small">LOAD LIMITS FILE<input type="file" id="fileLim" accept=".csv,text/csv"></label>
         </div>
-        <p class="footnote">
-          On the bridge route <code>joint-limits.csv</code> is read automatically on every connect,
-          because opening the port resets the board and the firmware keeps nothing across a reset.
-          Use this picker on the file:// route, or to try a file that is not the one on disk.
-        </p>
+        <details class="note">
+          <summary>About this tab</summary>
+          <div>
+            The selected joint&rsquo;s card shows its full engineering controls here: the
+            soft&#8209;stop envelope, LOCK THIS AXIS, its speed setting and its pin assignment.
+            Those are hidden on Teach so they do not compete with RECORD WAYPOINT &mdash; not
+            disabled, just out of the way.
+            <br><br>
+            On the bridge route <code>joint-limits.csv</code> is read automatically on every
+            connect, because opening the port resets the board and the firmware keeps nothing
+            across a reset. Use the picker on the file:// route, or to try a file that is not
+            the one on disk.
+          </div>
+        </details>
       </section>
     </div>
   </div>
@@ -636,15 +769,21 @@ details.log summary{
          reason sitting under it, is the honest version. -->
     <div id="poseRows"></div>
     <p class="footnote" id="poseEmpty">
-      No saved poses. Drive the arm by hand on the Teach tab, press RECORD WAYPOINT at each step,
-      then SAVE POSE. That is what gives a pose a machine&#8209;readable entry path.
+      No saved poses. Teach one, then SAVE POSE.
     </p>
-    <p class="footnote">
-      PLAY on a row stays dead until that same row has been loaded into the teach table. It is not
-      a second way to drive the arm: loading puts the recorded steps in front of you first, and PLAY
-      then runs the same guarded playback the Teach tab uses. The straight line between two safe
-      poses can still drive the claw through the bench.
-    </p>
+    <details class="note">
+      <summary>Why some rows cannot be played</summary>
+      <div>
+        A pose is READY only when its recorded entry path can be read back step by step. Rows
+        written before the console could record a path carry free text instead, so there is nothing
+        to drive &mdash; they stay REFERENCE ONLY until the move is driven and recorded again.
+        <br><br>
+        PLAY on a row stays dead until that same row has been loaded. It is not a second way to
+        drive the arm: loading puts the recorded steps in front of you first, and PLAY then runs
+        the same guarded playback the Teach tab uses. The straight line between two safe poses can
+        still drive the claw through the bench.
+      </div>
+    </details>
   </section>
 
   <!-- ---------------- DIAGNOSTICS ---------------- -->
@@ -1939,12 +2078,19 @@ function buildCards(){
         '<span class="pins setup-only">' + d.pins + '</span></div>' +
       '<div class="badges"><span class="pill uncal js-cal"></span><span class="pill off js-state"></span></div>' +
       '<div class="mirrorrow js-mirror hidden"></div>' +
-      '<div class="cardnote js-note hidden"></div>' +
+      /* Reference text, not a state: it belongs one tap away, not occupying a
+         third of the card between the operator and the jog control. Collapsed,
+         never removed - a joint whose pin provenance is doubtful must still be
+         able to say so. */
+      '<details class="note js-notebox hidden"><summary>About this joint</summary>' +
+        '<div class="cardnote js-note"></div></details>' +
       '<div class="jtoflag js-jto hidden">This joint stopped on its own: the controller lost contact ' +
         'with this page mid-move. It is holding, still powered. Any command clears this.</div>' +
       '<div class="readout">' +
         '<div class="deg off"><span class="js-deg">90</span><span class="u">&deg;</span></div>' +
-        '<div class="deg-sub">commanded &mdash; the servo sends nothing back to confirm it</div>' +
+        /* Short enough to read at a glance and still true. The full sentence is
+           on the Diagnostics tab and in the page footer. */
+        '<div class="deg-sub">COMMANDED &middot; NOT MEASURED</div>' +
         '<div class="tgt js-tgt"></div>' +
       '</div>' +
       /* The envelope is configuration, not operation: it belongs on CALIBRATION.
@@ -1962,12 +2108,18 @@ function buildCards(){
         '<div class="envnums"><span class="js-envmin">70&deg;</span><span class="js-envmax">110&deg;</span></div>' +
         '<div class="envmsg js-envmsg"></div>' +
       '</div>' +
-      '<div class="lbl">JOYSTICK &mdash; hold to move, let go to stop</div>' +
+      '<div class="lbl">JOG &mdash; hold to move, let go to stop</div>' +
+      /* The chevrons are decoration on the SAME control, not new buttons. This
+         is a speed joystick: deflection maps to deg/s and the firmware's
+         interpolator walks the joint. Discrete step buttons would be a
+         different command with a different guard, so they are not offered. */
       '<div class="joy js-joy">' +
         '<div class="joytrack"></div>' +
         '<div class="joydead js-joydead"></div>' +
         '<div class="joyfill js-joyfill"></div>' +
         '<div class="joycentre"></div>' +
+        '<div class="joyend l">&#9666;&#9666;</div>' +
+        '<div class="joyend r">&#9656;&#9656;</div>' +
         '<div class="joyh js-joyh"><span></span></div>' +
       '</div>' +
       '<div class="scale"><span class="js-lo">70&deg;</span><span class="js-hi">110&deg;</span></div>' +
@@ -2006,7 +2158,8 @@ function buildCards(){
       hmin:q(".js-hmin"), hmax:q(".js-hmax"), ack:q(".js-ack"),
       envMin:q(".js-envmin"), envMax:q(".js-envmax"), envMsg:q(".js-envmsg"),
       adopt:q(".js-adopt"), adoptVal:q(".js-adoptval"), adoptErr:q(".js-adopterr"),
-      enable:q(".js-enable"), dis:q(".js-dis"), dps:q(".js-dps"), note:q(".js-note")
+      enable:q(".js-enable"), dis:q(".js-dis"), dps:q(".js-dps"),
+      note:q(".js-note"), noteBox:q(".js-notebox")
     };
 
     /* ---- joystick --------------------------------------------------------
@@ -2367,7 +2520,7 @@ function paintJoint(id){
      card rather than hidden in a tooltip. */
   var noteText = [d.hint || "", j.notes || ""].filter(function(s){ return s; }).join("  ");
   D.note.textContent = noteText;
-  D.note.classList.toggle("hidden", !noteText);
+  D.noteBox.classList.toggle("hidden", !noteText);
 
   /* envelope */
   var a = clampi(j.min, 0, 180) / 180 * 100, b = clampi(j.max, 0, 180) / 180 * 100;
@@ -2996,12 +3149,11 @@ function renderPoseList(){
 
     if (!ready) {
       bLoad.disabled = true;
-      why.textContent =
-        "This row has no machine-readable entry path" +
-        (p.entry ? " — its path is free text: “" + p.entry + "”" : "") +
-        ". It records where the arm ended up, not how it got there, so there is nothing to " +
-        "drive. Drive to this position by hand recording waypoints as you go, then SAVE POSE " +
-        "under a new name to give it a real path.";
+      /* One line on the row; the free-text path itself is long enough to push
+         every other pose off the screen, so it goes one tap down. */
+      why.innerHTML = "No recorded path &mdash; endpoint only, nothing to drive." +
+        (p.entry ? '<details class="note"><summary>Its recorded path</summary><div>' +
+                   escHtml(p.entry) + "</div></details>" : "");
     } else {
       bLoad.onclick = function(){ loadPoseIntoTeach(i); };
       /* PLAY IS NOT A SECOND DRIVE PATH. It stays dead until this same row has
@@ -3012,12 +3164,9 @@ function renderPoseList(){
       bPlay.title = (loadedPoseIdx === i)
         ? "Run the loaded waypoints, same guards as PLAY on the Teach tab."
         : "Press LOAD first and look at the steps. PLAY will not drive a pose you have not read.";
-      if (loadedPoseIdx !== i) {
-        why.textContent = "Press LOAD to put its " + steps.length +
-          " recorded step" + (steps.length === 1 ? "" : "s") + " in the teach table and read them.";
-      } else {
-        why.textContent = "Loaded into the teach table.";
-      }
+      why.textContent = (loadedPoseIdx === i)
+        ? "Loaded. Review the steps on Teach, then PLAY."
+        : "LOAD to review its steps.";
       bPlay.onclick = function(){ playFrom(0, waypoints.length-1, false); };
     }
     box.appendChild(row);
