@@ -74,14 +74,83 @@ if (Test-Console) {
     exit 0
 }
 
-# --- 2. is the port held by something that is NOT answering? ------------------
+# Make sure the bridge is up on the Pi, starting it if it is not.
+# Returns $true if it is running when this returns.
+#
+# THE PGREP SELF-MATCH TRAP. Over ssh the search pattern lives in the command
+# string that ssh itself runs, so a plain `pgrep -f arm-bridge.py` matches that
+# shell and reports the bridge alive when it is not. The [a] bracket stops the
+# pattern matching its own text.
+function Ensure-Bridge {
+    $check = & $SSH -o BatchMode=yes -o ConnectTimeout=10 $HOSTALIAS `
+             "pgrep -f '[a]rm-bridge.py' >/dev/null && echo RUNNING || echo STOPPED" 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Say '  PROBLEM: could not reach the Pi over SSH.' 'Red'
+        Say ("  It said: {0}" -f ($check -join ' ')) 'Red'
+        Say ''
+        Say '  Check in this order:' 'Yellow'
+        Say '    1. is the Pi powered on' 'Yellow'
+        Say '    2. is Tailscale up on this laptop and on the Pi' 'Yellow'
+        Say '    3. try the garage LAN instead:  ssh arm-lan' 'Yellow'
+        Say ''
+        return $false
+    }
+    if ($check -match 'STOPPED') {
+        Say '  The bridge was not running on the Pi. Starting it.' 'Yellow'
+        # setsid + nohup + closed stdin so the bridge survives this ssh session
+        # ending. Without that it dies the moment the check returns.
+        & $SSH -o BatchMode=yes -o ConnectTimeout=10 $HOSTALIAS `
+          "cd $REMOTEDIR && setsid nohup $REMOTEPY arm-bridge.py > bridge.out 2>&1 < /dev/null & sleep 3" | Out-Null
+        Start-Sleep -Seconds 1
+    } else {
+        Say '  The bridge is already running on the Pi.' 'Green'
+    }
+    return $true
+}
+
+# --- 2. port held, but nothing answering --------------------------------------
+# THE COMMON CAUSE HERE IS A DEAD BRIDGE, NOT A DEAD TUNNEL. An ssh tunnel
+# outlives the process on the far end: kill the bridge on the Pi and the socket
+# on this laptop stays bound and keeps accepting, it just has nothing behind it.
+# Telling the operator to close a perfectly good tunnel is a dead end that costs
+# a restart and does not fix anything, so when WE are the holder, fix the far
+# end and reuse the tunnel. Anything else holding the port is a real conflict.
 $bound = Get-NetTCPConnection -LocalPort $PORT -State Listen -ErrorAction SilentlyContinue
 if ($bound) {
     $owner = (Get-Process -Id $bound[0].OwningProcess -ErrorAction SilentlyContinue).ProcessName
-    Say ("  PROBLEM: port {0} is held by {1} (PID {2}), but nothing answers on it." -f `
-         $PORT, $owner, $bound[0].OwningProcess) 'Red'
-    Say '  That is usually a tunnel left over from a Pi that went away.' 'Red'
-    Say '  Close that window (or end that process), then run this again.' 'Red'
+
+    if ($owner -ne 'ssh') {
+        Say ("  PROBLEM: port {0} is held by {1} (PID {2}), but nothing answers on it." -f `
+             $PORT, $owner, $bound[0].OwningProcess) 'Red'
+        Say '  That is not our tunnel, so it is not safe to work around.' 'Red'
+        Say '  Close it (or end that process), then run this again.' 'Red'
+        Say ''
+        pause
+        exit 1
+    }
+
+    Say '  A tunnel is up but the console did not answer - the bridge on the' 'Yellow'
+    Say '  Pi has probably stopped. Checking it.' 'Yellow'
+    if (-not (Ensure-Bridge)) { pause; exit 1 }
+
+    foreach ($i in 1..10) {
+        Start-Sleep -Seconds 1
+        if (Test-Console) {
+            Start-Process $URL
+            Say ''
+            Say '  Ready. The existing tunnel was reused, so this window is not' 'Green'
+            Say '  holding anything and will close. Do not close the OTHER window.' 'Gray'
+            Say ''
+            Start-Sleep -Seconds 3
+            exit 0
+        }
+    }
+
+    Say ''
+    Say '  PROBLEM: the bridge is running on the Pi but the console still does' 'Red'
+    Say '  not answer through the tunnel. The tunnel itself is probably stale.' 'Red'
+    Say ("  Close the window holding it (ssh PID {0}), then run this again." -f `
+         $bound[0].OwningProcess) 'Yellow'
     Say ''
     pause
     exit 1
@@ -89,36 +158,7 @@ if ($bound) {
 
 # --- 3. is the Pi there, and is the bridge running? ---------------------------
 Say ("  Checking the Pi ({0})..." -f $HOSTALIAS) 'Gray'
-
-# THE PGREP SELF-MATCH TRAP. Over ssh the search pattern lives in the command
-# string that ssh itself runs, so a plain `pgrep -f arm-bridge.py` matches that
-# shell and reports the bridge alive when it is not. The [a] bracket stops the
-# pattern matching its own text.
-$check = & $SSH -o BatchMode=yes -o ConnectTimeout=10 $HOSTALIAS `
-         "pgrep -f '[a]rm-bridge.py' >/dev/null && echo RUNNING || echo STOPPED" 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Say '  PROBLEM: could not reach the Pi over SSH.' 'Red'
-    Say ("  It said: {0}" -f ($check -join ' ')) 'Red'
-    Say ''
-    Say '  Check in this order:' 'Yellow'
-    Say '    1. is the Pi powered on' 'Yellow'
-    Say '    2. is Tailscale up on this laptop and on the Pi' 'Yellow'
-    Say '    3. try the garage LAN instead:  ssh arm-lan' 'Yellow'
-    Say ''
-    pause
-    exit 1
-}
-
-if ($check -match 'STOPPED') {
-    Say '  The bridge was not running on the Pi. Starting it.' 'Yellow'
-    # setsid + nohup + closed stdin so the bridge survives this ssh session
-    # ending. Without that it dies the moment the check returns.
-    & $SSH -o BatchMode=yes -o ConnectTimeout=10 $HOSTALIAS `
-      "cd $REMOTEDIR && setsid nohup $REMOTEPY arm-bridge.py > bridge.out 2>&1 < /dev/null & sleep 3" | Out-Null
-    Start-Sleep -Seconds 1
-} else {
-    Say '  The bridge is already running on the Pi.' 'Green'
-}
+if (-not (Ensure-Bridge)) { pause; exit 1 }
 
 # --- 4. tunnel ----------------------------------------------------------------
 Say '  Opening the tunnel...' 'Gray'
