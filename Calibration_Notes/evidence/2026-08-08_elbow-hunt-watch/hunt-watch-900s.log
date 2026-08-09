@@ -1,0 +1,6 @@
+watching 900s   ROI (300, 590, 480, 719)   flag at 30 px
+
+1600 samples over 900s
+peak adjacent-frame 26 px   peak vs-start 134 px
+frames over 30 px: 0
+VERDICT: no hunt in this window -- arm held still

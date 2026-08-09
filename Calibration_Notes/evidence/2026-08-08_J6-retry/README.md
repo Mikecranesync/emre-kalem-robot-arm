@@ -75,6 +75,18 @@ t=120s     5 px           dark 10409
 discrepancy is therefore introduced BY the commanded round-trip, not by gravity between
 captures.
 
+**The creep confound now has a measured BOUND, not just a null.** A later 900 s watch on
+this same ROI (`Calibration_Notes/evidence/2026-08-08_elbow-hunt-watch/`, harness
+`Software/tests/hunt_watch.py`) found no oscillation at all — 1600 samples, peak
+adjacent-frame 26 px, nothing over the 30 px flag — but it did record **134 px of
+cumulative drift versus the start frame over 15 minutes**, with the shoulder detached.
+Pro-rata that is roughly **20–30 px across the 2–3 minutes this J6 run took**, against
+the **1,073–1,440 px** measured between same-command visits. Creep is therefore an order
+of magnitude too small to explain the non-repeatability, and this is now an arithmetic
+bound rather than an assumption drawn from a short null. The two-minute test above says
+creep is absent at that timescale; the fifteen-minute watch says it is present but tiny.
+Both point the same way.
+
 Phase correlation is deliberately not used as the discriminator here: it returns under
 0.75 px on every pair *including a real 60° move* (0.16 px), because the large static
 servo body dominates the correlation inside this ROI. A measure that reads ~0 on a known
