@@ -40,7 +40,11 @@ const src = fs.readFileSync(page, "utf8").replace(/\r\n/g, "\n");
 
 /* Every number box on a joint card must be handed to noWheel(). A new one added
  * without that call is the regression this half of the test catches. */
-const CLASSES = ["js-adoptval", "js-target", "js-dps"];
+/* Every control on the card that a scroll wheel can step. The smoothness
+ * slider is a range rather than a number box, but a wheel over a focused range
+ * steps it just the same - and that one reaches a DRIVEN joint the instant it
+ * changes, so it is the last control that should move by accident. */
+const CLASSES = ["js-adoptval", "js-target", "js-dps", "js-acc"];
 
 const m = src.match(/\nfunction noWheel\(input\)\{[\s\S]*?\n\}\n/);
 if (!m) {
@@ -80,10 +84,10 @@ function check(name, got, want) {
  * scored as a fourth box. So match only inputs that carry a js- handle, which is
  * the only kind the card wiring can reach, and check them against the wiring
  * rather than against a hardcoded number. */
-const boxes = (src.match(/<input type="number" class="(js-[A-Za-z-]+)"/g) || [])
+const boxes = (src.match(/<input type="(?:number|range)" class="(js-[A-Za-z-]+)"/g) || [])
   .map((t) => t.match(/class="(js-[A-Za-z-]+)"/)[1]);
 
-check("the card's number boxes are the three known ones", boxes.sort(), CLASSES.slice().sort());
+check("the card's wheel-steppable controls are the known ones", boxes.sort(), CLASSES.slice().sort());
 
 /* Resolve each js- class to the j.dom property it is stored under, then prove
  * THAT property is the one handed to noWheel(). This is what catches a fourth
@@ -96,7 +100,7 @@ boxes.forEach(function (cls) {
         new RegExp("noWheel\\(\\s*j\\.dom\\." + prop + "\\s*\\)").test(src), true);
 });
 
-check("noWheel() is called exactly once per number box",
+check("noWheel() is called exactly once per wheel-steppable control",
       (src.match(/noWheel\(\s*j\.dom\./g) || []).length, boxes.length);
 
 /* --- and the guard does what it claims ------------------------------------ */

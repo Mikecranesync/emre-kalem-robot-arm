@@ -420,9 +420,27 @@ def test_a_missing_joint_row_is_refused(calibration, limits, tmp_limits_path):
 
 def test_one_malformed_row_rejects_the_whole_file(calibration, limits, tmp_limits_path):
     # Never a partial load: half an envelope is worse than none.
+    #
+    # The expected width is READ FROM THE REAL HEADER rather than written here as
+    # a number. It was hardcoded to 11 and broke the day joint-limits.csv gained
+    # its twelfth column (max_deg_per_sec2) - which is a schema change this test
+    # has no opinion about. What it actually guards is that a short row is
+    # refused and that the message says how many fields were wanted; neither of
+    # those depends on how many columns the file happens to have today.
+    width = len(REAL_LIMITS_CSV.read_text(encoding="utf-8-sig")
+                .splitlines()[_header_line_index()].split(","))
     path = limits().append_raw_line("0,Base,D3").write(tmp_limits_path)
-    with pytest.raises(calibration.CalibrationError, match="expected 11"):
+    with pytest.raises(calibration.CalibrationError, match=f"expected {width}"):
         calibration.load_calibration(path, REAL_LOCK_DIR, REAL_WIRING_MAP)
+
+
+def _header_line_index() -> int:
+    """Index of the column header, skipping the file's long `#` preamble."""
+    lines = REAL_LIMITS_CSV.read_text(encoding="utf-8-sig").splitlines()
+    for i, line in enumerate(lines):
+        if line.startswith("joint_id,"):
+            return i
+    raise AssertionError("joint-limits.csv has no joint_id header row")
 
 
 def test_a_field_containing_a_comma_is_refused(calibration, limits, tmp_limits_path):

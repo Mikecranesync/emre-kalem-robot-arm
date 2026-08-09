@@ -289,6 +289,12 @@ input[type=range]:disabled{opacity:.45}
 .spd{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--dim);margin-left:auto}
 .spd input{width:74px;padding:8px;min-height:38px;text-align:right;background:var(--panel-2);border:1px solid var(--line);border-radius:6px}
 
+.smooth{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);
+        padding:8px 2px 2px;flex-wrap:wrap}
+.smooth input[type=range]{flex:1 1 160px;min-width:140px;min-height:38px}
+.smooth .ends{font-size:11.5px;letter-spacing:.04em;color:var(--dim);opacity:.85}
+.smooth .accval{font-variant-numeric:tabular-nums;color:var(--fg);min-width:88px;text-align:right}
+
 .adopt{border:1px solid var(--warn);background:var(--warn-bg);border-radius:var(--radius);padding:12px;display:flex;flex-direction:column;gap:10px}
 .adopt p{margin:0;font-size:13.5px;color:#ffd591}
 .adoptrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -981,6 +987,9 @@ var DESYNC_LIMIT    = 2;       // consecutive reply timeouts before we resync
 var STA_STALE_MS    = STATUS_MS * 3;   // a status reading older than this is not evidence
 
 var DEF_MIN = 70, DEF_MAX = 110, DEF_HOME = 90, DEF_DPS = 30;
+/* Acceleration, deg/s^2. Matches the firmware boot default so a file with no
+   max_deg_per_sec2 column behaves exactly as it did before the column existed. */
+var DEF_ACC = 200, ACC_MIN = 5, ACC_MAX = 250;
 
 /* Joint ids match wiring-map.csv indices. There is deliberately NO id 2:
    D5 is the shoulder pair's second servo and is never commanded on its own.
@@ -1008,9 +1017,11 @@ var JOINT_DEFS = [
 ];
 
 /* The first nine are REQUIRED (loadLimitsCsv checks LIM_COLS.slice(0,9)).
-   "notes" and "mirror_offset_deg" are optional so an older file still loads. */
+   "notes", "mirror_offset_deg" and "max_deg_per_sec2" are optional so an older
+   file still loads. */
 var LIM_COLS = ["joint_id","joint_name","uno_pins","min_deg","max_deg","home_deg",
-                "max_deg_per_sec","calibrated","mirror_mode","notes","mirror_offset_deg"];
+                "max_deg_per_sec","calibrated","mirror_mode","notes","mirror_offset_deg",
+                "max_deg_per_sec2"];
 var WP_COLS  = ["step","label","base_deg","shoulder_deg","elbow_deg",
                 "wrist_pitch_deg","wrist_roll_deg","gripper_deg","dwell_ms"];
 
@@ -1028,7 +1039,7 @@ var POSE_COLS = ["pose_name","j0_deg","j1_deg","j3_deg","j4_deg","j5_deg","j6_de
 var J = {};                     // id -> joint record
 JOINT_DEFS.forEach(function (d) {
   J[d.id] = {
-    def:d, min:DEF_MIN, max:DEF_MAX, home:DEF_HOME, dps:DEF_DPS,
+    def:d, min:DEF_MIN, max:DEF_MAX, home:DEF_HOME, dps:DEF_DPS, acc:DEF_ACC,
     cal:false, notes:"",
     en:false, set:DEF_HOME, tgt:DEF_HOME, mov:false,
     dom:null, dragging:false, wantMove:null, adoptOpen:false, envDragging:false,
@@ -1941,7 +1952,12 @@ function pushState(){
     var j = J[d.id];
     chain = chain
       .then(function(){ return sendLim(d.id); })
-      .then(function(){ return send("SPD " + d.id + " " + j.dps); });
+      .then(function(){ return send("SPD " + d.id + " " + j.dps); })
+      /* ACC after SPD, same as the file order. A firmware older than 1.2.0 does
+         not know the verb and NAKs with E1; that must not abort the rest of the
+         push, so the rejection is swallowed here rather than breaking connect on
+         a board that simply has not been flashed yet. */
+      .then(function(){ return send("ACC " + d.id + " " + j.acc).catch(function(){}); });
   });
 
   var MIR_WORD = { same:"SAME", inverted:"INV", unknown:"UNKNOWN" };
@@ -2284,7 +2300,18 @@ function buildCards(){
         '<button class="btn js-dis">DISABLE</button>' +
         '<button class="btn small js-lock setup-only" disabled>LOCK THIS AXIS</button>' +
         '<label class="spd setup-only">deg/s <input type="number" class="js-dps" min="1" max="90" step="1" value="30"></label>' +
-      '</div>';
+      '</div>' +
+      /* SMOOTHNESS is acceleration, and it is a slider because the right value
+         is found by dragging it and watching the arm, not by knowing a number.
+         The number is shown anyway: it is the thing worth writing into
+         joint-limits.csv once it feels right, and a control whose setting you
+         cannot record is one you have to rediscover every session. */
+      '<label class="smooth setup-only" title="How hard this joint may change speed - starting, stopping, and turning round. Gentler is kinder to a gear train.">' +
+        'smooth <span class="ends">GENTLE</span>' +
+        '<input type="range" class="js-acc" min="5" max="250" step="5" value="200">' +
+        '<span class="ends">FAST</span>' +
+        '<span class="accval js-accval">200 deg/s2</span>' +
+      '</label>';
     grid.appendChild(c);
 
     var q = function(s){ return c.querySelector(s); };
@@ -2300,6 +2327,7 @@ function buildCards(){
       envMin:q(".js-envmin"), envMax:q(".js-envmax"), envMsg:q(".js-envmsg"),
       adopt:q(".js-adopt"), adoptVal:q(".js-adoptval"), adoptErr:q(".js-adopterr"),
       enable:q(".js-enable"), dis:q(".js-dis"), dps:q(".js-dps"),
+      acc:q(".js-acc"), accVal:q(".js-accval"),
       note:q(".js-note"), noteBox:q(".js-notebox")
     };
 
@@ -2513,11 +2541,38 @@ function buildCards(){
 
     /* Every number box on this card, for the reasons at noWheel(). */
     noWheel(j.dom.adoptVal); noWheel(j.dom.target); noWheel(j.dom.dps);
+    /* The smoothness slider too. It is a range rather than a number box, but
+       a wheel over a focused range still steps it, and this control reaches a
+       DRIVEN joint the moment it changes - an accidental scroll must not
+       retune the arm underneath the operator. */
+    noWheel(j.dom.acc);
 
     j.dom.dps.onchange = function(){
       var v = clampi(Math.round(Number(j.dom.dps.value) || DEF_DPS), 1, 90);
       j.dom.dps.value = v; j.dps = v;
       if (connState === "on") send("SPD " + d.id + " " + v).catch(function(e){ notice("warn", plainErr(e.message, d)); });
+    };
+
+    /* Two events on purpose. "input" fires per pixel of drag and only paints the
+       number; "change" fires once on release and is the only thing that reaches
+       the wire. Sending per pixel would put hundreds of ACCs into a link whose
+       whole design assumes one command in flight. */
+    j.dom.acc.oninput = function(){
+      j.dom.accVal.textContent = j.dom.acc.value + " deg/s2";
+    };
+    j.dom.acc.onchange = function(){
+      var v = clampi(Math.round(Number(j.dom.acc.value) || DEF_ACC), ACC_MIN, ACC_MAX);
+      j.dom.acc.value = v; j.acc = v;
+      j.dom.accVal.textContent = v + " deg/s2";
+      /* Sent live, mid-move if need be - ACC is the one config verb the firmware
+         accepts on a driven joint, precisely so it can be tuned by watching.
+         A board older than FW 1.2.0 does not know the verb; say so once, plainly,
+         rather than leaving the slider looking as though it did something. */
+      if (connState === "on") send("ACC " + d.id + " " + v).catch(function(e){
+        notice("warn", "The controller did not accept the smoothness setting. If it is still on " +
+                       "firmware 1.1.1 the ACC command does not exist yet - flash 1.2.0. It said: " +
+                       plainErr(e.message, d), 12000);
+      });
     };
   });
 }
@@ -3298,6 +3353,19 @@ function loadLimitsCsv(text, fname, skipPush){
     if (!isInt(r.max_deg_per_sec))                { bad("max_deg_per_sec must be a whole number."); return; }
     var dps = Number(r.max_deg_per_sec);
     if (dps < 1 || dps > 90)                      { bad("max_deg_per_sec must be between 1 and 90."); return; }
+
+    /* max_deg_per_sec2 is OPTIONAL. Blank or absent means the firmware default,
+       so a file written before this column existed loads unchanged and every
+       joint behaves exactly as it used to. It is how hard the joint may change
+       speed - starting, stopping, and turning round - and it is per joint
+       because a wrist driving a small printed gear wants a far gentler number
+       than the shoulder swinging the whole arm. */
+    var accRaw = String(r.max_deg_per_sec2 === undefined ? "" : r.max_deg_per_sec2).trim();
+    var acc;
+    if (accRaw === "") acc = DEF_ACC;
+    else if (!isInt(accRaw)) { bad("max_deg_per_sec2 must be a whole number of deg/s2, or blank for the " + DEF_ACC + " default."); return; }
+    else acc = Number(accRaw);
+    if (acc < ACC_MIN || acc > ACC_MAX) { bad("max_deg_per_sec2 must be between " + ACC_MIN + " and " + ACC_MAX + "."); return; }
     var calRaw = String(r.calibrated || "").toLowerCase();
     if (["yes","no","true","false","1","0",""].indexOf(calRaw) < 0) { bad("calibrated must be yes or no."); return; }
     var cal = (calRaw === "yes" || calRaw === "true" || calRaw === "1");
@@ -3354,7 +3422,7 @@ function loadLimitsCsv(text, fname, skipPush){
       warns.push("J" + id + " " + J[id].def.name + " widened to " + mn + "–" + mx + " from the file.");
     }
 
-    staged[id] = { min:mn, max:mx, home:hm, dps:dps, cal:cal, notes:String(r.notes || "") };
+    staged[id] = { min:mn, max:mx, home:hm, dps:dps, acc:acc, cal:cal, notes:String(r.notes || "") };
   }
 
   var got = Object.keys(staged);
@@ -3362,9 +3430,11 @@ function loadLimitsCsv(text, fname, skipPush){
 
   got.forEach(function(id){
     var s = staged[id], j = J[id];
-    j.min = s.min; j.max = s.max; j.home = s.home; j.dps = s.dps; j.cal = s.cal; j.notes = s.notes;
+    j.min = s.min; j.max = s.max; j.home = s.home; j.dps = s.dps; j.acc = s.acc; j.cal = s.cal; j.notes = s.notes;
     if (!j.en) { j.set = clampi(j.set, j.min, j.max); j.tgt = j.set; }
     j.dom.dps.value = s.dps;
+    j.dom.acc.value = s.acc;
+    j.dom.accVal.textContent = s.acc + " deg/s2";
   });
   if (mir !== null) { mirrorMode = mir; mirrorOffset = mirOff; }
 
