@@ -448,6 +448,8 @@ details.log summary{
       <label class="chk"><input type="checkbox" id="chkLoop"> loop</label>
       <button class="btn small" id="btnSaveCsv">SAVE CSV</button>
       <button class="btn small" id="btnSavePose">SAVE POSE</button>
+      <select id="poseSel" title="Named poses from arm-poses.csv"></select>
+      <button class="btn small" id="btnLoadPose" disabled>LOAD POSE</button>
       <label class="filebtn small">LOAD CSV<input type="file" id="fileWp" accept=".csv,text/csv"></label>
       <label class="filebtn small">LOAD LIMITS FILE<input type="file" id="fileLim" accept=".csv,text/csv"></label>
     </div>
@@ -1325,6 +1327,12 @@ function connect(){
          carries the operator's envelope and mirror rather than the firmware
          defaults the reset just restored. */
       return autoLoadLimits();
+    })
+    .then(function(){
+      /* Pose library is presentation only - it never touches the board - so a
+         failure here must not block the connect sequence. autoLoadPoses swallows
+         its own errors and always resolves. */
+      return autoLoadPoses();
     })
     .then(function(){
       return pushState();
@@ -2614,6 +2622,116 @@ function autoLoadLimits(){
   });
 }
 
+/* ---------------- named pose library (arm-poses.csv) ---------------- */
+
+var poseLib = [];   // [{name, deg:{id->int|null}, entry, verified, date, notes}]
+
+/* Fetch the pose library from the bridge on connect, exactly as autoLoadLimits
+   fetches joint-limits.csv and for the same reason: the file on disk is the
+   record, and a copy that lives only in a browser tab or a Downloads folder is
+   invisible to everything else that reads it. joint-limits.csv says this in its
+   own words - that is how the Base row got silently widened.
+   Bridge only; the file:// Web Serial route has no filesystem access. */
+function autoLoadPoses(){
+  if (!USE_BRIDGE) { renderPoseList(); return Promise.resolve(); }
+  return httpJson("GET","/poses").then(function(r){
+    if (!r || !r.ok || typeof r.csv !== "string") { renderPoseList(); return; }
+    var t = tableFrom(r.csv);
+    if (!t.head) { renderPoseList(); return; }
+    poseLib = t.recs.map(function(rec){
+      var deg = {};
+      JOINT_DEFS.forEach(function(d){
+        var raw = rec["j" + d.id + "_deg"];
+        var n = parseInt(raw, 10);
+        deg[d.id] = (raw === undefined || raw === "" || raw === "-" || isNaN(n)) ? null : n;
+      });
+      return { name: rec.pose_name, deg: deg, entry: rec.entry_path || "",
+               verified: rec.camera_verified, date: rec.date_recorded, notes: rec.notes || "" };
+    }).filter(function(p){ return p.name; });
+    renderPoseList();
+  }).catch(function(){ renderPoseList(); });
+}
+
+function renderPoseList(){
+  var sel = el("poseSel");
+  if (!sel) return;
+  sel.innerHTML = "";
+  if (!poseLib.length) {
+    var o = document.createElement("option");
+    o.textContent = "no saved poses"; o.value = "";
+    sel.appendChild(o);
+  } else {
+    poseLib.forEach(function(p, i){
+      var o = document.createElement("option");
+      o.value = String(i);
+      o.textContent = p.name + (p.date ? "  (" + p.date + ")" : "");
+      sel.appendChild(o);
+    });
+  }
+  el("btnLoadPose").disabled = !poseLib.length;
+}
+
+/* Parse the machine-readable entry_path the console writes:
+     label(J1=88;J3=28) > label(J1=80)
+   Legacy rows are FREE TEXT ("J1 1>22>34>46 at 5 deg/s then J3 52>60>64") and
+   are deliberately NOT guessed at. Returning null there is the honest answer:
+   arm-poses.csv warns that the straight line between two safe poses can drive
+   the claw through the bench, so a half-understood path is worse than none. */
+function parseEntryPath(text){
+  if (!text) return null;
+  var steps = String(text).split(">").map(function(s){ return s.trim(); }).filter(Boolean);
+  var out = [];
+  for (var i=0;i<steps.length;i++) {
+    var m = /^(.*?)\(([^)]*)\)$/.exec(steps[i]);
+    if (!m) return null;
+    var deg = {};
+    JOINT_DEFS.forEach(function(d){ deg[d.id] = null; });
+    var any = false;
+    m[2].split(";").forEach(function(pair){
+      var kv = /^J(\d+)=(-?\d+)$/.exec(pair.trim());
+      if (kv) { deg[Number(kv[1])] = Number(kv[2]); any = true; }
+    });
+    if (!any) return null;
+    out.push({ label: m[1].trim() || ("step " + (i+1)), deg: deg, dwell: 500 });
+  }
+  return out.length ? out : null;
+}
+
+/* LOAD POSE fills the teach table with the pose's ENTRY PATH and stops there.
+   It deliberately does NOT drive. The operator reviews the steps and presses
+   PLAY, which already has the "a number for a disabled joint is a real command
+   that comes back E6" guard. Adding a second, unguarded drive path to reach a
+   pose would be the way this feature hurts somebody. */
+function loadPoseIntoTeach(){
+  var i = parseInt(el("poseSel").value, 10);
+  if (isNaN(i) || !poseLib[i]) return;
+  var p = poseLib[i];
+  var steps = parseEntryPath(p.entry);
+
+  if (!steps) {
+    var endpoint = {}; var known = 0;
+    JOINT_DEFS.forEach(function(d){
+      endpoint[d.id] = p.deg[d.id];
+      if (p.deg[d.id] !== null) known++;
+    });
+    if (!known) { notice("bad", "Pose “" + p.name + "” records no joint angles."); return; }
+    waypoints = [{ label: p.name + " (endpoint only)", deg: endpoint, dwell: 500 }];
+    renderWaypoints(); paintTop();
+    notice("warn", "Pose “" + p.name + "” has no machine-readable entry path" +
+           (p.entry ? " — its path is free text: " + p.entry : "") +
+           ". Loaded the ENDPOINT ONLY. Do not press PLAY from an arbitrary pose: " +
+           "the straight line to it has not been driven or observed. Drive it by hand, " +
+           "recording waypoints as you go, then SAVE POSE again to give it a real path.", 16000);
+    return;
+  }
+
+  waypoints = steps;
+  renderWaypoints(); paintTop();
+  notice("ok", "Loaded “" + p.name + "” — " + steps.length + " waypoint(s) from its recorded " +
+         "entry path. Review them, then press PLAY." +
+         (p.verified === "yes" ? "" : " (camera_verified=" + (p.verified || "no") + ")"), 10000);
+}
+
 function loadWaypointCsv(text, fname){
   var t = tableFrom(text);
   if (!t.head) { notice("bad", fname + ": no header row found."); return; }
@@ -2730,13 +2848,39 @@ function savePoseCsv(){
               disabled.join(" ") + "." : "");
 
   var row = [name].concat(angles, ["no", stamp, entry, notes.replace(/,/g, "-")]);
+  var pathNote = waypoints.length
+        ? " with a " + waypoints.length + "-waypoint entry path."
+        : " WITHOUT an entry path — it records where the arm ended up, not how it got there.";
+
+  /* ON THE BRIDGE, SAVE TO THE FILE. This is the whole point of the feature: a
+     pose that lands in the browser's Downloads folder is invisible to the
+     console that would load it, to git, and to anyone else working on this arm.
+     joint-limits.csv already names that failure - "a lock that lives only in a
+     Downloads folder is invisible to anything that edits this file". */
+  if (USE_BRIDGE) {
+    var payload = {};
+    POSE_COLS.forEach(function(c, i){ payload[c] = row[i]; });
+    httpJson("POST","/poses", payload).then(function(r){
+      if (r && r.ok) {
+        notice("ok", (r.message || ("Saved “" + name + "”.")) + pathNote, 10000);
+        autoLoadPoses();            // so it appears in the picker immediately
+      } else {
+        notice("bad","Could not save the pose: " + ((r && r.error) || "no reply from the bridge."), 12000);
+      }
+    }).catch(function(){
+      notice("bad","Could not save the pose — the bridge did not answer.", 10000);
+    });
+    return;
+  }
+
+  /* file:// Web Serial route: no filesystem, so fall back to a download and say
+     plainly that it has to be appended by hand. Silent behavioural differences
+     between the two transports are how somebody loses a pose. */
   var out = [
     "# One pose row for Software/arm-console/arm-poses.csv. APPEND it- do not",
     "# overwrite: that file is a history and an older row stays true as of its date.",
-    "# NOTE this carries a j0_deg column that the existing file does not have yet.",
-    "# The base was omitted from every old row because its servo was dead; it was",
-    "# replaced and re-locked- so a pose that cannot say where the base was is",
-    "# incomplete. Add the column to the header when you append.",
+    "# You are on the file:// route which cannot write to disk; on the bridge the",
+    "# SAVE POSE button writes straight into that file and no copy-paste is needed.",
     POSE_COLS.join(","),
     row.join(",")
   ].join("\n") + "\n";
@@ -2747,9 +2891,9 @@ function savePoseCsv(){
   a.download = "pose-" + name.replace(/[^A-Za-z0-9_-]/g, "_") + "-" + stamp + ".csv";
   a.click();
   setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-  notice("ok","Pose “" + name + "” saved" +
-              (waypoints.length ? " with a " + waypoints.length + "-waypoint entry path."
-                                : " WITHOUT an entry path - see the row."), 8000);
+  notice("warn","Pose “" + name + "” downloaded" + pathNote +
+              " APPEND it to Software/arm-console/arm-poses.csv by hand — on this " +
+              "route the console cannot write the file itself.", 12000);
 }
 
 function readFile(input, handler){
@@ -2841,6 +2985,7 @@ el("btnStopPlay").onclick   = function(){
 };
 el("btnSaveCsv").onclick    = saveWaypointCsv;
 el("btnSavePose").onclick   = savePoseCsv;
+el("btnLoadPose").onclick   = loadPoseIntoTeach;
 el("fileWp").onchange       = function(){ readFile(this, loadWaypointCsv); };
 el("fileLim").onchange      = function(){ readFile(this, loadLimitsCsv); };
 el("btnCopyLog").onclick    = function(){

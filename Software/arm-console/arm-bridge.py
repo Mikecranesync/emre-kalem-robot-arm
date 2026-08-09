@@ -107,7 +107,9 @@ Python 3.11+. Standard library only, plus pyserial.
 """
 
 import collections
+import csv
 import hmac
+import io
 import json
 import os
 import secrets
@@ -163,6 +165,108 @@ HTML_PATH = os.path.join(HERE, "arm-console.html")
 # working". Read-only, and only ever this one fixed filename beside the bridge:
 # no part of the request names it, so no request can reach any other file.
 LIMITS_PATH = os.path.join(HERE, "joint-limits.csv")
+POSES_PATH = os.path.join(HERE, "arm-poses.csv")
+
+# arm-poses.csv columns as the console writes them. j0_deg is NEWER than the
+# rows already in that file: every one of them omits the base because its servo
+# was dead and no pose commanded it. It was replaced and re-locked, so a pose
+# that cannot say where the base was is incomplete. append_pose() migrates an
+# old header on first write and pads existing rows with "-", which is not a
+# fudge - "-" already means "this pose does not command that joint", and those
+# poses genuinely did not.
+POSE_COLS = ["pose_name", "j0_deg", "j1_deg", "j3_deg", "j4_deg", "j5_deg", "j6_deg",
+             "camera_verified", "date_recorded", "entry_path", "notes"]
+
+
+def append_pose(fields):
+    """Append ONE row to arm-poses.csv. Returns (ok, message).
+
+    APPEND-ONLY, AND THAT IS THE POINT. arm-poses.csv is a history: "an older row
+    stays true as of its date", the same rule joint-limits.csv follows with three
+    rows for J1. An API that could overwrite would let a GUI quietly destroy the
+    record of what the arm used to do. Two rows with one name is legal - newest
+    wins, exactly like a re-lock - and the caller is told it happened.
+
+    Written through a temp file and os.replace so an interrupted write cannot
+    leave a half-row behind. This file is the arm's memory; a truncated one is
+    worse than an unsaved pose.
+    """
+    name = str(fields.get("pose_name", "")).strip()
+    if not name:
+        return False, "A pose needs a name."
+
+    row, missing = [], []
+    for col in POSE_COLS:
+        if col not in fields:
+            missing.append(col)
+        # The file's own rule: no comma inside any field. Enforced here too, not
+        # just in the browser - the browser is not the only thing that can POST.
+        val = str(fields.get(col, "")).replace(",", ";")
+        val = val.replace("\r", " ").replace("\n", " ").strip()
+        row.append(val)
+    if missing:
+        return False, "Missing column(s): %s" % ", ".join(missing)
+
+    try:
+        with open(POSES_PATH, "r", encoding="utf-8", newline="") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        return False, "Could not read %s: %s" % (POSES_PATH, exc)
+
+    lines = raw.splitlines()
+    head_i = next((i for i, ln in enumerate(lines)
+                   if ln.strip() and not ln.lstrip().startswith("#")), None)
+    if head_i is None:
+        return False, "%s has no header row." % os.path.basename(POSES_PATH)
+
+    head = next(csv.reader([lines[head_i]]))
+    dupe = False
+    if head != POSE_COLS:
+        if "j0_deg" in head:
+            return False, ("Header of %s does not match what this bridge writes. "
+                           "Expected: %s" % (os.path.basename(POSES_PATH), ",".join(POSE_COLS)))
+        # MIGRATION, once: the old 10-column header predates J0 being drivable.
+        # Existing rows get j0_deg="-" , which is honest - "-" already means
+        # "this pose does not command that joint" and those poses did not.
+        j0_at = POSE_COLS.index("j0_deg")
+        for i in range(head_i, len(lines)):
+            ln = lines[i]
+            if not ln.strip() or ln.lstrip().startswith("#"):
+                continue
+            rec = next(csv.reader([ln]))
+            rec.insert(j0_at, "j0_deg" if i == head_i else "-")
+            out = io.StringIO()
+            csv.writer(out, lineterminator="").writerow(rec)
+            lines[i] = out.getvalue()
+
+    for i in range(head_i + 1, len(lines)):
+        ln = lines[i]
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        if next(csv.reader([ln]))[0] == name:
+            dupe = True
+
+    out = io.StringIO()
+    csv.writer(out, lineterminator="").writerow(row)
+    lines.append(out.getvalue())
+
+    tmp = POSES_PATH + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp, POSES_PATH)
+    except OSError as exc:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False, "Could not write %s: %s" % (POSES_PATH, exc)
+
+    msg = "Saved pose “%s” to %s." % (name, os.path.basename(POSES_PATH))
+    if dupe:
+        msg += (" NOTE a pose of that name already existed - both rows are kept and the "
+                "newest wins, the same way a re-locked joint keeps its older rows.")
+    return True, msg
 
 # ---------------------------------------------------------------------------
 # THE PER-LAUNCH ACCESS CODE
@@ -737,6 +841,19 @@ class Handler(BaseHTTPRequestHandler):
                             "error": "Could not read %s: %s" % (LIMITS_PATH, exc)})
             return
 
+        if path == "/poses":
+            # Same shape as /limits on purpose: text, not a download, parsed by
+            # the console with the same code that parses a picked file.
+            try:
+                with open(POSES_PATH, "r", encoding="utf-8") as fh:
+                    self._json({"ok": True,
+                                "name": os.path.basename(POSES_PATH),
+                                "csv": fh.read()})
+            except OSError as exc:
+                self._json({"ok": False,
+                            "error": "Could not read %s: %s" % (POSES_PATH, exc)})
+            return
+
         if path == "/rx":
             is_open, lines, err = LINK.drain()
             out = {"open": is_open, "lines": lines}
@@ -774,6 +891,16 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/flush":
             LINK.flush()
             self._json({"ok": True})
+            return
+
+        if path == "/poses":
+            # THE ONLY ROUTE IN THIS BRIDGE THAT WRITES TO DISK. Deliberately
+            # append-only and deliberately limited to one file: the bridge is a
+            # dumb pipe for the serial port, and a general-purpose file writer
+            # behind a localhost HTTP server is a different and much larger
+            # security surface. Same access gate as every other route.
+            ok, msg = append_pose(data if isinstance(data, dict) else {})
+            self._json({"ok": ok, "message": msg} if ok else {"ok": False, "error": msg})
             return
 
         if path == "/tx":
