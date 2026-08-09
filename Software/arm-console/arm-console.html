@@ -393,6 +393,21 @@ body.tab-teach .setup-only{display:none !important}
 }
 .poserow.ready{border-left-color:var(--ok)}
 .poserow.ref{border-left-color:var(--warn)}
+.poserow.oor{border-left-color:var(--fault)}
+.poserow.oor .posewhy{color:#ffb3b4}
+
+/* the three lines of teach flow, on the tab where it happens */
+.howto{
+  margin:0 0 4px;padding:10px 12px 10px 30px;
+  border:1px solid var(--line-soft);border-radius:var(--radius);background:var(--panel);
+  color:var(--dim);font-size:13.5px;line-height:1.75;
+}
+.howto b{color:var(--text)}
+.autochk{font-size:13.5px;color:var(--dim);display:flex;align-items:center;gap:9px;margin:-4px 2px 0}
+.autochk input{width:20px;height:20px}
+.saveabout{font-size:12.5px;line-height:1.5;margin-top:-4px}
+.saveabout.ok{color:var(--ok)}
+.saveabout.warn{color:var(--warn)}
 .poserow .pname{font-weight:700;font-size:16px;min-width:170px}
 .poserow .pcount{color:var(--dim);font-size:13.5px;flex:1 1 auto}
 .poserow .pacts{display:flex;gap:8px}
@@ -695,12 +710,25 @@ h2{margin-bottom:8px}
       <section class="pane" id="paneTeach">
         <h2>Teach</h2>
         <div class="teachcol">
+          <!-- THE WHOLE TEACH FLOW, IN ORDER, ON THE SCREEN IT HAPPENS ON.
+               Three lines beat a manual nobody opens at the bench. -->
+          <ol class="howto">
+            <li>Pick a joint, press ENABLE, jog it.</li>
+            <li>Every time you <b>let go</b>, that position is saved as a step.</li>
+            <li>Name it and press SAVE POSE.</li>
+          </ol>
+
           <div class="toolbar">
             <button class="btn go" id="btnRecord" disabled>RECORD WAYPOINT</button>
             <button class="btn" id="btnPlay" disabled>PLAY</button>
             <button class="btn warn hidden" id="btnStopPlay">STOP PLAYBACK</button>
             <label class="chk"><input type="checkbox" id="chkLoop"> loop</label>
           </div>
+          <!-- On by default. Off is a real choice and it is stated as one, not
+               hidden: with it off, forgetting RECORD once writes a pose that can
+               never be played. -->
+          <label class="chk autochk"><input type="checkbox" id="chkAuto" checked>
+            <span>Save a step each time I let go</span></label>
           <!-- WHY RECORD IS GREYED OUT. A disabled button with no reason is the same
                dead end whatever the cause, and the three causes have three different
                remedies. Filled in by paintTop(). -->
@@ -723,9 +751,13 @@ h2{margin-bottom:8px}
           <div class="playstate" id="playState"></div>
 
           <label class="posename">Pose name
-            <input type="text" id="poseName" placeholder="storage-v2" autocomplete="off">
+            <input type="text" id="poseName" placeholder="park" autocomplete="off">
           </label>
           <button class="btn go" id="btnSavePose">SAVE POSE</button>
+          <!-- What the button is ABOUT to write, before it is pressed. A pose
+               with no steps is the one failure this whole flow exists to stop,
+               so it is said here rather than discovered in the library later. -->
+          <div class="saveabout" id="saveAbout"></div>
 
           <div class="filesrow">
             <span class="lbl2">Waypoint files</span>
@@ -940,6 +972,7 @@ var fwVersion  = "";              /* FW= from the VER handshake; "" until connec
 var CONSOLE_VERSION = "1.2.0";    /* recorded in every lock row */
 var waypoints  = [];            // {label, deg:{id->int|null}, dwell}
 var playing    = false, playAbort = false;
+var autoStepOn = true;          /* see AUTO_STEP_MIN_DEG - on by default */
 var tabHidden  = false;         // this tab is in the background — see WATCHDOG_MS
 var resyncing  = false;         // a link resync is already in flight
 
@@ -979,6 +1012,18 @@ function noWheel(input){
    file:// with no board and no bridge. Everything that decides how far a joint
    may travel or how fast lives here, where it is testable.
    ========================================================================== */
+
+/* AUTO-STEP. A pose is only drivable if the console recorded the PATH, and the
+   old flow made that a separate act the operator had to remember between every
+   jog: jog, RECORD, jog, RECORD. Forget once and SAVE POSE writes an
+   endpoint-only row that can never be played - which is exactly what happened
+   to "Parked" on 2026-08-09.
+   Letting go of the jog control IS the waypoint. It is the same evidence
+   RECORD WAYPOINT captures - the operator drove here, stopped, and looked at
+   it - so recording it automatically invents nothing. Below this many degrees
+   of movement it is a nudge, not a step, and adding a row for it would bury
+   the real ones. */
+var AUTO_STEP_MIN_DEG = 2;
 
 var JOY_DEAD     = 0.14;   /* dead zone, fraction of half travel */
 var LIM_MIN_SPAN = 5;      /* MUST match LIM_MIN_SPAN_DEG in the firmware */
@@ -1316,13 +1361,18 @@ function jogPollPause(){
     if (staTimer)  { clearInterval(staTimer);  staTimer  = null; }
   }
 }
+/* Returns a promise that settles once the catch-up STA has landed, so a caller
+   that needs FRESH angles (auto-step) can wait for them instead of reading the
+   frozen ones the hold left behind. Always a promise, even when there was
+   nothing to poll. */
 function jogPollResume(){
   if (jogHolds > 0) jogHolds--;
   if (jogHolds === 0 && connState === "on") {
     if (!pingTimer) pingTimer = setInterval(function(){ send("PNG").catch(function(){}); }, PING_MS);
     if (!staTimer)  staTimer  = setInterval(function(){ if (!playing) statusPoll(); }, STATUS_MS);
-    statusPoll();   /* the readout has been stale since the hold began */
+    return statusPoll();   /* the readout has been stale since the hold began */
   }
+  return Promise.resolve();
 }
 
 /* Letting go, losing the pointer, losing the window, the tab going to the
@@ -2204,6 +2254,17 @@ function buildCards(){
       if (!j.en) { notice("warn", "Enable J" + d.id + " before moving it."); return; }
       if (sys.es) { notice("warn", "The e-stop is latched. Press CLEAR E-STOP first."); return; }
       e.preventDefault();
+
+      /* SEED THE PATH WITH WHERE THE ARM IS STANDING, before anything moves.
+         There is no release event at the start of a teach, so without this the
+         first recorded step is the state AFTER the first move and playback
+         jumps to it from wherever the arm happens to be - one simultaneous
+         multi-joint move, which is precisely the straight line arm-poses.csv
+         warns can drive the claw through the bench. It must run BEFORE
+         jogPollPause(): once polling stops, j.set is frozen and no longer
+         describes the arm. */
+      if (autoStepOn && !waypoints.length) autoStep("start");
+
       joyHeld = true; joyLastDps = 0; joyLastDir = 0;
       j.jogging = true;
       j.dom.joyH.classList.add("live");
@@ -2216,8 +2277,12 @@ function buildCards(){
       paintJoint(d.id);
     }
     function joyMove(e){ if (joyHeld) joyApply(joyU(e.clientX)); }
-    function joyReleaseLocal(){
+    function joyReleaseLocal(e){
       if (!joyHeld) return;
+      /* Only a real pointerup is a HAND LETTING GO. pointercancel, window blur
+         and tab-hide all land here too and all mean the opposite: the browser
+         took the control away and nobody watched what the arm did next. */
+      var deliberate = !!(e && e.type === "pointerup");
       joyHeld = false;
       j.jogging = false;
       if (joyBeat) { clearInterval(joyBeat); joyBeat = null; }
@@ -2229,7 +2294,13 @@ function buildCards(){
       j.dom.joyFill.style.width = "0%";
       joyLastDps = 0; joyLastDir = 0;
       if (connState === "on" && j.en) send(fmtJog(d.id, 0));
-      jogPollResume();
+      /* jogPollResume fires the STA that refreshes j.set after the hold, and
+         resolves once that reply has landed. onLine calls absorbData on the
+         STA data line BEFORE resolving the OK terminator, so by the time this
+         runs the angles are the post-jog ones. Recording before it would store
+         where the joint was when the hand went down. */
+      var resumed = jogPollResume();
+      if (deliberate) resumed.then(function(){ autoStep(); });   /* it re-renders */
       paintJoint(d.id);
     }
     j.releaseJoy = joyReleaseLocal;
@@ -2631,6 +2702,23 @@ function paintTop(){
      measured one. Nothing on this arm observes an output shaft, so a disabled
      joint has no position to record and is deliberately stored as "-". Recording
      with nothing enabled would save a row of dashes that commands nothing. */
+  /* SAY WHAT SAVE POSE WILL WRITE, BEFORE IT IS PRESSED. "Parked" was saved
+     with no steps and nobody found out until it appeared in the library as
+     REFERENCE ONLY, undrivable. */
+  var about = el("saveAbout");
+  if (about) {
+    if (!waypoints.length) {
+      about.className = "saveabout warn";
+      about.textContent = "No steps yet — SAVE POSE would record only where the arm ENDS UP, " +
+                          "not how it got there, and the pose could never be played back. " +
+                          "Jog a joint and let go.";
+    } else {
+      about.className = "saveabout ok";
+      about.textContent = "Will save " + waypoints.length + " step" +
+                          (waypoints.length === 1 ? "" : "s") + " as the path to this pose.";
+    }
+  }
+
   var recGate = el("recordGate");
   if (recGate) {
     var why = "";
@@ -2738,16 +2826,63 @@ function renderWaypoints(){
   paintTop();
 }
 
-function recordWaypoint(){
+function recordWaypoint(label){
   var deg = {};
   JOINT_DEFS.forEach(function(d){ deg[d.id] = J[d.id].en ? Math.round(J[d.id].set) : null; });
-  waypoints.push({ label:"step " + (waypoints.length+1), deg:deg, dwell:500 });
+  waypoints.push({ label:(label || ("step " + (waypoints.length+1))), deg:deg, dwell:500 });
   /* The table is no longer the pose that was loaded, so that row's PLAY must go
      back to needing a LOAD. Silently keeping it live would let PLAY on the pose
      library run a path the operator has since edited. */
   loadedPoseIdx = null;
   renderWaypoints();
   renderPoseList();
+}
+
+/* ---- auto-step -----------------------------------------------------------
+   Every deliberate release of the jog control becomes a waypoint, so SAVE POSE
+   always has a real path behind it and the operator never has to remember a
+   second button mid-teach.
+
+   IT GOES THROUGH recordWaypoint(), never a bare waypoints.push. That function
+   is where loadedPoseIdx is cleared and the pose library re-rendered; appending
+   around it would leave a library row's PLAY armed against a table that has
+   since been jogged and changed underneath it.
+
+   WHAT IT REFUSES TO RECORD, and why each one would be a lie:
+     playing        the arm is retracing, not being taught
+     e-stopped      every joint just detached; the angles describe nothing
+     no link        j.set has not been refreshed by STA and may be minutes old
+     nothing enabled  a row of dashes commands nothing
+     below AUTO_STEP_MIN_DEG  a nudge, not a step
+   The RELEASE ITSELF must also be deliberate: joyReleaseAll fires on window
+   blur and tab-hide, which mean the hand may have left the control while the
+   arm carried on. A waypoint recorded there claims a stop that nobody saw. */
+function autoStepEligible(){
+  if (!autoStepOn) return false;
+  if (connState !== "on" || sys.es || playing) return false;
+  return JOINT_DEFS.some(function(d){ return J[d.id].en; });
+}
+
+/* True when the arm has moved far enough since the last recorded step to be a
+   step of its own. With an empty table anything counts - that first row is the
+   pose the move STARTED from, and without it playback would jump to step 1
+   from wherever the arm happens to be, in one simultaneous multi-joint move. */
+function movedEnoughForStep(){
+  if (!waypoints.length) return true;
+  var last = waypoints[waypoints.length - 1].deg;
+  return JOINT_DEFS.some(function(d){
+    var j = J[d.id];
+    if (!j.en) return false;
+    var was = last[d.id];
+    if (was === null || was === undefined) return true;   /* newly enabled */
+    return Math.abs(Math.round(j.set) - was) >= AUTO_STEP_MIN_DEG;
+  });
+}
+
+function autoStep(label){
+  if (!autoStepEligible() || !movedEnoughForStep()) return false;
+  recordWaypoint(label);
+  return true;
 }
 
 /* A number for a joint that is DISABLED is a real command that will come back
@@ -3115,12 +3250,26 @@ function renderPoseList(){
   poseLib.forEach(function(p, i){
     var steps = parseEntryPath(p.entry);
     var ready = !!steps;
-    var row = document.createElement("div");
-    row.className = "poserow " + (ready ? "ready" : "ref");
+    /* A STORED ENDPOINT CAN GO OUT OF REACH WITHOUT ANYONE TOUCHING THE ROW.
+       Re-locking a joint's envelope narrows it: J3's lock moved from 0-66 to
+       0-30 on 2026-08-08, which put storage (J3=64) and pick (J3=36) outside
+       the range they were recorded in. The firmware would clamp them and
+       report CL=1, so the arm arrives somewhere that is not the pose. Nothing
+       said so until now - the row still read like a valid target. */
+    var outOfRange = JOINT_DEFS.filter(function(d){
+      var v = p.deg[d.id];
+      return v !== null && v !== undefined && (v < J[d.id].min || v > J[d.id].max);
+    }).map(function(d){
+      return "J" + d.id + "=" + p.deg[d.id] + " outside " + J[d.id].min + "-" + J[d.id].max;
+    });
 
-    var badge = ready
-      ? '<span class="pill on">READY</span>'
-      : '<span class="pill uncal">REFERENCE ONLY</span>';
+    var row = document.createElement("div");
+    row.className = "poserow " + (outOfRange.length ? "oor" : ready ? "ready" : "ref");
+
+    var badge = outOfRange.length
+      ? '<span class="pill bad">OUT OF RANGE</span>'
+      : ready ? '<span class="pill on">READY</span>'
+              : '<span class="pill uncal">REFERENCE ONLY</span>';
     var count = ready
       ? (steps.length + " waypoint" + (steps.length === 1 ? "" : "s"))
       : "endpoint only";
@@ -3147,7 +3296,19 @@ function renderPoseList(){
        silently arm PLAY on the wrong pose. */
     bPlay.setAttribute("data-idx", String(i));
 
-    if (!ready) {
+    if (outOfRange.length) {
+      /* Out of reach beats no-path: driving to a clamped angle lands the arm
+         somewhere that is not this pose, and says OK while doing it. */
+      bLoad.disabled = true;
+      why.innerHTML = "Out of reach under today&rsquo;s limits &mdash; " + escHtml(outOfRange.join("; ")) +
+        ". The firmware would clamp it and the arm would stop somewhere that is not this pose." +
+        '<details class="note"><summary>What to do</summary><div>' +
+        "This row was recorded when the joint&rsquo;s envelope was wider. It stays as history &mdash; it " +
+        "was true on " + escHtml(p.date || "the day it was saved") + " &mdash; but it is not a target any " +
+        "more. Drive to the position you want under the current limits, recording steps as you go, " +
+        "and save it under a new name." + (p.entry ? " Its recorded path was: " + escHtml(p.entry) : "") +
+        "</div></details>";
+    } else if (!ready) {
       bLoad.disabled = true;
       /* One line on the row; the free-text path itself is long enough to push
          every other pose off the screen, so it goes one tap down. */
@@ -3358,7 +3519,29 @@ function savePoseCsv(){
     return "J" + j.id + " " + J[j.id].min + "-" + J[j.id].max;
   }).join("; ");
 
-  var notes = "SAVED FROM THE ARM CONSOLE at " + p2(d.getHours()) + ":" + p2(d.getMinutes()) +
+  /* A JOINT PARKED ON ITS OWN SOFT LIMIT HAS NOWHERE TO BACK OFF TO.
+     joint-limits.csv makes the same point by never setting home_deg to a locked
+     end - J1 homes at 1 and not 0, J3 at 15 and not 30 - and storage's note
+     names it as the mistake that cost J0 an afternoon. Warn, never block: a
+     deliberately-at-limit pose is the operator's call to make, just not their
+     call to make by accident. It also goes into the row, so the record says so
+     for whoever reads it next. */
+  var atEnd = JOINT_DEFS.filter(function(dd){
+    var jj = J[dd.id];
+    return jj.en && (Math.round(jj.set) <= jj.min || Math.round(jj.set) >= jj.max);
+  }).map(function(dd){
+    var jj = J[dd.id];
+    return "J" + dd.id + "=" + Math.round(jj.set) + " (limits " + jj.min + "-" + jj.max + ")";
+  });
+  if (atEnd.length) {
+    notice("warn", "Saved with " + atEnd.join("; ") + " sitting ON a soft limit. A joint parked " +
+           "against its own end has nowhere to back off to. Park a few degrees inside if you " +
+           "meant this to be a resting position.", 14000);
+  }
+
+  var notes = (atEnd.length ? "PARKED ON A SOFT LIMIT WHEN SAVED: " + atEnd.join("; ") +
+               ". A joint at its own end has nowhere to back off to. " : "") +
+              "SAVED FROM THE ARM CONSOLE at " + p2(d.getHours()) + ":" + p2(d.getMinutes()) +
               ". Angles are COMMANDED soft-limit degrees read back from STA - nothing here " +
               "observes an output shaft- so this records what the joints were TOLD and not " +
               "where they physically are. Envelope in force when saved: " + envelope +
@@ -3488,7 +3671,17 @@ el("btnEstop").onclick      = doEstop;
 el("btnHold").onclick       = doHold;
 el("btnClear").onclick      = doClear;
 el("btnDisableAll").onclick = doDisableAll;
-el("btnRecord").onclick     = recordWaypoint;
+/* Wrapped, NOT passed straight: onclick hands the listener a MouseEvent, which
+   recordWaypoint would take as the label and write "[object PointerEvent]" into
+   the step. */
+el("btnRecord").onclick     = function(){ recordWaypoint(); };
+el("chkAuto").onchange      = function(){
+  autoStepOn = el("chkAuto").checked;
+  notice(autoStepOn ? "ok" : "warn", autoStepOn
+    ? "Auto-steps are on. Every time you let go of the jog control, that position is added as a step."
+    : "Auto-steps are OFF. Press RECORD WAYPOINT yourself at each stop, or SAVE POSE will write a " +
+      "row with no path that can never be played back.", 8000);
+};
 el("btnPlay").onclick       = function(){ playFrom(0, waypoints.length-1, el("chkLoop").checked); };
 
 /* STOP PLAYBACK USED NOT TO STOP THE ARM.
