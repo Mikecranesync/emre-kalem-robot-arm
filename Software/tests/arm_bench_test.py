@@ -88,7 +88,36 @@ CAM = "http://127.0.0.1:8781/snapshot"
 # The arm in full-frame pixels, on the upright image (mjpeg_preview rotates 180).
 # Everything the arm can reach is inside this; bench, shelves and tool rack are
 # outside, so their noise never counts toward a verdict.
-ROI = (800, 70, 1160, 660)
+#
+# Re-cut 2026-08-10 for the re-aimed camera and the new gridded backdrop. The old
+# box (800, 70, 1160, 660) was derived for a camera position that no longer
+# exists; against this scene its left edge fell at x800, straight through the
+# arm's base - so J0's motion was partly OUTSIDE the measured region, which is a
+# live candidate for J0's unexplained 36%/33% dead-move rate.
+#
+# PROVISIONAL - covers every pose observed so far, pending a real reach sweep
+# (Software/tests/arm_reach_envelope.py). Sized deliberately generous: an ROI
+# that is too big only costs a little noise, while one that is too small scores
+# real motion as a dead move, which is the failure this harness exists to stop.
+#
+# Derived from measurement, not eyeballed. Dark-pixel column/row profiles of two
+# very different poses:
+#   arm parked (folded right)   x700-1130  y360-650
+#   arm raised (extended up)    x460-900   y140-680
+# A first attempt at (660, 90, 1250, 700) was cut from the parked pose alone and
+# was immediately falsified by the raised pose, whose gripper sits near x460 -
+# 200 px outside it. Two poses are still not a reach envelope; treat this box as
+# an upper bound on what has been SEEN, not on what the arm can DO.
+#
+# Scene facts behind the edges:
+#   backdrop      x120-1150   the only background with usable contrast
+#   left clutter  x0-160      shelving and wiring, permanently dark, excluded
+#   operator zone bottom-centre and far left - where hands and tools go
+# Static noise floor MEASURED FOR THIS BOX, 10 distinct frames, nothing moving:
+# median 56 px, max 76, over its 506k px (QUIET_PX is 900). With the operator
+# actively working at the bench a 360k-px box peaked at 821, still under the
+# threshold. So noise is no longer what limits box size - coverage is.
+ROI = (420, 90, 1250, 700)
 BANNER_ROWS = 70        # burnt-in status text; it redraws every frame - never measure it
 
 THRESH = 25             # per-pixel grey delta counted as "changed"
