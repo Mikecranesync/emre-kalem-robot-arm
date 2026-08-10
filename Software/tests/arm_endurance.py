@@ -192,22 +192,41 @@ class Runner:
         ok = any(x.startswith("OK") for x in reply)
         err = [x for x in reply if x.startswith("ERR")]
 
-        # physical: when does motion first appear, and when does it stop
+        # Physical: when motion first appears, and when the scene goes quiet.
+        #
+        # The first version required >2x floor BETWEEN CONSECUTIVE 250 ms samples
+        # before it would even start looking for quiet, so a slow low-signature
+        # move never armed the detector and was reported as "never settled". That
+        # false-aborted a healthy run at cycle 9 on a J0 move that had completed
+        # correctly: reply OK, SET reached, 902 px total against a 111 floor, but
+        # no single sample cleared 222.
+        #
+        # Settling is now judged on its own: N consecutive quiet samples means
+        # settled, whether or not motion was ever detected tick-by-tick. So
+        # "never settled" now means what it should - STILL MOVING at timeout,
+        # which is the genuinely dangerous case - and a weak signal just leaves
+        # cam_first_motion_s null without killing the run.
         t_first = None
         prev = before
         t0 = time.time()
         settled_at = None
+        quiet_run = 0
+        QUIET_SAMPLES = 3
         while time.time() - t0 < SETTLE_TIMEOUT_S:
             time.sleep(0.25)
             self.L.pump()
             cur = self.roi_frame(j)
             d = diff(prev, cur)
-            if t_first is None and d > floor * 2:
-                t_first = time.time() - t0
-            if t_first is not None and d < max(floor, 60):
-                settled_at = time.time() - t0
-                break
             prev = cur
+            if d > max(floor, 60):
+                quiet_run = 0
+                if t_first is None:
+                    t_first = time.time() - t0
+            else:
+                quiet_run += 1
+                if quiet_run >= QUIET_SAMPLES:
+                    settled_at = time.time() - t0
+                    break
         after = self.roi_frame(j)
         moved_px = diff(before, after)
 
