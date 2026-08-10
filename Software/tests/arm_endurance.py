@@ -80,7 +80,20 @@ REF_POSE = {0: 112, 1: 85, 3: 15, 4: 95, 5: 172}
 SPEEDS = [5, 10, 20]
 ACCELS = {1: [120, 200], 3: [120, 200], 4: [40, 60], 5: [40, 60], 0: [120, 200]}
 
-MAX_ENABLE_JUMP_PX = 25000        # beyond this the adopt angle was badly wrong
+# Beyond this the adopt angle was badly wrong. RESCALED 2026-08-10 from 25000
+# to 40000 - not to get past a gate that fired, but because the ROI it is
+# measured through changed underneath it and the number stopped meaning what it
+# meant. Same joint, same adopt angle, same physical sag-and-snap:
+#     old ROI (212k px, clipped the arm's base): 15715, 17844, 13241  -> passed
+#     new ROI (506k px, sees the whole arm):     25994, 25217, 25533  -> failed
+# Ratio 1.63x, measured across six runs, with the operator confirming by eye
+# that the elbow really was at 15 both nights. 25000 x 1.63 = 40625; 40000 keeps
+# a little of the original margin. NOT scaled by ROI area (2.38x) - the arm's
+# motion is a fixed physical thing, so a bigger box only adds the parts of the
+# arm the old box was cutting off, which is 1.63x here and not 2.38x.
+# If the ROI moves again, re-measure this the same way. It is an absolute pixel
+# count against a specific box, and it silently lies the moment that box changes.
+MAX_ENABLE_JUMP_PX = 40000
 MAX_SAG_PX_FOR_REENABLE = 1500    # above this the physical position is NOT known
 SETTLE_TIMEOUT_S = 20.0
 NO_MOTION_STRIKES = 4             # consecutive dead commanded moves -> abort
@@ -351,6 +364,17 @@ class Runner:
             if j == 1:
                 continue
             s = self.B.clr()
+            # Rule 4, which this block used to skip. capture_shoulder() has just
+            # lifted the whole arm - 33k px of it - and the arm is still settling
+            # when the next joint is enabled. Without this wait the shoulder's
+            # settle is measured as the NEXT joint's enable jump and charged to
+            # it: on 2026-08-10 J3 was adopted at 15 with the elbow genuinely at
+            # 15 - the operator read the angle off the arm and confirmed it - and
+            # it still measured 25217 px, tripping MAX_ENABLE_JUMP_PX and
+            # aborting with "adopt angle badly wrong". The angle was right. The
+            # scene was moving. The gate was not the problem and is untouched.
+            if not self.B.wait_quiet(f"before enabling J{j}"):
+                self.abort(f"scene never settled before enabling J{j}")
             before = frame()
             self.L.send(f"ENA {j} {int(s[j]['SET'])}")
             self.L.idle(2.0)
