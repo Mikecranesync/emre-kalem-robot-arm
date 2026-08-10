@@ -581,7 +581,27 @@ def main():
             R.measure_floor(j)
         R.snap("preflight")
 
-        # prove the camera can see this arm move before trusting it all night
+        # Prove the camera can see this arm move before trusting it all night.
+        #
+        # PRIMED FIRST, per rule 6 of arm_bench_test.py: "THE FIRST MOVE AFTER AN
+        # ENABLE MAY BE DEAD. Backlash." This probe used to BE that first move,
+        # which made it a backlash test wearing a visibility test's clothes.
+        #
+        # It passed on 2026-08-09 only by accident: the adopt angles were wrong
+        # that night, so a 13-17k px snap on enable took up the gear train before
+        # the probe ran. On 2026-08-10, with the shoulder remounted and every
+        # adopt landing within 19-36 px of reality, nothing pre-loaded the train
+        # and the 4 deg probe was swallowed whole - 22 px against a floor of 24 -
+        # while the same joint had moved 25700 px on a 15 deg command three
+        # minutes earlier through arm_bench_test. The better the adopt, the more
+        # reliably the old gate false-failed.
+        #
+        # The gate itself is UNCHANGED: a probe must still show physical_move, and
+        # the probe is still 4 deg. What changed is that the backlash is taken up
+        # first, so the probe measures what it claims to measure. A dead FIRST
+        # move is expected and is not evidence of anything; a dead SECOND one is.
+        R.move(3, REF_POSE[3] + 4, 10, ACCELS[3][0], "preflight_prime")
+        R.move(3, REF_POSE[3], 10, ACCELS[3][0], "preflight_prime_return")
         probe = R.move(3, REF_POSE[3] + 4, 10, ACCELS[3][0], "preflight_probe")
         R.move(3, REF_POSE[3], 10, ACCELS[3][0], "preflight_probe_return")
         if not probe or not probe.get("physical_move"):
