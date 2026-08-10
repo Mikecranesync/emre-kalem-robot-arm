@@ -1,0 +1,84 @@
+{"t": "20:22:56", "test": "setup", "step": "shoulder", "adopt": 91, "enabled": true, "camera_px": 19, "verdict": "PASS"}
+{"t": "20:22:58", "test": "setup", "step": "enable", "joint": 3, "name": "Elbow", "enabled": true, "camera_px": 14322}
+{"t": "20:23:01", "test": "setup", "step": "enable", "joint": 4, "name": "WristPitch", "enabled": true, "camera_px": 17520}
+{"t": "20:23:04", "test": "setup", "step": "enable", "joint": 5, "name": "WristRoll", "enabled": true, "camera_px": 13199}
+{"t": "20:23:07", "test": "setup", "step": "enable", "joint": 0, "name": "Base", "enabled": true, "camera_px": 2398}
+{"t": "20:23:10", "test": "setup", "step": "enable", "joint": 6, "name": "Gripper", "enabled": true, "camera_px": 11442}
+{"t": "20:23:16", "test": "setup", "step": "floor", "floor_px": 992}
+{"t": "20:23:16", "test": "2a", "step": "begin", "note": "ladder per joint; centroid gives direction"}
+{"t": "20:23:20", "test": "2a", "joint": 1, "name": "Shoulder", "frm": 91, "to": 86, "deg": 5, "camera_px": 70, "centroid": [299.8, 204.3], "cmd_ok": true, "px_per_deg": 14.0}
+{"t": "20:23:27", "test": "2a", "joint": 1, "name": "Shoulder", "frm": 91, "to": 81, "deg": 10, "camera_px": 16024, "centroid": [303.1, 263.6], "cmd_ok": true, "px_per_deg": 1602.4}
+{"t": "20:23:34", "test": "2a", "joint": 1, "name": "Shoulder", "frm": 91, "to": 71, "deg": 20, "camera_px": 20634, "centroid": [292.2, 279.2], "cmd_ok": true, "px_per_deg": 1031.7}
+{"t": "20:23:41", "test": "2a", "joint": 3, "name": "Elbow", "frm": 15, "to": 20, "deg": 5, "camera_px": 25377, "centroid": [275.3, 282.5], "cmd_ok": true, "px_per_deg": 5075.4}
+{"t": "20:23:48", "test": "2a", "joint": 3, "name": "Elbow", "frm": 15, "to": 25, "deg": 10, "camera_px": 8567, "centroid": [318.7, 153.3], "cmd_ok": true, "px_per_deg": 856.7}
+{"t": "20:23:55", "test": "2a", "joint": 3, "name": "Elbow", "frm": 15, "to": 30, "deg": 15, "camera_px": 10768, "centroid": [307.2, 168.2], "cmd_ok": true, "px_per_deg": 717.9}
+{"t": "20:24:02", "test": "2a", "joint": 4, "name": "WristPitch", "frm": 90, "to": 95, "deg": 5, "camera_px": 11820, "centroid": [301.5, 186.8], "cmd_ok": true, "px_per_deg": 2364.0}
+{"t": "20:24:09", "test": "2a", "joint": 4, "name": "WristPitch", "frm": 90, "to": 100, "deg": 10, "camera_px": 572, "centroid": [314.9, 80.1], "cmd_ok": true, "px_per_deg": 57.2}
+{"t": "20:24:16", "test": "2a", "joint": 4, "name": "WristPitch", "frm": 90, "to": 110, "deg": 20, "camera_px": 3850, "centroid": [318.2, 99.6], "cmd_ok": true, "px_per_deg": 192.5}
+{"t": "20:24:23", "test": "2a", "joint": 5, "name": "WristRoll", "frm": 180, "to": 175, "deg": 5, "camera_px": 5865, "centroid": [310.1, 105.9], "cmd_ok": true, "px_per_deg": 1173.0}
+{"t": "20:24:30", "test": "2a", "joint": 5, "name": "WristRoll", "frm": 180, "to": 170, "deg": 10, "camera_px": 3681, "centroid": [326.8, 111.8], "cmd_ok": true, "px_per_deg": 368.1}
+{"t": "20:24:37", "test": "2a", "joint": 5, "name": "WristRoll", "frm": 180, "to": 160, "deg": 20, "camera_px": 3930, "centroid": [325.9, 107.4], "cmd_ok": true, "px_per_deg": 196.5}
+{"t": "20:24:44", "test": "2a", "joint": 0, "name": "Base", "frm": 110, "to": 115, "deg": 5, "camera_px": 5835, "centroid": [323.0, 133.5], "cmd_ok": true, "px_per_deg": 1167.0}
+{"t": "20:24:51", "test": "2a", "joint": 0, "name": "Base", "frm": 110, "to": 120, "deg": 10, "camera_px": 409, "centroid": [310.0, 142.1], "cmd_ok": true, "px_per_deg": 40.9}
+{"t": "20:24:58", "test": "2a", "joint": 0, "name": "Base", "frm": 110, "to": 130, "deg": 20, "camera_px": 8600, "centroid": [290.9, 313.7], "cmd_ok": true, "px_per_deg": 430.0}
+{"t": "20:25:05", "test": "2a", "joint": 6, "name": "Gripper", "frm": 90, "to": 95, "deg": 5, "camera_px": 14461, "centroid": [291.1, 311.7], "cmd_ok": true, "px_per_deg": 2892.2}
+{"t": "20:25:13", "test": "2a", "joint": 6, "name": "Gripper", "frm": 90, "to": 100, "deg": 10, "camera_px": 231, "centroid": [323.7, 241.1], "cmd_ok": true, "px_per_deg": 23.1}
+{"t": "20:25:20", "test": "2a", "joint": 6, "name": "Gripper", "frm": 90, "to": 110, "deg": 20, "camera_px": 100, "centroid": [310.4, 194.1], "cmd_ok": true, "px_per_deg": 5.0}
+{"t": "20:25:23", "test": "2b", "step": "begin", "note": "dead-band on the first move after a reversal"}
+{"t": "20:25:44", "test": "2b", "joint": 0, "name": "Base", "swings": [[91, 9740], [15768, 15764], [15978, 13977]], "floor_px": 992, "note": "a much smaller FIRST value in each pair is lost motion"}
+{"t": "20:26:09", "test": "2b", "joint": 4, "name": "WristPitch", "swings": [[198, 6568], [5463, 5393], [5393, 5381]], "floor_px": 992, "note": "a much smaller FIRST value in each pair is lost motion"}
+{"t": "20:26:33", "test": "2b", "joint": 3, "name": "Elbow", "swings": [[3779, 11815], [11443, 11355], [11610, 12461]], "floor_px": 992, "note": "a much smaller FIRST value in each pair is lost motion"}
+{"t": "20:26:37", "test": "2c", "step": "begin", "note": "same target approached from both sides"}
+{"t": "20:27:05", "test": "2c", "joint": 3, "name": "Elbow", "target": 15, "from_deg": [7, 23], "vs_first_arrival_px": [11035, 982, 10372], "floor_px": 992, "note": "near the floor = lands in the same place; large = it does not"}
+{"t": "20:27:05", "test": "2c", "joint": 1, "name": "Shoulder", "skipped": "not enough room either side"}
+{"t": "20:27:05", "test": "2e", "step": "begin", "note": "parked and enabled: hunting vs sag"}
+{"t": "20:27:53", "test": "2e", "peak_adjacent_px": 9571, "peak_drift_px": 9983, "floor_px": 992, "hunting": true, "sagging": true, "note": "adjacent = oscillation; drift = creeping away from where it started"}
+{"t": "20:27:53", "test": "2f", "step": "begin", "note": "large command - does ANYTHING move"}
+{"t": "20:27:57", "test": "2f", "joint": 6, "to": 130, "deg": 40, "camera_px": 20, "centroid": null, "cmd_ok": true, "moved": false}
+{"t": "20:28:00", "test": "2f", "joint": 6, "to": 90, "deg": 0, "camera_px": 177, "centroid": [315.6, 128.0], "cmd_ok": true, "moved": false}
+{"t": "20:28:04", "test": "2f", "joint": 6, "to": 50, "deg": 40, "camera_px": 2348, "centroid": [324.1, 201.0], "cmd_ok": true, "moved": true}
+{"t": "20:28:07", "test": "2f", "joint": 6, "to": 90, "deg": 0, "camera_px": 5697, "centroid": [316.1, 245.0], "cmd_ok": true, "moved": true}
+{"t": "20:28:07", "test": "done", "off": "OK PNG UP=8235545 | OK DIS ALL"}
+
+===== PHASE 2 LOG =====
+{"t": "20:22:56", "test": "setup", "step": "shoulder", "adopt": 91, "enabled": true, "camera_px": 19, "verdict": "PASS"}
+{"t": "20:22:58", "test": "setup", "step": "enable", "joint": 3, "name": "Elbow", "enabled": true, "camera_px": 14322}
+{"t": "20:23:01", "test": "setup", "step": "enable", "joint": 4, "name": "WristPitch", "enabled": true, "camera_px": 17520}
+{"t": "20:23:04", "test": "setup", "step": "enable", "joint": 5, "name": "WristRoll", "enabled": true, "camera_px": 13199}
+{"t": "20:23:07", "test": "setup", "step": "enable", "joint": 0, "name": "Base", "enabled": true, "camera_px": 2398}
+{"t": "20:23:10", "test": "setup", "step": "enable", "joint": 6, "name": "Gripper", "enabled": true, "camera_px": 11442}
+{"t": "20:23:16", "test": "setup", "step": "floor", "floor_px": 992}
+{"t": "20:23:16", "test": "2a", "step": "begin", "note": "ladder per joint; centroid gives direction"}
+{"t": "20:23:20", "test": "2a", "joint": 1, "name": "Shoulder", "frm": 91, "to": 86, "deg": 5, "camera_px": 70, "centroid": [299.8, 204.3], "cmd_ok": true, "px_per_deg": 14.0}
+{"t": "20:23:27", "test": "2a", "joint": 1, "name": "Shoulder", "frm": 91, "to": 81, "deg": 10, "camera_px": 16024, "centroid": [303.1, 263.6], "cmd_ok": true, "px_per_deg": 1602.4}
+{"t": "20:23:34", "test": "2a", "joint": 1, "name": "Shoulder", "frm": 91, "to": 71, "deg": 20, "camera_px": 20634, "centroid": [292.2, 279.2], "cmd_ok": true, "px_per_deg": 1031.7}
+{"t": "20:23:41", "test": "2a", "joint": 3, "name": "Elbow", "frm": 15, "to": 20, "deg": 5, "camera_px": 25377, "centroid": [275.3, 282.5], "cmd_ok": true, "px_per_deg": 5075.4}
+{"t": "20:23:48", "test": "2a", "joint": 3, "name": "Elbow", "frm": 15, "to": 25, "deg": 10, "camera_px": 8567, "centroid": [318.7, 153.3], "cmd_ok": true, "px_per_deg": 856.7}
+{"t": "20:23:55", "test": "2a", "joint": 3, "name": "Elbow", "frm": 15, "to": 30, "deg": 15, "camera_px": 10768, "centroid": [307.2, 168.2], "cmd_ok": true, "px_per_deg": 717.9}
+{"t": "20:24:02", "test": "2a", "joint": 4, "name": "WristPitch", "frm": 90, "to": 95, "deg": 5, "camera_px": 11820, "centroid": [301.5, 186.8], "cmd_ok": true, "px_per_deg": 2364.0}
+{"t": "20:24:09", "test": "2a", "joint": 4, "name": "WristPitch", "frm": 90, "to": 100, "deg": 10, "camera_px": 572, "centroid": [314.9, 80.1], "cmd_ok": true, "px_per_deg": 57.2}
+{"t": "20:24:16", "test": "2a", "joint": 4, "name": "WristPitch", "frm": 90, "to": 110, "deg": 20, "camera_px": 3850, "centroid": [318.2, 99.6], "cmd_ok": true, "px_per_deg": 192.5}
+{"t": "20:24:23", "test": "2a", "joint": 5, "name": "WristRoll", "frm": 180, "to": 175, "deg": 5, "camera_px": 5865, "centroid": [310.1, 105.9], "cmd_ok": true, "px_per_deg": 1173.0}
+{"t": "20:24:30", "test": "2a", "joint": 5, "name": "WristRoll", "frm": 180, "to": 170, "deg": 10, "camera_px": 3681, "centroid": [326.8, 111.8], "cmd_ok": true, "px_per_deg": 368.1}
+{"t": "20:24:37", "test": "2a", "joint": 5, "name": "WristRoll", "frm": 180, "to": 160, "deg": 20, "camera_px": 3930, "centroid": [325.9, 107.4], "cmd_ok": true, "px_per_deg": 196.5}
+{"t": "20:24:44", "test": "2a", "joint": 0, "name": "Base", "frm": 110, "to": 115, "deg": 5, "camera_px": 5835, "centroid": [323.0, 133.5], "cmd_ok": true, "px_per_deg": 1167.0}
+{"t": "20:24:51", "test": "2a", "joint": 0, "name": "Base", "frm": 110, "to": 120, "deg": 10, "camera_px": 409, "centroid": [310.0, 142.1], "cmd_ok": true, "px_per_deg": 40.9}
+{"t": "20:24:58", "test": "2a", "joint": 0, "name": "Base", "frm": 110, "to": 130, "deg": 20, "camera_px": 8600, "centroid": [290.9, 313.7], "cmd_ok": true, "px_per_deg": 430.0}
+{"t": "20:25:05", "test": "2a", "joint": 6, "name": "Gripper", "frm": 90, "to": 95, "deg": 5, "camera_px": 14461, "centroid": [291.1, 311.7], "cmd_ok": true, "px_per_deg": 2892.2}
+{"t": "20:25:13", "test": "2a", "joint": 6, "name": "Gripper", "frm": 90, "to": 100, "deg": 10, "camera_px": 231, "centroid": [323.7, 241.1], "cmd_ok": true, "px_per_deg": 23.1}
+{"t": "20:25:20", "test": "2a", "joint": 6, "name": "Gripper", "frm": 90, "to": 110, "deg": 20, "camera_px": 100, "centroid": [310.4, 194.1], "cmd_ok": true, "px_per_deg": 5.0}
+{"t": "20:25:23", "test": "2b", "step": "begin", "note": "dead-band on the first move after a reversal"}
+{"t": "20:25:44", "test": "2b", "joint": 0, "name": "Base", "swings": [[91, 9740], [15768, 15764], [15978, 13977]], "floor_px": 992, "note": "a much smaller FIRST value in each pair is lost motion"}
+{"t": "20:26:09", "test": "2b", "joint": 4, "name": "WristPitch", "swings": [[198, 6568], [5463, 5393], [5393, 5381]], "floor_px": 992, "note": "a much smaller FIRST value in each pair is lost motion"}
+{"t": "20:26:33", "test": "2b", "joint": 3, "name": "Elbow", "swings": [[3779, 11815], [11443, 11355], [11610, 12461]], "floor_px": 992, "note": "a much smaller FIRST value in each pair is lost motion"}
+{"t": "20:26:37", "test": "2c", "step": "begin", "note": "same target approached from both sides"}
+{"t": "20:27:05", "test": "2c", "joint": 3, "name": "Elbow", "target": 15, "from_deg": [7, 23], "vs_first_arrival_px": [11035, 982, 10372], "floor_px": 992, "note": "near the floor = lands in the same place; large = it does not"}
+{"t": "20:27:05", "test": "2c", "joint": 1, "name": "Shoulder", "skipped": "not enough room either side"}
+{"t": "20:27:05", "test": "2e", "step": "begin", "note": "parked and enabled: hunting vs sag"}
+{"t": "20:27:53", "test": "2e", "peak_adjacent_px": 9571, "peak_drift_px": 9983, "floor_px": 992, "hunting": true, "sagging": true, "note": "adjacent = oscillation; drift = creeping away from where it started"}
+{"t": "20:27:53", "test": "2f", "step": "begin", "note": "large command - does ANYTHING move"}
+{"t": "20:27:57", "test": "2f", "joint": 6, "to": 130, "deg": 40, "camera_px": 20, "centroid": null, "cmd_ok": true, "moved": false}
+{"t": "20:28:00", "test": "2f", "joint": 6, "to": 90, "deg": 0, "camera_px": 177, "centroid": [315.6, 128.0], "cmd_ok": true, "moved": false}
+{"t": "20:28:04", "test": "2f", "joint": 6, "to": 50, "deg": 40, "camera_px": 2348, "centroid": [324.1, 201.0], "cmd_ok": true, "moved": true}
+{"t": "20:28:07", "test": "2f", "joint": 6, "to": 90, "deg": 0, "camera_px": 5697, "centroid": [316.1, 245.0], "cmd_ok": true, "moved": true}
+{"t": "20:28:07", "test": "done", "off": "OK PNG UP=8235545 | OK DIS ALL"}
