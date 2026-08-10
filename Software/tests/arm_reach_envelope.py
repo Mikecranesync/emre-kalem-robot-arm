@@ -33,6 +33,7 @@ frames from the camera preview.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import time
@@ -47,6 +48,16 @@ from arm_bench_test import CAM, ROI, THRESH  # noqa: E402
 BANNER_ROWS = 70     # burnt-in status text; it redraws every frame
 MARGIN = 40          # px of slack added to the observed envelope
 SETTLE_FRAMES = 5    # frames averaged into the reference before sweeping starts
+
+# A pixel must change in at least this many frames to count as swept. Without it
+# the envelope is worthless: the first run pinned to the whole frame within two
+# seconds because sensor speckle on high-contrast edges - gridlines, cables, the
+# shelf - put a stray changed pixel in every corner, and a bounding box drawn
+# around ANY changed pixel is a bounding box around the noise. Only 1.1% of the
+# frame had actually changed. Real swept structure persists across frames;
+# speckle does not.
+PERSIST = 3
+OPEN_K = 3           # morphological opening, kills isolated survivors
 
 
 def grab() -> np.ndarray:
@@ -72,13 +83,24 @@ def main() -> None:
     H, W = ref.shape
 
     print(f"sweep the arm through its FULL range for {secs:.0f}s - start now", flush=True)
-    env = np.zeros((H, W), bool)
+    hits = np.zeros((H, W), np.int32)
     end, last, n = time.time() + secs, 0.0, 0
+    seen: set[str] = set()
+
+    def envelope() -> np.ndarray:
+        m = (hits >= PERSIST).astype(np.uint8)
+        return cv2.morphologyEx(m, cv2.MORPH_OPEN,
+                                np.ones((OPEN_K, OPEN_K), np.uint8)).astype(bool)
 
     while time.time() < end:
-        env |= cv2.absdiff(grab()[BANNER_ROWS:, :], ref) > THRESH
+        raw = urllib.request.urlopen(CAM, timeout=15).read()
+        seen.add(hashlib.md5(raw).hexdigest())
+        img = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+        hits += (cv2.absdiff(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)[BANNER_ROWS:, :],
+                             ref) > THRESH)
         n += 1
         if time.time() - last >= 2.0:
+            env = envelope()
             b = bounds(env)
             if b:
                 print(f"  {end - time.time():5.1f}s left   envelope "
@@ -86,6 +108,7 @@ def main() -> None:
                       f"{env.mean() * 100:4.1f}% of frame", flush=True)
             last = time.time()
 
+    env = envelope()
     b = bounds(env)
     if not b:
         print("\nNOTHING MOVED. The envelope is empty - was the arm actually swept?")
@@ -96,7 +119,11 @@ def main() -> None:
     x1 = min(W, b[2] + MARGIN)
     y1 = min(H + BANNER_ROWS, b[3] + MARGIN)
 
-    print(f"\nframes            {n}")
+    print(f"\nframes            {n}, distinct {len(seen)}")
+    if len(seen) < n * 0.8:
+        print("  !! DUPLICATE FRAMES - the camera handed back stale images, so motion")
+        print("     was missed and this envelope is an UNDER-estimate. Close any other")
+        print("     viewer on /stream and re-run before trusting it.")
     print(f"observed envelope x{b[0]}-{b[2]}  y{b[1]}-{b[3]}")
     print(f"with {MARGIN}px margin  x{x0}-{x1}  y{y0}-{y1}")
     print(f"ROI in code now   x{ROI[0]}-{ROI[2]}  y{ROI[1]}-{ROI[3]}")
