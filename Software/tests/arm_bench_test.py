@@ -378,4 +378,7 @@ def main():
     B.report()
 
 
-main()
+# Importable on purpose. Link and Bench carry the six rules, and the precision
+# work reuses them rather than forking a copy that quietly drops one.
+if __name__ == "__main__":
+    main()

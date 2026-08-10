@@ -1,0 +1,212 @@
+{"t": "20:55:33", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 18}
+{"t": "20:55:35", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 20}
+{"t": "20:55:38", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 8, "en": "1", "verdict": "PASS"}
+{"t": "20:55:41", "step": "enable", "joint": 3, "name": "Elbow", "adopt": 15, "reply": "OK ENA J3 ADOPT=15", "camera_px": 16694, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "20:55:44", "step": "enable", "joint": 4, "name": "Wrist pitch", "adopt": 90, "reply": "OK ENA J4 ADOPT=90", "camera_px": 6457, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "20:55:47", "step": "enable", "joint": 5, "name": "Wrist roll", "adopt": 180, "reply": "OK ENA J5 ADOPT=180", "camera_px": 117, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "20:55:50", "step": "enable", "joint": 0, "name": "Base", "adopt": 110, "reply": "OK ENA J0 ADOPT=110", "camera_px": 282, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "20:55:58", "step": "prime", "joint": 1, "name": "Shoulder(pair)", "swept": [83, 91], "back_to": 91, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:56:02", "step": "scene_quiet", "why": "roi base J1", "settled_px": 30}
+{"t": "20:56:08", "step": "scene_quiet", "why": "roi moved J1", "settled_px": 84}
+{"t": "20:56:11", "step": "roi", "joint": 1, "name": "Shoulder(pair)", "roi": [116, 289, 372, 602], "area": 20332, "exercised_deg": 15}
+{"t": "20:56:20", "step": "prime", "joint": 3, "name": "Elbow", "swept": [7, 23], "back_to": 15, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:56:25", "step": "scene_quiet", "why": "roi base J3", "settled_px": 88}
+{"t": "20:56:35", "step": "scene_quiet", "why": "roi moved J3", "settled_px": 427}
+{"t": "20:56:37", "step": "roi", "joint": 3, "name": "Elbow", "roi": [221, 28, 372, 346], "area": 15525, "exercised_deg": 15}
+{"t": "20:56:45", "step": "prime", "joint": 4, "name": "Wrist pitch", "swept": [82, 98], "back_to": 90, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:56:49", "step": "scene_quiet", "why": "roi base J4", "settled_px": 93}
+{"t": "20:56:57", "step": "scene_quiet", "why": "roi moved J4", "settled_px": 109}
+{"t": "20:56:59", "step": "roi", "joint": 4, "name": "Wrist pitch", "roi": [267, 27, 372, 220], "area": 6706, "exercised_deg": 15}
+{"t": "20:57:08", "step": "prime", "joint": 5, "name": "Wrist roll", "swept": [172, 180], "back_to": 180, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:57:12", "step": "scene_quiet", "why": "roi base J5", "settled_px": 41}
+{"t": "20:57:18", "step": "scene_quiet", "why": "roi moved J5", "settled_px": 58}
+{"t": "20:57:21", "step": "roi", "joint": 5, "name": "Wrist roll", "roi": [279, 0, 372, 244], "area": 7318, "exercised_deg": 15}
+{"t": "20:57:29", "step": "prime", "joint": 0, "name": "Base", "swept": [102, 118], "back_to": 110, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:57:33", "step": "scene_quiet", "why": "roi base J0", "settled_px": 38}
+{"t": "20:57:38", "step": "scene_quiet", "why": "roi moved J0", "settled_px": 131}
+{"t": "20:57:41", "step": "roi", "joint": 0, "failed": "no connected motion region"}
+{"t": "20:57:41", "step": "roi_done", "cal": {"1": [116, 289, 372, 602], "3": [221, 28, 372, 346], "4": [267, 27, 372, 220], "5": [279, 0, 372, 244]}}
+{"t": "20:57:41", "step": "off", "result": "OK DIS ALL"}
+
+===== PRECISION LOG =====
+{"t": "20:55:33", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 18}
+{"t": "20:55:35", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 20}
+{"t": "20:55:38", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 8, "en": "1", "verdict": "PASS"}
+{"t": "20:55:41", "step": "enable", "joint": 3, "name": "Elbow", "adopt": 15, "reply": "OK ENA J3 ADOPT=15", "camera_px": 16694, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "20:55:44", "step": "enable", "joint": 4, "name": "Wrist pitch", "adopt": 90, "reply": "OK ENA J4 ADOPT=90", "camera_px": 6457, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "20:55:47", "step": "enable", "joint": 5, "name": "Wrist roll", "adopt": 180, "reply": "OK ENA J5 ADOPT=180", "camera_px": 117, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "20:55:50", "step": "enable", "joint": 0, "name": "Base", "adopt": 110, "reply": "OK ENA J0 ADOPT=110", "camera_px": 282, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "20:55:58", "step": "prime", "joint": 1, "name": "Shoulder(pair)", "swept": [83, 91], "back_to": 91, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:56:02", "step": "scene_quiet", "why": "roi base J1", "settled_px": 30}
+{"t": "20:56:08", "step": "scene_quiet", "why": "roi moved J1", "settled_px": 84}
+{"t": "20:56:11", "step": "roi", "joint": 1, "name": "Shoulder(pair)", "roi": [116, 289, 372, 602], "area": 20332, "exercised_deg": 15}
+{"t": "20:56:20", "step": "prime", "joint": 3, "name": "Elbow", "swept": [7, 23], "back_to": 15, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:56:25", "step": "scene_quiet", "why": "roi base J3", "settled_px": 88}
+{"t": "20:56:35", "step": "scene_quiet", "why": "roi moved J3", "settled_px": 427}
+{"t": "20:56:37", "step": "roi", "joint": 3, "name": "Elbow", "roi": [221, 28, 372, 346], "area": 15525, "exercised_deg": 15}
+{"t": "20:56:45", "step": "prime", "joint": 4, "name": "Wrist pitch", "swept": [82, 98], "back_to": 90, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:56:49", "step": "scene_quiet", "why": "roi base J4", "settled_px": 93}
+{"t": "20:56:57", "step": "scene_quiet", "why": "roi moved J4", "settled_px": 109}
+{"t": "20:56:59", "step": "roi", "joint": 4, "name": "Wrist pitch", "roi": [267, 27, 372, 220], "area": 6706, "exercised_deg": 15}
+{"t": "20:57:08", "step": "prime", "joint": 5, "name": "Wrist roll", "swept": [172, 180], "back_to": 180, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:57:12", "step": "scene_quiet", "why": "roi base J5", "settled_px": 41}
+{"t": "20:57:18", "step": "scene_quiet", "why": "roi moved J5", "settled_px": 58}
+{"t": "20:57:21", "step": "roi", "joint": 5, "name": "Wrist roll", "roi": [279, 0, 372, 244], "area": 7318, "exercised_deg": 15}
+{"t": "20:57:29", "step": "prime", "joint": 0, "name": "Base", "swept": [102, 118], "back_to": 110, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "20:57:33", "step": "scene_quiet", "why": "roi base J0", "settled_px": 38}
+{"t": "20:57:38", "step": "scene_quiet", "why": "roi moved J0", "settled_px": 131}
+{"t": "20:57:41", "step": "roi", "joint": 0, "failed": "no connected motion region"}
+{"t": "20:57:41", "step": "roi_done", "cal": {"1": [116, 289, 372, 602], "3": [221, 28, 372, 346], "4": [267, 27, 372, 220], "5": [279, 0, 372, 244]}}
+{"t": "20:57:41", "step": "off", "result": "OK DIS ALL"}
+{"t": "21:01:05", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 22}
+{"t": "21:01:08", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 25}
+{"t": "21:01:10", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 12, "en": "1", "verdict": "PASS"}
+{"t": "21:01:13", "step": "enable", "joint": 3, "name": "Elbow", "adopt": 28, "reply": "OK ENA J3 ADOPT=28", "camera_px": 19466, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "21:01:22", "step": "prime", "joint": 3, "name": "Elbow", "swept": [20, 30], "back_to": 28, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "21:01:25", "step": "park", "joint": 3, "at": 15, "limits": [0, 30]}
+{"t": "21:01:32", "step": "scene_quiet", "why": "before ROI floor (try 1)", "settled_px": 113}
+{"t": "21:01:35", "step": "roi_floor", "joint": 3, "floor_px": 131, "roi": [221, 28, 372, 346]}
+{"t": "21:01:46", "step": "scene_quiet", "why": "onset base J3 dir1", "settled_px": 42}
+{"t": "21:01:52", "step": "scene_quiet", "why": "onset step 1", "settled_px": 24}
+{"t": "21:01:52", "step": "onset", "joint": 3, "name": "Elbow", "rep": 1, "direction": "up", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 1253}]}
+{"t": "21:02:01", "step": "scene_quiet", "why": "onset base J3 dir-1", "settled_px": 29}
+{"t": "21:02:07", "step": "scene_quiet", "why": "onset step 1", "settled_px": 64}
+{"t": "21:02:08", "step": "onset", "joint": 3, "name": "Elbow", "rep": 1, "direction": "down", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 2224}]}
+{"t": "21:02:18", "step": "scene_quiet", "why": "onset base J3 dir1", "settled_px": 30}
+{"t": "21:02:23", "step": "scene_quiet", "why": "onset step 1", "settled_px": 37}
+{"t": "21:02:24", "step": "onset", "joint": 3, "name": "Elbow", "rep": 2, "direction": "up", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 1725}]}
+{"t": "21:02:33", "step": "scene_quiet", "why": "onset base J3 dir-1", "settled_px": 52}
+{"t": "21:02:39", "step": "scene_quiet", "why": "onset step 1", "settled_px": 17}
+{"t": "21:02:39", "step": "onset", "joint": 3, "name": "Elbow", "rep": 2, "direction": "down", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 2211}]}
+{"t": "21:02:48", "step": "scene_quiet", "why": "onset base J3 dir1", "settled_px": 706}
+{"t": "21:02:53", "step": "scene_quiet", "why": "onset step 1", "settled_px": 21}
+{"t": "21:02:53", "step": "onset", "joint": 3, "name": "Elbow", "rep": 3, "direction": "up", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 655}]}
+{"t": "21:03:04", "step": "scene_quiet", "why": "onset base J3 dir-1", "settled_px": 26}
+{"t": "21:03:10", "step": "scene_quiet", "why": "onset step 1", "settled_px": 243}
+{"t": "21:03:10", "step": "onset", "joint": 3, "name": "Elbow", "rep": 3, "direction": "down", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 2837}]}
+{"t": "21:03:10", "step": "backlash_summary", "joint": 3, "name": "Elbow", "summary": {"up": {"samples": [1, 1, 1], "median_deg": 1, "spread_deg": 0, "misses": 0}, "down": {"samples": [1, 1, 1], "median_deg": 1, "spread_deg": 0, "misses": 0}}}
+{"t": "21:03:10", "step": "off", "result": "OK DIS ALL"}
+
+===== PRECISION LOG =====
+{"t": "21:01:05", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 22}
+{"t": "21:01:08", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 25}
+{"t": "21:01:10", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 12, "en": "1", "verdict": "PASS"}
+{"t": "21:01:13", "step": "enable", "joint": 3, "name": "Elbow", "adopt": 28, "reply": "OK ENA J3 ADOPT=28", "camera_px": 19466, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "21:01:22", "step": "prime", "joint": 3, "name": "Elbow", "swept": [20, 30], "back_to": 28, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "21:01:25", "step": "park", "joint": 3, "at": 15, "limits": [0, 30]}
+{"t": "21:01:32", "step": "scene_quiet", "why": "before ROI floor (try 1)", "settled_px": 113}
+{"t": "21:01:35", "step": "roi_floor", "joint": 3, "floor_px": 131, "roi": [221, 28, 372, 346]}
+{"t": "21:01:46", "step": "scene_quiet", "why": "onset base J3 dir1", "settled_px": 42}
+{"t": "21:01:52", "step": "scene_quiet", "why": "onset step 1", "settled_px": 24}
+{"t": "21:01:52", "step": "onset", "joint": 3, "name": "Elbow", "rep": 1, "direction": "up", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 1253}]}
+{"t": "21:02:01", "step": "scene_quiet", "why": "onset base J3 dir-1", "settled_px": 29}
+{"t": "21:02:07", "step": "scene_quiet", "why": "onset step 1", "settled_px": 64}
+{"t": "21:02:08", "step": "onset", "joint": 3, "name": "Elbow", "rep": 1, "direction": "down", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 2224}]}
+{"t": "21:02:18", "step": "scene_quiet", "why": "onset base J3 dir1", "settled_px": 30}
+{"t": "21:02:23", "step": "scene_quiet", "why": "onset step 1", "settled_px": 37}
+{"t": "21:02:24", "step": "onset", "joint": 3, "name": "Elbow", "rep": 2, "direction": "up", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 1725}]}
+{"t": "21:02:33", "step": "scene_quiet", "why": "onset base J3 dir-1", "settled_px": 52}
+{"t": "21:02:39", "step": "scene_quiet", "why": "onset step 1", "settled_px": 17}
+{"t": "21:02:39", "step": "onset", "joint": 3, "name": "Elbow", "rep": 2, "direction": "down", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 2211}]}
+{"t": "21:02:48", "step": "scene_quiet", "why": "onset base J3 dir1", "settled_px": 706}
+{"t": "21:02:53", "step": "scene_quiet", "why": "onset step 1", "settled_px": 21}
+{"t": "21:02:53", "step": "onset", "joint": 3, "name": "Elbow", "rep": 3, "direction": "up", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 655}]}
+{"t": "21:03:04", "step": "scene_quiet", "why": "onset base J3 dir-1", "settled_px": 26}
+{"t": "21:03:10", "step": "scene_quiet", "why": "onset step 1", "settled_px": 243}
+{"t": "21:03:10", "step": "onset", "joint": 3, "name": "Elbow", "rep": 3, "direction": "down", "consumed_deg": 1, "floor_px": 131, "trace": [{"deg": 1, "px": 2837}]}
+{"t": "21:03:10", "step": "backlash_summary", "joint": 3, "name": "Elbow", "summary": {"up": {"samples": [1, 1, 1], "median_deg": 1, "spread_deg": 0, "misses": 0}, "down": {"samples": [1, 1, 1], "median_deg": 1, "spread_deg": 0, "misses": 0}}}
+{"t": "21:03:10", "step": "off", "result": "OK DIS ALL"}
+{"t": "21:04:15", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 12}
+{"t": "21:04:18", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 10}
+{"t": "21:04:20", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 21, "en": "1", "verdict": "PASS"}
+{"t": "21:04:23", "step": "enable", "joint": 3, "name": "Elbow", "adopt": 14, "reply": "OK ENA J3 ADOPT=14", "camera_px": 15256, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "21:04:32", "step": "prime", "joint": 3, "name": "Elbow", "swept": [6, 22], "back_to": 14, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "21:04:36", "step": "scene_quiet", "why": "before ROI floor (try 1)", "settled_px": 19}
+{"t": "21:04:40", "step": "repeat_setup", "joint": 3, "name": "Elbow", "target": 15, "below": 7, "above": 23, "roi": [221, 28, 372, 346], "floor_px": 403}
+{"t": "21:04:46", "step": "scene_quiet", "why": "at approach point 7", "settled_px": 57}
+{"t": "21:04:52", "step": "scene_quiet", "why": "arrived at 15 from 7", "settled_px": 63}
+{"t": "21:04:58", "step": "scene_quiet", "why": "at approach point 23", "settled_px": 44}
+{"t": "21:05:04", "step": "scene_quiet", "why": "arrived at 15 from 23", "settled_px": 109}
+{"t": "21:05:10", "step": "scene_quiet", "why": "at approach point 7", "settled_px": 16}
+{"t": "21:05:16", "step": "scene_quiet", "why": "arrived at 15 from 7", "settled_px": 52}
+{"t": "21:05:23", "step": "scene_quiet", "why": "at approach point 23", "settled_px": 17}
+{"t": "21:05:29", "step": "scene_quiet", "why": "arrived at 15 from 23", "settled_px": 64}
+{"t": "21:05:35", "step": "scene_quiet", "why": "at approach point 7", "settled_px": 51}
+{"t": "21:05:41", "step": "scene_quiet", "why": "arrived at 15 from 7", "settled_px": 74}
+{"t": "21:05:47", "step": "scene_quiet", "why": "at approach point 23", "settled_px": 774}
+{"t": "21:05:53", "step": "scene_quiet", "why": "arrived at 15 from 23", "settled_px": 25}
+{"t": "21:05:59", "step": "scene_quiet", "why": "at approach point 7", "settled_px": 22}
+{"t": "21:06:06", "step": "scene_quiet", "why": "arrived at 15 from 7", "settled_px": 21}
+{"t": "21:06:12", "step": "scene_quiet", "why": "at approach point 23", "settled_px": 137}
+{"t": "21:06:18", "step": "scene_quiet", "why": "arrived at 15 from 23", "settled_px": 52}
+{"t": "21:06:18", "step": "repeat_result", "joint": 3, "name": "Elbow", "reps": 4, "floor_px": 403, "same_side_below_px": [1784, 896, 2711], "same_side_above_px": [438, 1059, 752], "opposite_side_px": [51, 2183, 701, 2901], "median_same": 977.5, "median_opposite": 1442.0, "note": "if median_opposite collapses to the floor the Phase 2 split was settling"}
+{"t": "21:06:18", "step": "off", "result": "OK DIS ALL"}
+
+===== PRECISION LOG =====
+{"t": "21:04:15", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 12}
+{"t": "21:04:18", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 10}
+{"t": "21:04:20", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 21, "en": "1", "verdict": "PASS"}
+{"t": "21:04:23", "step": "enable", "joint": 3, "name": "Elbow", "adopt": 14, "reply": "OK ENA J3 ADOPT=14", "camera_px": 15256, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "21:04:32", "step": "prime", "joint": 3, "name": "Elbow", "swept": [6, 22], "back_to": 14, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "21:04:36", "step": "scene_quiet", "why": "before ROI floor (try 1)", "settled_px": 19}
+{"t": "21:04:40", "step": "repeat_setup", "joint": 3, "name": "Elbow", "target": 15, "below": 7, "above": 23, "roi": [221, 28, 372, 346], "floor_px": 403}
+{"t": "21:04:46", "step": "scene_quiet", "why": "at approach point 7", "settled_px": 57}
+{"t": "21:04:52", "step": "scene_quiet", "why": "arrived at 15 from 7", "settled_px": 63}
+{"t": "21:04:58", "step": "scene_quiet", "why": "at approach point 23", "settled_px": 44}
+{"t": "21:05:04", "step": "scene_quiet", "why": "arrived at 15 from 23", "settled_px": 109}
+{"t": "21:05:10", "step": "scene_quiet", "why": "at approach point 7", "settled_px": 16}
+{"t": "21:05:16", "step": "scene_quiet", "why": "arrived at 15 from 7", "settled_px": 52}
+{"t": "21:05:23", "step": "scene_quiet", "why": "at approach point 23", "settled_px": 17}
+{"t": "21:05:29", "step": "scene_quiet", "why": "arrived at 15 from 23", "settled_px": 64}
+{"t": "21:05:35", "step": "scene_quiet", "why": "at approach point 7", "settled_px": 51}
+{"t": "21:05:41", "step": "scene_quiet", "why": "arrived at 15 from 7", "settled_px": 74}
+{"t": "21:05:47", "step": "scene_quiet", "why": "at approach point 23", "settled_px": 774}
+{"t": "21:05:53", "step": "scene_quiet", "why": "arrived at 15 from 23", "settled_px": 25}
+{"t": "21:05:59", "step": "scene_quiet", "why": "at approach point 7", "settled_px": 22}
+{"t": "21:06:06", "step": "scene_quiet", "why": "arrived at 15 from 7", "settled_px": 21}
+{"t": "21:06:12", "step": "scene_quiet", "why": "at approach point 23", "settled_px": 137}
+{"t": "21:06:18", "step": "scene_quiet", "why": "arrived at 15 from 23", "settled_px": 52}
+{"t": "21:06:18", "step": "repeat_result", "joint": 3, "name": "Elbow", "reps": 4, "floor_px": 403, "same_side_below_px": [1784, 896, 2711], "same_side_above_px": [438, 1059, 752], "opposite_side_px": [51, 2183, 701, 2901], "median_same": 977.5, "median_opposite": 1442.0, "note": "if median_opposite collapses to the floor the Phase 2 split was settling"}
+{"t": "21:06:18", "step": "off", "result": "OK DIS ALL"}
+{"t": "21:07:30", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 21}
+{"t": "21:07:32", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 18}
+{"t": "21:07:35", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 18, "en": "1", "verdict": "PASS"}
+{"t": "21:07:38", "step": "enable", "joint": 3, "name": "Elbow", "adopt": 15, "reply": "OK ENA J3 ADOPT=15", "camera_px": 15766, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "21:07:47", "step": "prime", "joint": 3, "name": "Elbow", "swept": [7, 23], "back_to": 15, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "21:07:57", "step": "scene_quiet", "why": "before ROI floor (try 1)", "settled_px": 213}
+{"t": "21:08:00", "step": "roi_floor_rejected", "roi": [221, 28, 372, 346], "floor_px": 3410, "cap": 960, "attempt": 1}
+{"t": "21:08:08", "step": "scene_quiet", "why": "before ROI floor (try 2)", "settled_px": 113}
+{"t": "21:08:17", "step": "scene_quiet", "why": "before the hold window", "settled_px": 91}
+{"t": "21:09:32", "step": "hold_result", "joint": 3, "name": "Elbow", "seconds": 75, "roi": [221, 28, 372, 346], "floor_px": 129, "peak_adjacent_px": 2992, "peak_drift_px": 3916, "adjacent_over_floor": 23.2, "distinct_set_tgt_pairs": [["15", "15"]], "host_rewrote_target": false, "hunting": true, "sagging": true, "note": "one SET/TGT pair means the host held a single unchanging command"}
+{"t": "21:09:32", "step": "off", "result": "OK DIS ALL"}
+
+===== PRECISION LOG =====
+{"t": "21:07:30", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 21}
+{"t": "21:07:32", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 18}
+{"t": "21:07:35", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 18, "en": "1", "verdict": "PASS"}
+{"t": "21:07:38", "step": "enable", "joint": 3, "name": "Elbow", "adopt": 15, "reply": "OK ENA J3 ADOPT=15", "camera_px": 15766, "en": "1", "note": "a large px here means the adopt angle did not match reality"}
+{"t": "21:07:47", "step": "prime", "joint": 3, "name": "Elbow", "swept": [7, 23], "back_to": 15, "note": "take-up spent deliberately; joint now exercised"}
+{"t": "21:07:57", "step": "scene_quiet", "why": "before ROI floor (try 1)", "settled_px": 213}
+{"t": "21:08:00", "step": "roi_floor_rejected", "roi": [221, 28, 372, 346], "floor_px": 3410, "cap": 960, "attempt": 1}
+{"t": "21:08:08", "step": "scene_quiet", "why": "before ROI floor (try 2)", "settled_px": 113}
+{"t": "21:08:17", "step": "scene_quiet", "why": "before the hold window", "settled_px": 91}
+{"t": "21:09:32", "step": "hold_result", "joint": 3, "name": "Elbow", "seconds": 75, "roi": [221, 28, 372, 346], "floor_px": 129, "peak_adjacent_px": 2992, "peak_drift_px": 3916, "adjacent_over_floor": 23.2, "distinct_set_tgt_pairs": [["15", "15"]], "host_rewrote_target": false, "hunting": true, "sagging": true, "note": "one SET/TGT pair means the host held a single unchanging command"}
+{"t": "21:09:32", "step": "off", "result": "OK DIS ALL"}
+{"t": "21:10:31", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 16}
+{"t": "21:10:34", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 12}
+{"t": "21:10:37", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 17, "en": "1", "verdict": "PASS"}
+{"t": "21:10:41", "step": "holdoff_state", "joint": 3, "en": "0", "shoulder_en": "1"}
+{"t": "21:10:44", "step": "scene_quiet", "why": "before the detached hold window", "settled_px": 49}
+{"t": "21:10:47", "step": "scene_quiet", "why": "before ROI floor (try 1)", "settled_px": 28}
+{"t": "21:12:06", "step": "holdoff_result", "joint": 3, "name": "Elbow", "seconds": 75, "roi": [221, 28, 372, 346], "floor_px": 471, "peak_adjacent_px": 4644, "peak_drift_px": 4506, "adjacent_over_floor": 9.9, "note": "compare with hold_result: quiet here and noisy there means the SERVO is the source; noisy in both means the scene is"}
+{"t": "21:12:06", "step": "off", "result": "OK DIS ALL"}
+
+===== PRECISION LOG =====
+{"t": "21:10:31", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 16}
+{"t": "21:10:34", "step": "scene_quiet", "why": "before enabling the shoulder", "settled_px": 12}
+{"t": "21:10:37", "step": "capture_shoulder", "adopt": 91, "reply": "OK ENA J1 ADOPT=91", "camera_px": 17, "en": "1", "verdict": "PASS"}
+{"t": "21:10:41", "step": "holdoff_state", "joint": 3, "en": "0", "shoulder_en": "1"}
+{"t": "21:10:44", "step": "scene_quiet", "why": "before the detached hold window", "settled_px": 49}
+{"t": "21:10:47", "step": "scene_quiet", "why": "before ROI floor (try 1)", "settled_px": 28}
+{"t": "21:12:06", "step": "holdoff_result", "joint": 3, "name": "Elbow", "seconds": 75, "roi": [221, 28, 372, 346], "floor_px": 471, "peak_adjacent_px": 4644, "peak_drift_px": 4506, "adjacent_over_floor": 9.9, "note": "compare with hold_result: quiet here and noisy there means the SERVO is the source; noisy in both means the scene is"}
+{"t": "21:12:06", "step": "off", "result": "OK DIS ALL"}
