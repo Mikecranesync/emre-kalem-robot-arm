@@ -55,6 +55,7 @@ SAFETY - EVERY EXISTING MECHANISM KEPT
   position is still known
 """
 import argparse
+import hashlib
 import json
 import os
 import signal
@@ -106,6 +107,8 @@ class Runner:
         self.floor = {}
         self.stopped = False
         self.abort_reason = None
+        self.cam_stale_streak = 0
+        self.cam_stale_total = 0
 
     # ---------------------------------------------------------------- log
     def rec(self, kind, **kw):
@@ -135,6 +138,11 @@ class Runner:
         if not r:
             return f
         return f[r[1]:r[3], r[0]:r[2]]
+
+    @staticmethod
+    def sig(arr):
+        """Fingerprint of one frame, to catch a camera handing back stale data."""
+        return hashlib.md5(arr.tobytes()).hexdigest()[:12]
 
     def brightness(self):
         try:
@@ -212,10 +220,12 @@ class Runner:
         settled_at = None
         quiet_run = 0
         QUIET_SAMPLES = 3
+        sigs = {self.sig(before)}
         while time.time() - t0 < SETTLE_TIMEOUT_S:
             time.sleep(0.25)
             self.L.pump()
             cur = self.roi_frame(j)
+            sigs.add(self.sig(cur))
             d = diff(prev, cur)
             prev = cur
             if d > max(floor, 60):
@@ -233,9 +243,28 @@ class Runner:
         s1 = self.L.sta()
         sysd = s1.get("SYS", {})
         physical = moved_px > max(floor * 2, 60)
+
+        # A CAMERA THAT STOPPED UPDATING LOOKS EXACTLY LIKE AN ARM THAT STOPPED
+        # MOVING, and the second overnight attempt aborted for precisely that
+        # confusion: five joints reported 5, 6, 24, 34 and 255 changed pixels in
+        # the same few seconds, having each given thousands moments earlier. Five
+        # joints do not fail mechanically at once - the frames were identical.
+        # If every frame across a whole measurement has the same fingerprint,
+        # this is a camera failure and must never be charged to the joint.
+        camera_stale = len(sigs) <= 1
+        if camera_stale:
+            self.cam_stale_streak += 1
+            self.cam_stale_total += 1
+        else:
+            self.cam_stale_streak = 0
         self.moves += 1
         self.counts[j]["moves"] += 1
-        if physical:
+        if camera_stale:
+            # Not the arm's fault: do not count it dead, do not advance the
+            # no-motion streak. The camera-stale streak has its own abort.
+            self.rec("camera_stale", joint=j, test=test, px=moved_px,
+                     note="identical frames for the whole measurement")
+        elif physical:
             self.physical_moves += 1
             self.no_motion_streak = 0
         else:
@@ -269,8 +298,9 @@ class Runner:
             cam_first_motion_s=round(t_first, 2) if t_first is not None else None,
             cam_settled_s=round(settled_at, 2) if settled_at is not None else None,
             cam_never_settled=settled_at is None,
-            roi_changed_px=moved_px, floor_px=floor,
-            brightness=self.brightness(), physical_move=physical,
+            roi_changed_px=moved_px, floor_px=floor, camera_stale=camera_stale,
+            distinct_frames=len(sigs),
+            brightness=self.brightness(), physical_move=physical and not camera_stale,
             **(extra or {}))
 
         self.check_aborts(s1, rec)
@@ -281,6 +311,9 @@ class Runner:
         sysd = s.get("SYS", {})
         if sysd.get("ES") == "1":
             self.abort("unexpected e-stop / watchdog latch", rec)
+        if self.cam_stale_streak >= 3:
+            self.abort("camera stalled - identical frames across 3 consecutive "
+                       "measurements; this is an instrument failure, not the arm", rec)
         if self.no_motion_streak >= NO_MOTION_STRIKES:
             self.abort(f"{NO_MOTION_STRIKES} consecutive commanded moves produced "
                        f"no physical motion", rec)
@@ -564,7 +597,8 @@ def main():
     finally:
         R.park()
         R.rec("run_end", moves=R.moves, physical_moves=R.physical_moves,
-              cycles=R.cycle, abort=R.abort_reason, counts=R.counts)
+              cycles=R.cycle, abort=R.abort_reason, counts=R.counts,
+              camera_stale_total=R.cam_stale_total)
         R.f.close()
 
 
